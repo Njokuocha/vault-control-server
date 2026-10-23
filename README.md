@@ -1,0 +1,845 @@
+# VAULT: Secure File Management System
+
+> A private, single-admin file management system built on Laravel. Files arrive through a key-protected upload endpoint, are stored in a private (non-public) disk, and are browsed, previewed, and edited from a dark, classified-style dashboard.
+
+**Codename:** `VAULT` (rename freely)
+**Stack:** Laravel (Blade + backend) · MySQL · Remix Icon · Vanilla JS (Alpine.js optional)
+**Design language:** Federal-intelligence-style command console: dark, authoritative, restrained, animated, glass-morphism overlays.
+
+---
+
+## Table of Contents
+
+1. [Project Overview](#1-project-overview)
+2. [Feature Scope (v1)](#2-feature-scope-v1)
+3. [Tech Stack & Requirements](#3-tech-stack--requirements)
+4. [Architecture Overview](#4-architecture-overview)
+5. [Project Structure](#5-project-structure)
+6. [Installation & Setup](#6-installation--setup)
+7. [Database Design](#7-database-design)
+8. [Private Storage Strategy](#8-private-storage-strategy)
+9. [Authentication (Single Admin)](#9-authentication-single-admin)
+10. [Upload API Endpoint](#10-upload-api-endpoint)
+11. [Routes Map](#11-routes-map)
+12. [Dashboard Specification](#12-dashboard-specification)
+13. [File Viewing & Preview Rules](#13-file-viewing--preview-rules)
+14. [File Editing & Save-Back](#14-file-editing--save-back)
+15. [Design System](#15-design-system)
+16. [Typography](#16-typography)
+17. [Login Page Specification](#17-login-page-specification)
+18. [Animation & Glass-Morphism Spec](#18-animation--glass-morphism-spec)
+19. [Icons](#19-icons)
+20. [Extensibility Rules](#20-extensibility-rules-no-redesign-later)
+21. [Security Checklist](#21-security-checklist)
+22. [Server Configuration](#22-server-configuration)
+23. [Testing](#23-testing)
+24. [Build Order / Milestones](#24-build-order--milestones)
+25. [Future Roadmap](#25-future-roadmap)
+
+---
+
+## 1. Project Overview
+
+VAULT is a purpose-built file repository. External systems (scripts, apps, devices, automation) push files of **any type** to a single upload endpoint. The files are stored privately on the server, and only the authenticated administrator can see, open, edit, or download them through the dashboard.
+
+**Core principles**
+
+- **Private by default.** No file is ever reachable by a public URL.
+- **One administrator.** No registration, no roles, no user management (yet).
+- **Gated ingestion.** Uploads are impossible without the correct `auth` key, which the admin can reset at any time from the dashboard.
+- **Chronological organization.** Files are grouped by month and year (e.g. **October 2026**).
+- **Design that scales.** A token-driven design system so new modules slot in without touching the visual foundation.
+
+---
+
+## 2. Feature Scope (v1)
+
+| # | Feature | Notes |
+|---|---------|-------|
+| 1 | Admin login / logout | Single admin, throttled, session based |
+| 2 | Upload endpoint | `POST /api/upload?auth=KEY`, any file type |
+| 3 | Upload key management | View, copy, reset to any custom string |
+| 4 | Dashboard file listing | All files, grouped by "Month Year" |
+| 5 | File content access | In-dashboard preview modal (text, code, image, PDF, audio, video, fallback download) |
+| 6 | File editing | Edit text-based files and save back to storage |
+| 7 | Download / delete | Basic necessary actions |
+| 8 | Search + type filter | Light client/server filtering so the dashboard stays usable |
+| 9 | Summary stat cards | Total files, total size, uploads this month, last activity |
+| 10 | Settings page | Upload key, endpoint info + cURL sample, admin password change |
+
+Deliberately **excluded** from v1: roles, sharing links, folders, tags, versions UI, bulk ops. The architecture leaves room for all of them.
+
+---
+
+## 3. Tech Stack & Requirements
+
+- **PHP** 8.2+
+- **Laravel** 11.x (or latest stable)
+- **MySQL** 8.0+
+- **Composer**, **Node 18+** (Vite for asset bundling)
+- **Remix Icon** (`remixicon` npm package)
+- **Fonts:** IBM Plex Sans, IBM Plex Mono, Cinzel (see [Typography](#16-typography))
+- **JS:** Vanilla JS or Alpine.js (lightweight; no heavy SPA framework needed)
+- **Optional editor:** CodeMirror 6 for syntax-highlighted editing
+
+---
+
+## 4. Architecture Overview
+
+```
+ External client ──POST /api/upload?auth=KEY──▶ UploadController
+                                                   │ validates key (hash_equals)
+                                                   ▼
+                                       Private disk: storage/app/private/vault/YYYY/MM/<uuid>.<ext>
+                                                   │
+                                                   ▼
+                                      MySQL: files table (metadata)
+
+ Admin browser ──login──▶ session ──▶ Dashboard (Blade)
+                                         │  list, group by "F Y"
+                                         ▼
+                          Auth-guarded stream route ──▶ reads private disk ──▶ response
+```
+
+Key rule: **the browser never receives a storage path.** Every byte is served through an authenticated Laravel route.
+
+---
+
+## 5. Project Structure
+
+```
+app/
+├── Http/
+│   ├── Controllers/
+│   │   ├── Auth/LoginController.php
+│   │   ├── DashboardController.php
+│   │   ├── FileController.php          # show, stream, download, update, destroy
+│   │   ├── SettingsController.php      # upload key + password
+│   │   └── Api/UploadController.php    # public-but-key-gated endpoint
+│   ├── Middleware/
+│   │   └── VerifyUploadKey.php
+│   └── Requests/
+│       ├── UploadRequest.php
+│       └── UpdateFileRequest.php
+├── Models/
+│   ├── File.php
+│   ├── Setting.php
+│   └── User.php
+├── Services/
+│   ├── FileStorageService.php          # store / read / overwrite / delete
+│   └── SettingService.php              # cached get/set, encrypted values
+└── Support/FileTypes.php               # mime → category + editable map
+config/vault.php                         # editable extensions, preview limits
+database/
+├── migrations/
+└── seeders/AdminSeeder.php
+resources/
+├── css/
+│   ├── tokens.css                      # design tokens (single source of truth)
+│   ├── base.css
+│   ├── components.css                  # buttons, cards, glass, modals, tables
+│   └── pages/{login,dashboard}.css
+├── js/
+│   ├── app.js
+│   ├── modal.js
+│   ├── editor.js
+│   └── preview.js
+└── views/
+    ├── layouts/{app,guest}.blade.php
+    ├── components/                     # sidebar, topbar, stat-card, modal, file-row...
+    ├── auth/login.blade.php
+    ├── dashboard/index.blade.php
+    └── settings/index.blade.php
+routes/{web,api}.php
+```
+
+---
+
+## 6. Installation & Setup
+
+```bash
+composer create-project laravel/laravel vault
+cd vault
+
+npm install remixicon
+npm install
+
+cp .env.example .env
+php artisan key:generate
+```
+
+`.env`:
+
+```env
+APP_NAME="VAULT" # Set this to the name shown throughout the application
+APP_URL=http://localhost:8000
+
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=vault
+DB_USERNAME=root
+DB_PASSWORD=
+
+SESSION_DRIVER=database
+SESSION_LIFETIME=60
+
+# Seed values for the single admin (change immediately after first login)
+ADMIN_NAME="Administrator"
+ADMIN_EMAIL=admin@vault.local
+ADMIN_PASSWORD=replace-with-a-unique-password-before-seeding
+
+# Optional initial upload key. If omitted, a secure key is generated and
+# displayed in the authenticated Settings page.
+INITIAL_UPLOAD_KEY=
+```
+
+Set a unique `ADMIN_PASSWORD` of at least 12 characters before running the seeder. The application name is read from `APP_NAME` and used in page titles and navigation.
+
+```bash
+php artisan migrate --seed
+npm run dev          # or: npm run build
+php artisan serve
+```
+
+**Important:** do **not** run `php artisan storage:link` for this project. The private disk must never be symlinked into `public/`.
+
+---
+
+## 7. Database Design
+
+### `users` (default Laravel table; exactly one row, created by seeder)
+
+### `files`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint PK | |
+| `uuid` | char(36), unique | Public-safe identifier used in routes |
+| `original_name` | varchar(255) | Name as uploaded (display only, never used as a path) |
+| `stored_path` | varchar(500) | Relative path on private disk |
+| `extension` | varchar(20), nullable | Lowercased |
+| `mime_type` | varchar(150) | Server-detected, not client-claimed |
+| `category` | varchar(30) | `image/video/audio/pdf/text/code/archive/other` |
+| `size` | bigint unsigned | Bytes |
+| `checksum` | char(64) | SHA-256, updated on every edit |
+| `is_editable` | boolean | Derived at upload from the editable map |
+| `version` | unsigned int default 1 | Incremented on edit |
+| `source_ip` | varchar(45), nullable | Uploader IP for audit |
+| `edited_at` | timestamp, nullable | |
+| `created_at` / `updated_at` | timestamps | `created_at` drives month/year grouping |
+
+Indexes: `uuid` (unique), `created_at`, `category`, fulltext or index on `original_name`.
+
+### `settings`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `key` | varchar(100) PK | e.g. `upload_key` |
+| `value` | text | Encrypted via `Crypt::encryptString` |
+| `updated_at` | timestamp | |
+
+> The upload key is stored **encrypted** (not hashed) so the admin can view and copy it on the dashboard. Comparison on the endpoint uses `hash_equals` against the decrypted value.
+
+### Example migration (files)
+
+```php
+Schema::create('files', function (Blueprint $t) {
+    $t->id();
+    $t->uuid('uuid')->unique();
+    $t->string('original_name');
+    $t->string('stored_path', 500);
+    $t->string('extension', 20)->nullable();
+    $t->string('mime_type', 150);
+    $t->string('category', 30)->index();
+    $t->unsignedBigInteger('size');
+    $t->char('checksum', 64);
+    $t->boolean('is_editable')->default(false);
+    $t->unsignedInteger('version')->default(1);
+    $t->string('source_ip', 45)->nullable();
+    $t->timestamp('edited_at')->nullable();
+    $t->timestamps();
+    $t->index('created_at');
+});
+```
+
+### Month-year grouping
+
+```php
+$files = File::latest()->get();
+$groups = $files->groupBy(fn ($f) => $f->created_at->format('F Y')); // "October 2026"
+```
+
+For large datasets, paginate by month: query distinct `DATE_FORMAT(created_at,'%Y-%m')` values, then lazy-load each group's files when its section is expanded.
+
+---
+
+## 8. Private Storage Strategy
+
+`config/filesystems.php`:
+
+```php
+'disks' => [
+    'vault' => [
+        'driver'     => 'local',
+        'root'       => storage_path('app/private/vault'),
+        'visibility' => 'private',
+        'throw'      => true,
+    ],
+],
+```
+
+Rules:
+
+- Stored name = `Str::uuid() . '.' . $safeExt` placed in `YYYY/MM/` subfolders. The original name never touches the filesystem.
+- No symlink to `public/`. No direct web server access to `storage/`.
+- Nginx/Apache must have the document root at `public/` only.
+- Reading, editing, downloading, and deletion go through `FileStorageService` only.
+
+---
+
+## 9. Authentication (Single Admin)
+
+- Standard Laravel session auth with the `web` guard.
+- **No registration routes.** Only `GET /login`, `POST /login`, `POST /logout`.
+- Admin created by `AdminSeeder` from `.env` values.
+- Login throttling: 5 attempts/minute per IP + email (`RateLimiter` or `throttle:5,1`).
+- Session regeneration on login; invalidate on logout.
+- All dashboard and file routes sit behind `auth` middleware.
+- Admin can change password from Settings (requires current password).
+- Settings are available at `/settings`; upload keys are encrypted in the `settings` table.
+- The login page is available at `/login`; the archive and Settings pages require authentication.
+- Optional hardening later: idle-timeout auto-logout, 2FA.
+
+---
+
+## 10. Upload API Endpoint
+
+### Contract
+
+```
+POST /api/upload?auth=<UPLOAD_KEY>
+Content-Type: multipart/form-data
+Field: file        (single)   OR   files[]  (multiple)
+```
+
+### Behavior
+
+1. `VerifyUploadKey` middleware reads `auth` from the query string.
+2. Compares to the stored key using `hash_equals`. Missing or wrong key returns **401** with no processing.
+3. Validates file(s): present, uploaded successfully, size under `vault.max_upload_kb`.
+4. Detects the real MIME via `finfo` (never trusts the client).
+5. Stores on the `vault` disk, writes the `files` row, computes SHA-256.
+6. Returns JSON.
+
+### Responses
+
+```json
+// 201 Created
+{
+  "status": "success",
+  "data": [
+    {
+      "uuid": "b7d1c1f2-...",
+      "name": "report.pdf",
+      "size": 482113,
+      "mime": "application/pdf",
+      "uploaded_at": "2026-10-23T14:11:02+01:00"
+    }
+  ]
+}
+
+// 401 Unauthorized
+{ "status": "error", "message": "Unauthorized." }
+
+// 422 Validation error
+{ "status": "error", "message": "No file provided." }
+```
+
+### Example
+
+```bash
+curl -X POST "https://your-domain.com/api/upload?auth=YOUR_KEY" \
+     -F "file=@/path/to/document.pdf"
+```
+
+### Middleware sketch
+
+```php
+public function handle($request, Closure $next)
+{
+    $given  = (string) $request->query('auth', '');
+    $actual = app(SettingService::class)->get('upload_key');
+
+    if ($given === '' || !$actual || !hash_equals($actual, $given)) {
+        return response()->json(['status' => 'error', 'message' => 'Unauthorized.'], 401);
+    }
+    return $next($request);
+}
+```
+
+### Hardening
+
+- Throttle: `throttle:60,1` on the route, plus a stricter limiter for failed key attempts per IP.
+- Disable CSRF for this route only (it lives in `routes/api.php`, which is stateless).
+- Advise clients to use HTTPS: a key in a query string appears in server logs, so **mask the `auth` parameter in access logs** and avoid logging full URLs in the app.
+- Reset of the key instantly invalidates the old key (the cached copy is flushed on reset).
+
+---
+
+## 11. Routes Map
+
+```
+GUEST
+GET   /login                         login
+POST  /login                         auth.attempt     (throttled)
+
+API (stateless, key-gated)
+POST  /api/upload                    api.upload       (middleware: VerifyUploadKey, throttle)
+
+ADMIN (middleware: auth)
+POST  /logout                        auth.logout
+GET   /                              dashboard.index
+GET   /files/{uuid}                  files.show       (JSON metadata + text content for preview)
+GET   /files/{uuid}/stream           files.stream     (inline, correct headers)
+GET   /files/{uuid}/download         files.download
+PUT   /files/{uuid}                  files.update     (save edited content)
+DELETE /files/{uuid}                 files.destroy
+GET   /settings                      settings.index
+POST  /settings/upload-key           settings.key.reset
+POST  /settings/password             settings.password.update
+```
+
+Route model binding on `uuid`, never on the numeric ID.
+
+The implemented web routes currently include login, logout, the authenticated dashboard, and Settings. File actions and the `/api/upload` handler remain to be implemented; Settings labels the upload endpoint as unavailable until that API handler is added.
+
+---
+
+## 12. Dashboard Specification
+
+### Layout
+
+```
+┌───────────┬──────────────────────────────────────────────────┐
+│           │  Topbar: breadcrumb · search · clock · admin menu │
+│  Sidebar  ├──────────────────────────────────────────────────┤
+│ (config-  │  Stat cards (4)                                   │
+│  driven)  │  Filter bar: type chips · sort                    │
+│           │  ▼ OCTOBER 2026   (12 files · 48.2 MB)            │
+│  Dash     │     file rows / cards …                           │
+│  Settings │  ▼ SEPTEMBER 2026                                 │
+│           │     …                                             │
+└───────────┴──────────────────────────────────────────────────┘
+```
+
+### Components
+
+- **Sidebar:** brand seal + name, nav items generated from a config array (adding a module = adding one array entry), footer with session status and logout.
+- **Topbar:** page title, global search (filters by name), live clock, secure-session indicator, admin dropdown.
+- **Stat cards:** Total Files · Total Storage · Uploaded This Month · Last Activity. Numbers count up on load.
+- **Month groups:** collapsible sections headed `October 2026`, with file count and total size, newest month first, the first group expanded by default.
+- **File row:** type icon (color-coded by category), name, extension badge, size, upload timestamp, version badge, actions (view, edit if editable, download, delete).
+- **Empty state:** an "ARCHIVE EMPTY" panel with an icon and the upload endpoint hint.
+
+### Popups (all glass-morphism + animated)
+
+- File viewer modal
+- Editor modal (large)
+- Delete confirmation
+- Upload-key reset dialog
+
+### Toasts
+
+Slide-in glass toasts for success/error feedback (saved, deleted, key reset, copied).
+
+---
+
+## 13. File Viewing & Preview Rules
+
+Opening a file launches the viewer modal. Behavior by category:
+
+| Category | Rendering |
+|----------|-----------|
+| Image (png, jpg, gif, webp, svg) | `<img>` from stream route; SVG shown via `<img>` only (never inlined) |
+| PDF | `<iframe>`/`<embed>` on stream route |
+| Audio / Video | Native `<audio>` / `<video controls>` |
+| Text / code / JSON / CSV / MD / log / HTML | Fetched as plain text and shown in a read-only monospace viewer with line numbers; HTML is **displayed as source, never executed** |
+| Other (zip, exe, docx…) | Metadata panel + Download button, with a "preview unavailable" notice |
+
+Rules:
+
+- Text preview is capped at `vault.preview_max_kb` (default 1024 KB); larger files show the first chunk plus a download prompt.
+- Stream route headers: `X-Content-Type-Options: nosniff`, `Content-Disposition: inline; filename="..."` (sanitized), and for active types (html, svg, xml) add `Content-Security-Policy: sandbox; default-src 'none'`.
+- Metadata panel in the viewer: UUID, MIME, size, SHA-256, uploaded, last edited, version, uploader IP.
+
+---
+
+## 14. File Editing & Save-Back
+
+**Editable set** (configured in `config/vault.php`):
+
+```php
+'editable_extensions' => [
+    'txt','md','json','csv','xml','yml','yaml','ini','env','log',
+    'html','css','js','ts','php','py','sql','sh','conf','blade.php',
+],
+'max_edit_kb' => 2048,
+```
+
+Flow:
+
+1. Admin clicks **Edit**, then the editor modal opens with content loaded via `GET /files/{uuid}`.
+2. Editor: monospace textarea (or CodeMirror 6 with theme matching the design tokens), line numbers, dirty-state indicator ("UNSAVED CHANGES"), `Ctrl/Cmd+S` to save.
+3. `PUT /files/{uuid}` with `{ content, checksum }`.
+4. Server verifies the file is editable, size ≤ limit, and that the submitted `checksum` matches the current one. On mismatch, return **409 Conflict** so the editor warns that the file changed elsewhere.
+5. `FileStorageService::overwrite()` writes atomically (temp file then rename), then updates `size`, `checksum`, `version + 1`, `edited_at`.
+6. Success toast, and the row's size and version refresh in place.
+
+Closing a dirty editor triggers a glass confirmation ("Discard unsaved changes?").
+
+---
+
+## 15. Design System
+
+**Concept:** an intelligence-agency operations console: deep midnight navy surfaces, steel-blue structure, a restrained brass/gold accent (the "seal" color), thin precise borders, uppercase tracked labels, and subtle classification motifs.
+
+> **Note:** use an **original emblem** (shield/eye/key motif drawn as SVG). Do **not** reproduce actual FBI/CIA seals, names, or logos; those are legally protected and impersonation-sensitive. The *feel* is borrowed, not the insignia.
+
+### Design tokens (`resources/css/tokens.css`)
+
+```css
+:root {
+  /* Surfaces */
+  --bg-void:      #070a10;   /* page background */
+  --bg-base:      #0b111b;   /* app background */
+  --bg-panel:     #101826;   /* cards, sidebar */
+  --bg-raised:    #16202f;   /* hovered rows, inputs */
+  --line:         #1f2c40;   /* borders */
+  --line-strong:  #2b3d57;
+
+  /* Text */
+  --text-primary:   #e6ebf2;
+  --text-secondary: #9aa8bd;
+  --text-muted:     #6b7b92;   /* still ≥ 13px usage only */
+
+  /* Accents */
+  --brass:        #c9a24a;     /* primary accent: seal, active nav, key CTAs */
+  --brass-soft:   rgba(201,162,74,.14);
+  --steel:        #4f8fd1;     /* secondary / links / focus rings */
+  --steel-soft:   rgba(79,143,209,.14);
+
+  /* Status */
+  --ok:     #3fae7a;
+  --warn:   #d9a441;
+  --danger: #cf4b4b;
+
+  /* Glass */
+  --glass-bg:     rgba(16,24,38,.55);
+  --glass-border: rgba(140,170,210,.18);
+  --glass-blur:   18px;
+
+  /* Shape & depth */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --shadow-panel: 0 10px 40px rgba(0,0,0,.45);
+  --glow-brass:   0 0 24px rgba(201,162,74,.25);
+
+  /* Type scale (nothing below 13px) */
+  --fs-xs:   13px;
+  --fs-sm:   14px;
+  --fs-base: 15px;
+  --fs-md:   17px;
+  --fs-lg:   20px;
+  --fs-xl:   26px;
+  --fs-2xl:  34px;
+
+  /* Motion */
+  --ease: cubic-bezier(.22,.8,.24,1);
+  --dur-fast: .18s;
+  --dur: .35s;
+  --dur-slow: .7s;
+}
+```
+
+### Background treatment
+
+Layered: `--bg-void`, a faint 40px grid (`rgba(120,160,210,.04)` lines), a soft radial navy glow top-left, and a very low-opacity noise/scanline overlay. Keep it subtle: content stays dominant.
+
+### Component conventions
+
+- **Cards:** `--bg-panel`, 1px `--line` border, `--radius-md`, a 2px brass top-edge accent on hero cards.
+- **Buttons:** primary = brass outline/fill with a glow on hover; secondary = steel ghost; danger = red ghost. Uppercase, `letter-spacing: .08em`, min height 40px.
+- **Inputs:** `--bg-raised`, 1px `--line-strong`, focus ring in `--steel` with a soft glow.
+- **Badges:** small uppercase pills (extension, version, category) in 13px.
+- **Month headers:** a left brass bar, uppercase tracked label, a hairline divider extending right, count and size in muted text.
+- **Classification strip:** a thin top banner (e.g. `RESTRICTED · AUTHORIZED PERSONNEL ONLY`) in brass on a dark band, reusable across pages.
+
+### Category colors (file icons)
+
+Image `--steel` · Video `#9b6bd1` · Audio `#d1799b` · PDF `--danger` · Text/Code `--ok` · Archive `--warn` · Other `--text-secondary`.
+
+---
+
+## 16. Typography
+
+**Recommended pairing:**
+
+| Role | Font | Why |
+|------|------|-----|
+| **Brand / login title / month headings** | **Cinzel** (600/700) | Inscriptional capitals evoke official seals, government plaques, and institutional authority. Use sparingly: titles only. |
+| **UI & body** | **IBM Plex Sans** (400/500/600) | Institutional, engineered, highly legible at 13–15px. Neutral and serious, with no playful curves, and it matches a federal-systems tone. |
+| **Data, filenames, checksums, editor, timestamps** | **IBM Plex Mono** (400/500) | Same family DNA as the UI font, which gives a terminal/records feel and perfect alignment for metadata. |
+
+Why this works: the serif-capital Cinzel gives the "badge and seal" gravitas, while the Plex pair supplies the "secure operations console" precision, and all three load from Google Fonts (or self-host via `@fontsource`).
+
+```html
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+```
+
+```css
+:root {
+  --font-display: 'Cinzel', serif;
+  --font-ui:      'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono:    'IBM Plex Mono', ui-monospace, monospace;
+}
+body { font-family: var(--font-ui); font-size: var(--fs-base); }
+```
+
+**Hard rule: no text under 13px anywhere** (labels, badges, table headers, toasts, tooltips, editor gutters). Uppercase tracked labels use 13px minimum with `letter-spacing: .1em` to stay crisp.
+
+---
+
+## 17. Login Page Specification
+
+Goal: **senior, classified, and calm.** It should feel like authenticating into a secure terminal at an agency.
+
+**Layout:** full-viewport, centered, two-layer composition.
+
+1. **Background:** deep navy with a fine grid, a slow-drifting radial glow, and a faint horizontal scan-line sweeping vertically every ~8s. Optional: a very low-opacity large seal watermark.
+2. **Top classification banner:** `RESTRICTED SYSTEM · AUTHORIZED ACCESS ONLY` in brass, 13px, wide letter-spacing.
+3. **Glass login card (~420px):**
+   - Original SVG emblem (shield + key/eye motif) with a gentle brass glow pulse.
+   - Title in **Cinzel**: `VAULT`, subtitle in Plex Sans uppercase: `SECURE DOCUMENT REPOSITORY`.
+   - Fields: **Operator ID** (email) and **Access Code** (password, with show/hide toggle `ri-eye-line`), each with a leading Remix icon.
+   - Primary button: `AUTHENTICATE` with a `ri-fingerprint-line` icon; on submit shows a loading state with a progress sweep and status text cycling ("Verifying credentials…" then "Establishing secure session…").
+   - Error state: card does a quick horizontal shake, with a red message "ACCESS DENIED: invalid credentials".
+4. **Footer strip:** system status dot (pulsing green) · `ENCRYPTED SESSION` · current date/time (live) · a version tag, and a legal notice line: "Unauthorized access is prohibited and may be logged."
+5. **Entrance animation:** the banner fades down, the card rises with blur-to-sharp, and fields stagger in (80ms apart).
+
+On success: a brief "ACCESS GRANTED" brass flash, then a fade-transition to the dashboard.
+
+---
+
+## 18. Animation & Glass-Morphism Spec
+
+### Glass utility
+
+```css
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel), inset 0 1px 0 rgba(255,255,255,.05);
+}
+```
+
+### Modal animation
+
+```css
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(4,7,12,.6);
+  backdrop-filter: blur(6px);
+  opacity: 0; transition: opacity var(--dur) var(--ease);
+}
+.modal-backdrop.open { opacity: 1; }
+
+.modal {
+  transform: translateY(24px) scale(.96);
+  opacity: 0; filter: blur(6px);
+  transition: transform var(--dur) var(--ease),
+              opacity var(--dur) var(--ease),
+              filter var(--dur) var(--ease);
+}
+.modal.open { transform: none; opacity: 1; filter: blur(0); }
+```
+
+Closing reverses the transition; remove from the DOM on `transitionend`.
+
+### Motion inventory
+
+| Where | Animation |
+|-------|-----------|
+| Page load | Staggered fade-up of sidebar → topbar → stat cards → groups (60–80ms stagger) |
+| Stat numbers | Count-up over ~1s |
+| Month groups | Smooth height collapse/expand with a rotating chevron |
+| File rows | Hover: slide-in left brass bar, background lift, icon nudge |
+| Buttons | Brass glow bloom on hover, press-scale `0.97` |
+| Modals | Blur-scale-rise in, reverse out |
+| Toasts | Slide in from right, auto-dismiss with a shrinking progress line |
+| Active nav | Animated brass indicator that glides between items |
+| Status dot | Pulsing ring (`@keyframes pulse`) |
+| Login | Scan-line, shake on error, staggered field entrance |
+| Delete | Row collapses and fades out |
+
+Respect accessibility:
+
+```css
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+```
+
+---
+
+## 19. Icons
+
+Use **Remix Icon** (`ri-*`).
+
+```bash
+npm install remixicon
+```
+
+```js
+// resources/js/app.js
+import 'remixicon/fonts/remixicon.css';
+```
+
+Or via CDN:
+
+```html
+<link href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css" rel="stylesheet">
+```
+
+Suggested mapping:
+
+| Purpose | Icon |
+|---------|------|
+| Brand/security | `ri-shield-keyhole-line` |
+| Dashboard | `ri-dashboard-3-line` |
+| Settings | `ri-settings-4-line` |
+| Files / month group | `ri-folder-shield-2-line` |
+| Image / Video / Audio | `ri-image-line` / `ri-movie-line` / `ri-music-2-line` |
+| PDF / Text / Code / Archive | `ri-file-pdf-2-line` / `ri-file-text-line` / `ri-code-s-slash-line` / `ri-file-zip-line` |
+| View / Edit / Download / Delete | `ri-eye-line` / `ri-edit-2-line` / `ri-download-2-line` / `ri-delete-bin-6-line` |
+| Key / Copy / Reset | `ri-key-2-line` / `ri-file-copy-line` / `ri-refresh-line` |
+| Logout / Login | `ri-logout-box-r-line` / `ri-fingerprint-line` |
+| Search / Filter | `ri-search-2-line` / `ri-filter-3-line` |
+
+Icon sizes follow the type scale (≥ 16px visual weight alongside 13px+ text).
+
+---
+
+## 20. Extensibility Rules (No Redesign Later)
+
+- **Tokens only.** No hard-coded colors, sizes, or radii in component CSS; always reference `tokens.css` variables.
+- **Config-driven sidebar.** `config/navigation.php` array of `{label, icon, route, permission}`; new modules add one entry.
+- **Blade components** for every repeated element (`<x-card>`, `<x-modal>`, `<x-stat-card>`, `<x-badge>`, `<x-button>`, `<x-toast>`, `<x-page-header>`). New pages compose these.
+- **One layout contract.** `layouts/app.blade.php` provides sidebar, topbar, classification strip, toast host, and `@yield('content')`; new pages never touch the shell.
+- **Generic modal system.** One JS modal controller; viewer, editor, and future dialogs are just content.
+- **Service layer.** Controllers stay thin; storage and settings logic live in services so features such as folders, tags, or sharing extend rather than rewrite.
+- **Namespaced routes** (`files.*`, `settings.*`) leave room for `users.*`, `audit.*`, etc.
+
+---
+
+## 21. Security Checklist
+
+- [ ] Files stored outside `public/`; no `storage:link`
+- [ ] All file access via authenticated routes; UUIDs in URLs, never paths
+- [ ] Original filename never used in the filesystem path; sanitized for headers
+- [ ] MIME detection server-side (`finfo`); never trust the client's `Content-Type`
+- [ ] `X-Content-Type-Options: nosniff` + CSP sandbox for active content (html/svg/xml)
+- [ ] Uploaded files are never executed or included; stored without an executable extension
+- [ ] Upload key compared with `hash_equals`; stored encrypted; reset flushes cache
+- [ ] `auth` query param masked in web-server and app logs
+- [ ] Throttling on login, upload, and failed key attempts
+- [ ] CSRF on all admin POST/PUT/DELETE; upload route stateless
+- [ ] Session regeneration, secure + httpOnly + SameSite cookies, HTTPS enforced in production
+- [ ] Atomic writes on edit; checksum-based conflict detection
+- [ ] Max upload and max edit size enforced both in PHP and Laravel validation
+- [ ] `APP_DEBUG=false` in production; change seeded admin password at first login
+- [ ] Security headers: `Strict-Transport-Security`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: same-origin`
+
+---
+
+## 22. Server Configuration
+
+**php.ini**
+
+```ini
+upload_max_filesize = 100M
+post_max_size       = 110M
+max_execution_time  = 120
+memory_limit        = 256M
+```
+
+**Nginx (excerpt)**
+
+```nginx
+root /var/www/vault/public;
+client_max_body_size 110M;
+
+location ~ /\.(?!well-known) { deny all; }
+location / { try_files $uri $uri/ /index.php?$query_string; }
+```
+
+**config/vault.php**
+
+```php
+return [
+    'max_upload_kb'      => 102400,   // 100 MB
+    'preview_max_kb'     => 1024,
+    'max_edit_kb'        => 2048,
+    'editable_extensions'=> [ /* see §14 */ ],
+];
+```
+
+Run `php artisan config:cache route:cache view:cache` in production.
+
+---
+
+## 23. Testing
+
+Feature tests (PHPUnit/Pest):
+
+- Upload: missing key → 401; wrong key → 401; correct key → 201 and record created
+- After key reset: old key → 401, new key → 201
+- Guests cannot access `/`, `/files/*`, `/settings` (redirect to login)
+- Stream/download return the correct bytes only when authenticated
+- Edit: non-editable file → 403/422; stale checksum → 409; success increments version and updates checksum
+- Month grouping returns correctly labeled groups ("October 2026") in descending order
+- Login throttling after repeated failures
+
+---
+
+## 24. Build Order / Milestones
+
+1. **Foundation:** Laravel install, MySQL, env, `vault` disk, Vite, Remix Icon, fonts, `tokens.css`
+2. **Data:** migrations (`files`, `settings`), models, `AdminSeeder`, `SettingService`
+3. **Auth:** login controller, guest layout, **login page** (full animated design)
+4. **Upload API:** `VerifyUploadKey`, `UploadController`, `FileStorageService`, tests
+5. **Shell:** `app` layout, sidebar, topbar, classification strip, toast + modal system
+6. **Dashboard:** stat cards, month-grouped listing, search/filter, empty state
+7. **Viewer:** stream route + preview modal for each category
+8. **Editor:** editable detection, editor modal, save-back with checksum conflict handling
+9. **Actions:** download, delete (with glass confirm)
+10. **Settings:** upload key view/copy/reset, cURL sample, password change
+11. **Polish:** animations pass, reduced-motion support, accessibility, responsive checks (≥ 13px audit)
+12. **Hardening:** security checklist, log masking, production config, tests green
+
+---
+
+## 25. Future Roadmap
+
+Folders and tags · file version history and restore · audit log of views/edits/uploads · multiple API keys with labels and revocation · per-key upload scopes · share links with expiry · bulk operations · storage quota alerts · S3-compatible private disks · 2FA for the admin · activity timeline widget.
+
+The token system, component library, and config-driven navigation described above mean each of these arrives as a new module, not a redesign.
+
+---
+
+*Classification: INTERNAL: build specification for the VAULT file management system.*
