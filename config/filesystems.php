@@ -43,6 +43,7 @@ return [
             'root' => storage_path('app/private/vault'),
             'visibility' => 'private',
             'throw' => true,
+            'report' => true,
         ],
 
         'public' => [

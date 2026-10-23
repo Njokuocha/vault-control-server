@@ -23,7 +23,7 @@
                         <path d="M29 25.8v4.5M22 43h14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
                     </svg>
                 </div>
-                <div class="login-brand">{{ config('app.name') }}</div>
+                <div class="login-brand">{{ config('app.short_name') }}</div>
                 <div class="login-subtitle">SECURE DOCUMENT REPOSITORY</div>
                 <div class="login-divider"><span></span><b>OPERATOR AUTHENTICATION</b><span></span></div>
 

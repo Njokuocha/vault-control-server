@@ -1,9 +1,9 @@
-# VAULT: Secure File Management System
+# Vault Control Server
 
-> A private, single-admin file management system built on Laravel. Files arrive through a key-protected upload endpoint, are stored in a private (non-public) disk, and are browsed, previewed, and edited from a dark, classified-style dashboard.
+> A private, single-admin file management system built on Laravel. Files can be uploaded manually or through a key-protected API endpoint, are stored on a private disk, and can be browsed from the authenticated Vault Shell.
 
-**Codename:** `VAULT` (rename freely)
-**Stack:** Laravel (Blade + backend) · MySQL · Remix Icon · Vanilla JS (Alpine.js optional)
+**Application name:** `Vault Control Server` · **Short name:** `Vault` · **Acronym:** `VCS`
+**Stack:** Laravel (Blade + backend) · configured database driver · Remix Icon · Vanilla JS
 **Design language:** Federal-intelligence-style command console: dark, authoritative, restrained, animated, glass-morphism overlays.
 
 ---
@@ -35,12 +35,13 @@
 23. [Testing](#23-testing)
 24. [Build Order / Milestones](#24-build-order--milestones)
 25. [Future Roadmap](#25-future-roadmap)
+[Vault Shell Command Reference](COMMAND.md)
 
 ---
 
 ## 1. Project Overview
 
-VAULT is a purpose-built file repository. External systems (scripts, apps, devices, automation) push files of **any type** to a single upload endpoint. The files are stored privately on the server, and only the authenticated administrator can see, open, edit, or download them through the dashboard.
+Vault Control Server is a private file repository. Administrators can upload files from the web interface, or external systems can use the key-protected API endpoint. Files are stored privately on the server. The authenticated administrator can browse and preview files from Vault Shell.
 
 **Core principles**
 
@@ -112,6 +113,7 @@ app/
 ├── Http/
 │   ├── Controllers/
 │   │   ├── Auth/LoginController.php
+│   │   ├── VaultShellController.php
 │   │   ├── DashboardController.php
 │   │   ├── FileController.php          # show, stream, download, update, destroy
 │   │   ├── SettingsController.php      # upload key + password
@@ -127,7 +129,8 @@ app/
 │   └── User.php
 ├── Services/
 │   ├── FileStorageService.php          # store / read / overwrite / delete
-│   └── SettingService.php              # cached get/set, encrypted values
+│   ├── SettingService.php              # cached get/set, encrypted values
+│   └── VaultShellService.php           # private-root directory and file access
 └── Support/FileTypes.php               # mime → category + editable map
 config/vault.php                         # editable extensions, preview limits
 database/
@@ -171,7 +174,9 @@ php artisan key:generate
 `.env`:
 
 ```env
-APP_NAME="VAULT" # Set this to the name shown throughout the application
+APP_NAME="Vault Control Server"
+APP_SHORT_NAME=Vault
+APP_ACRONYM=VCS
 APP_URL=http://localhost:8000
 
 DB_CONNECTION=mysql
@@ -194,7 +199,7 @@ ADMIN_PASSWORD=replace-with-a-unique-password-before-seeding
 INITIAL_UPLOAD_KEY=
 ```
 
-Set a unique `ADMIN_PASSWORD` of at least 12 characters before running the seeder. The application name is read from `APP_NAME` and used in page titles and navigation.
+Set a unique `ADMIN_PASSWORD` of at least 12 characters before running the seeder. `APP_NAME` is used in page titles, `APP_SHORT_NAME` is the wordmark, and `APP_ACRONYM` is used in system labels and the Vault Shell prompt.
 
 ```bash
 php artisan migrate --seed
@@ -202,7 +207,9 @@ npm run dev          # or: npm run build
 php artisan serve
 ```
 
-**Important:** do **not** run `php artisan storage:link` for this project. The private disk must never be symlinked into `public/`.
+**Important:** do **not** run `php artisan storage:link` for this project. The private disk must never be symlinked into `public/`. Set PHP's `upload_max_filesize` and `post_max_size` high enough for the configured file limit.
+
+Branding is controlled by `APP_NAME`, `APP_SHORT_NAME`, and `APP_ACRONYM`. Upload defaults are `VAULT_MAX_UPLOAD_MB` (100 MB per file) and `VAULT_API_UPLOAD_ENABLED` (`true`). The administrator can override the maximum file size and API toggle under Settings. A maximum of `0` disables both manual and API uploads.
 
 ---
 
@@ -320,17 +327,18 @@ Rules:
 ```
 POST /api/upload?auth=<UPLOAD_KEY>
 Content-Type: multipart/form-data
-Field: file        (single)   OR   files[]  (multiple)
+Field: file        (single)   OR   files[]  (up to 20 files)
 ```
 
 ### Behavior
 
-1. `VerifyUploadKey` middleware reads `auth` from the query string.
-2. Compares to the stored key using `hash_equals`. Missing or wrong key returns **401** with no processing.
-3. Validates file(s): present, uploaded successfully, size under `vault.max_upload_kb`.
-4. Detects the real MIME via `finfo` (never trusts the client).
-5. Stores on the `vault` disk, writes the `files` row, computes SHA-256.
-6. Returns JSON.
+1. The API-upload setting and non-zero size policy are checked.
+2. `VerifyUploadKey` middleware compares `auth` to the encrypted key using `hash_equals`; missing or wrong key returns **401**.
+3. Validates the file(s) and enforces the configured per-file size. A request can contain at most 20 files.
+4. Detects the MIME type server-side, generates a private UUID-based storage name, computes SHA-256, and writes file metadata.
+5. Returns a JSON response with the stored file metadata.
+
+The upload key is managed at `/settings`. The API enable/disable switch only affects API uploads; manual uploads remain available unless the maximum size is set to `0`.
 
 ### Responses
 
@@ -352,8 +360,11 @@ Field: file        (single)   OR   files[]  (multiple)
 // 401 Unauthorized
 { "status": "error", "message": "Unauthorized." }
 
+// 403 API access disabled or all uploads blocked by a zero-MB limit
+{ "status": "error", "message": "API uploads are disabled." }
+
 // 422 Validation error
-{ "status": "error", "message": "No file provided." }
+{ "message": "The given data was invalid.", "errors": { "file": ["..."] } }
 ```
 
 ### Example
@@ -361,21 +372,6 @@ Field: file        (single)   OR   files[]  (multiple)
 ```bash
 curl -X POST "https://your-domain.com/api/upload?auth=YOUR_KEY" \
      -F "file=@/path/to/document.pdf"
-```
-
-### Middleware sketch
-
-```php
-public function handle($request, Closure $next)
-{
-    $given  = (string) $request->query('auth', '');
-    $actual = app(SettingService::class)->get('upload_key');
-
-    if ($given === '' || !$actual || !hash_equals($actual, $given)) {
-        return response()->json(['status' => 'error', 'message' => 'Unauthorized.'], 401);
-    }
-    return $next($request);
-}
 ```
 
 ### Hardening
@@ -400,19 +396,34 @@ POST  /api/upload                    api.upload       (middleware: VerifyUploadK
 ADMIN (middleware: auth)
 POST  /logout                        auth.logout
 GET   /                              dashboard.index
-GET   /files/{uuid}                  files.show       (JSON metadata + text content for preview)
-GET   /files/{uuid}/stream           files.stream     (inline, correct headers)
-GET   /files/{uuid}/download         files.download
-PUT   /files/{uuid}                  files.update     (save edited content)
-DELETE /files/{uuid}                 files.destroy
+GET   /calculator                    calculator.index
+GET   /uploads                       uploads.create
+POST  /uploads                       uploads.store
 GET   /settings                      settings.index
 POST  /settings/upload-key           settings.key.reset
+POST  /settings/upload-policy        settings.upload-policy.update
 POST  /settings/password             settings.password.update
+GET   /shell/directory               shell.directory
+GET   /shell/preview                 shell.preview
+GET   /shell/stream                  shell.stream
+GET   /shell/download                shell.download
+DELETE /shell/file                   shell.file.destroy
+POST  /shell/directory               shell.directory.create
+POST  /shell/copy                    shell.copy
+POST  /shell/move                    shell.move
 ```
 
-Route model binding on `uuid`, never on the numeric ID.
+`GET /uploads` and `POST /uploads` provide the authenticated manual upload page and handler. The file stream/preview routes listed above are Vault Shell routes and operate only within the private shell root.
 
-The implemented web routes currently include login, logout, the authenticated dashboard, and Settings. File actions and the `/api/upload` handler remain to be implemented; Settings labels the upload endpoint as unavailable until that API handler is added.
+The authenticated Vault Shell is mounted on every dashboard route. Its `Ctrl + Shift + X` shortcut opens, hides, or shows a console from the archive, calculator, manual upload, or Settings pages. Shell endpoints are not operating-system shell execution routes.
+
+The dashboard includes a draggable, multi-instance Vault Shell console. Its prompt begins at `VCS vcs:/root>`. The virtual root is `storage/app/private/vault`; paths cannot escape this directory, hidden entries and symbolic links are excluded, and each console window maintains its own current directory.
+
+Available commands are `cd`, `dir`, `mkdir`, `copy`, `move`, `launch`, `del`, `trigger`, `?help`, and `exit`. `launch` previews files and `launch vs` opens another console. `trigger 3+3` evaluates arithmetic, while `trigger "3+3"` displays literal text. `del` requires an explicit `yes` or `no` response. Copy and move can handle files and directories, never overwrite an existing destination, and cannot leave the private root. No operating-system commands are executed. See [COMMAND.md](./COMMAND.md) for the complete command reference.
+
+Manual uploads are available at `/uploads`; API uploads are available at `POST /api/upload`. Both paths enforce the configured per-file size and write files to the private vault disk with metadata. The Settings page can change the size limit and disable API uploads. Setting the limit to `0` blocks all uploads.
+
+The archive overview reads file metadata from the database, displays the latest 500 uploaded files with live totals and month groups, and supports file search and document/media filters. Archive records can be previewed or downloaded; Vault Shell provides additional private-root browsing and file commands. The calculator at `/calculator` supports basic and scientific calculations. It shows the latest 12 calculations first, expands to the full history on request, and stores up to 100 recent calculations in the browser's localStorage; history is not sent to the server.
 
 ---
 
@@ -441,6 +452,7 @@ The implemented web routes currently include login, logout, the authenticated da
 - **Month groups:** collapsible sections headed `October 2026`, with file count and total size, newest month first, the first group expanded by default.
 - **File row:** type icon (color-coded by category), name, extension badge, size, upload timestamp, version badge, actions (view, edit if editable, download, delete).
 - **Empty state:** an "ARCHIVE EMPTY" panel with an icon and the upload endpoint hint.
+- **Vault Shell:** draggable, independently movable command windows with a full-screen control and a `Ctrl + Shift + X` shortcut available on every dashboard route. See [COMMAND.md](./COMMAND.md) for supported commands.
 
 ### Popups (all glass-morphism + animated)
 
@@ -795,6 +807,7 @@ return [
     'max_upload_kb'      => 102400,   // 100 MB
     'preview_max_kb'     => 1024,
     'max_edit_kb'        => 2048,
+    'shell_root'         => storage_path('app/private/vault'),
     'editable_extensions'=> [ /* see §14 */ ],
 ];
 ```
@@ -814,6 +827,7 @@ Feature tests (PHPUnit/Pest):
 - Edit: non-editable file → 403/422; stale checksum → 409; success increments version and updates checksum
 - Month grouping returns correctly labeled groups ("October 2026") in descending order
 - Login throttling after repeated failures
+- Shell is authenticated; traversal is rejected; previews are safely streamed; deletion requires affirmative confirmation
 
 ---
 

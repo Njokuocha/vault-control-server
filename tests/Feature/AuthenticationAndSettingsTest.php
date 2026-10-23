@@ -22,6 +22,27 @@ test('the login page uses the configured application name', function () {
         ->assertSee('OPERATOR AUTHENTICATION');
 });
 
+test('authenticated users can access the upload and calculator workspaces', function () {
+    $this->actingAs(User::factory()->create())
+        ->get(route('uploads.create'))
+        ->assertOk()
+        ->assertSee('Add files to the vault')
+        ->assertSee('Calculator')
+        ->assertSee('data-shell-layer', false)
+        ->assertSee('shell-window-template', false);
+
+    $this->get(route('calculator.index'))
+        ->assertOk()
+        ->assertSee('Precision')
+        ->assertSee('SCIENTIFIC')
+        ->assertSee('localStorage')
+        ->assertSee('data-shell-layer', false);
+
+    $this->get(route('settings.index'))
+        ->assertOk()
+        ->assertSee('data-shell-layer', false);
+});
+
 test('an administrator can authenticate and sign out', function () {
     config(['vault.admin.email' => 'admin@example.test']);
 
@@ -36,7 +57,11 @@ test('an administrator can authenticate and sign out', function () {
     ])->assertRedirect(route('dashboard.index'));
 
     $this->assertAuthenticatedAs($user);
-    $this->get('/')->assertOk();
+    $this->get('/')
+        ->assertOk()
+        ->assertSee('SHELL')
+        ->assertSee('Ctrl+Shift+X')
+        ->assertSee('data-shell-window', false);
 
     $this->post(route('auth.logout'))->assertRedirect(route('login'));
     $this->assertGuest();
@@ -93,7 +118,23 @@ test('upload keys are encrypted at rest and can be rotated', function () {
     $this->get(route('settings.index'))
         ->assertOk()
         ->assertSee('custom-upload-key-value')
-        ->assertSee('HANDLER NOT CONFIGURED');
+        ->assertSee('API UPLOAD ENABLED')
+        ->assertDontSee('HANDLER NOT CONFIGURED');
+});
+
+test('the administrator can update the upload size and API access policy', function () {
+    $this->actingAs(User::factory()->create())
+        ->post(route('settings.upload-policy.update'), [
+            'max_upload_mb' => 25,
+            'api_upload_enabled' => '1',
+        ])
+        ->assertRedirect();
+
+    $size = Setting::query()->findOrFail('max_upload_mb');
+    $apiAccess = Setting::query()->findOrFail('api_upload_enabled');
+
+    expect(Crypt::decryptString($size->value))->toBe('25')
+        ->and(Crypt::decryptString($apiAccess->value))->toBe('1');
 });
 
 test('the administrator can update their password after verifying the current password', function () {
