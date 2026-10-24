@@ -396,6 +396,7 @@ POST  /api/upload                    api.upload       (middleware: VerifyUploadK
 ADMIN (middleware: auth)
 POST  /logout                        auth.logout
 GET   /                              dashboard.index
+GET   /archive/files                 archive.files
 GET   /calculator                    calculator.index
 GET   /uploads                       uploads.create
 POST  /uploads                       uploads.store
@@ -415,15 +416,15 @@ POST  /shell/move                    shell.move
 
 `GET /uploads` and `POST /uploads` provide the authenticated manual upload page and handler. The file stream/preview routes listed above are Vault Shell routes and operate only within the private shell root.
 
-The authenticated Vault Shell is mounted on every dashboard route. Its `Ctrl + Shift + X` shortcut opens, hides, or shows a console from the archive, calculator, manual upload, or Settings pages. Shell endpoints are not operating-system shell execution routes.
+The authenticated Vault Shell is mounted on every dashboard route. Its `Ctrl + Shift + X` shortcut opens, hides, or shows a console from the archive, calculator, manual upload, or Settings pages. Open shell instances, their positions, directories, and command transcript are restored when navigating between dashboard routes in the same tab. Shell endpoints are not operating-system shell execution routes.
 
 The dashboard includes a draggable, multi-instance Vault Shell console. Its prompt begins at `VCS vcs:/root>`. The virtual root is `storage/app/private/vault`; paths cannot escape this directory, hidden entries and symbolic links are excluded, and each console window maintains its own current directory.
 
-Available commands are `cd`, `dir`, `mkdir`, `copy`, `move`, `launch`, `del`, `trigger`, `?help`, and `exit`. `launch` previews files and `launch vs` opens another console. `trigger 3+3` evaluates arithmetic, while `trigger "3+3"` displays literal text. `del` requires an explicit `yes` or `no` response. Copy and move can handle files and directories, never overwrite an existing destination, and cannot leave the private root. No operating-system commands are executed. See [COMMAND.md](./COMMAND.md) for the complete command reference.
+Available commands are `cd`, `dir`, `mkdir`, `copy`, `move`, `launch`, `del`, `trigger`, `?help`, and `exit`. `launch` previews files, `launch vs` opens another console, and `launch calc` opens the portable calculator. `trigger 3+3` evaluates arithmetic, while `trigger "3+3"` displays literal text. `del` requires an explicit `yes` or `no` response. Copy and move can handle files and directories, never overwrite an existing destination, and cannot leave the private root. No operating-system commands are executed. See [COMMAND.md](./COMMAND.md) for the complete command reference.
 
 Manual uploads are available at `/uploads`; API uploads are available at `POST /api/upload`. Both paths enforce the configured per-file size and write files to the private vault disk with metadata. The Settings page can change the size limit and disable API uploads. Setting the limit to `0` blocks all uploads.
 
-The archive overview reads file metadata from the database, displays the latest 500 uploaded files with live totals and month groups, and supports file search and document/media filters. Archive records can be previewed or downloaded; Vault Shell provides additional private-root browsing and file commands. The calculator at `/calculator` supports basic and scientific calculations. It shows the latest 12 calculations first, expands to the full history on request, and stores up to 100 recent calculations in the browser's localStorage; history is not sent to the server.
+The archive overview reads file metadata from the database, displays the latest 20 uploaded files with live totals and month groups, and supports file search and document/media filters. **View Full Archive** opens a full-screen browser with grouped records, live name/classification search, combined year/month/extension filters, lazy-loaded results, and an in-panel preview/download view. The archive metrics are cached briefly and invalidated when file records change. Archive records can also be browsed through Vault Shell. The calculator at `/calculator` supports basic and scientific calculations. A separate portable basic calculator can be opened on any dashboard route with `Ctrl + Q` or `launch calc`; its open state and position persist across route navigation in the same tab. The page calculator shows the latest 12 calculations first, expands to the full history on request, and stores up to 100 recent calculations in the browser's localStorage; history is not sent to the server.
 
 ---
 
@@ -477,11 +478,13 @@ Opening a file launches the viewer modal. Behavior by category:
 | PDF | `<iframe>`/`<embed>` on stream route |
 | Audio / Video | Native `<audio>` / `<video controls>` |
 | Text / code / JSON / CSV / MD / log / HTML | Fetched as plain text and shown in a read-only monospace viewer with line numbers; HTML is **displayed as source, never executed** |
-| Other (zip, exe, docx…) | Metadata panel + Download button, with a "preview unavailable" notice |
+| Word Open XML documents (DOCX) | Text from the main document body is extracted and displayed as inert plain text; embedded content and formatting are not rendered |
+| Other (zip, exe, legacy DOC, unsupported documents…) | Metadata panel + Download button, with a "preview unavailable" notice |
 
 Rules:
 
-- Text preview is capped at `vault.preview_max_kb` (default 1024 KB); larger files show the first chunk plus a download prompt.
+- Plain-text previews are capped at 1 MB; larger files show the first chunk plus a download prompt.
+- DOCX files are detected from their ZIP content rather than their filename extension. Only `word/document.xml` is read, with XML network access disabled and a bounded extraction size; documents that cannot be safely parsed retain the download fallback.
 - Stream route headers: `X-Content-Type-Options: nosniff`, `Content-Disposition: inline; filename="..."` (sanitized), and for active types (html, svg, xml) add `Content-Security-Policy: sandbox; default-src 'none'`.
 - Metadata panel in the viewer: UUID, MIME, size, SHA-256, uploaded, last edited, version, uploader IP.
 

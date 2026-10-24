@@ -90,17 +90,15 @@ class VaultShellService
         $size = filesize($absolutePath);
         $preview = null;
         $truncated = false;
+        $extracted = false;
 
         if ($this->isText($mime) && is_int($size)) {
-            $limit = 1024 * 1024;
-            $contents = file_get_contents($absolutePath, false, null, 0, $limit);
-
-            if ($contents === false) {
-                abort(500, 'Unable to read the requested file.');
-            }
-
-            $preview = $contents;
-            $truncated = $size > $limit;
+            [$preview, $truncated] = $this->readTextPreview($absolutePath, $size);
+        } elseif ($this->isZipFile($absolutePath, $mime)) {
+            $extractedText = $this->extractWordDocumentText($absolutePath);
+            $preview = $extractedText['text'] ?? null;
+            $extracted = $extractedText !== null;
+            $truncated = $extractedText['truncated'] ?? false;
         }
 
         return [
@@ -110,6 +108,7 @@ class VaultShellService
             'mime' => $mime,
             'preview' => $preview,
             'truncated' => $truncated,
+            'extracted' => $extracted,
         ];
     }
 
@@ -455,5 +454,123 @@ class VaultShellService
                 'application/x-httpd-php',
                 'application/x-sh',
             ], true);
+    }
+
+    /**
+     * @return array{0: string, 1: bool}
+     */
+    private function readTextPreview(string $path, int $size): array
+    {
+        $limit = 1024 * 1024;
+        $contents = file_get_contents($path, false, null, 0, $limit);
+
+        if ($contents === false) {
+            abort(500, 'Unable to read the requested file.');
+        }
+
+        return [$contents, $size > $limit];
+    }
+
+    private function isZipFile(string $path, string $mime): bool
+    {
+        if ($mime === 'application/zip' || str_contains($mime, 'wordprocessingml')) {
+            return true;
+        }
+
+        $handle = fopen($path, 'rb');
+
+        if ($handle === false) {
+            abort(500, 'Unable to read the requested file.');
+        }
+
+        $signature = fread($handle, 4);
+        fclose($handle);
+
+        return is_string($signature) && str_starts_with($signature, "PK\x03\x04");
+    }
+
+    /**
+     * @return array{text: string, truncated: bool}|null
+     */
+    private function extractWordDocumentText(string $path): ?array
+    {
+        if (! class_exists(\ZipArchive::class) || ! class_exists(\DOMDocument::class)) {
+            return null;
+        }
+
+        $archive = new \ZipArchive();
+
+        if ($archive->open($path) !== true) {
+            return null;
+        }
+
+        try {
+            $entry = $archive->statName('word/document.xml');
+
+            if (! is_array($entry) || ($entry['size'] ?? PHP_INT_MAX) > 5 * 1024 * 1024) {
+                return null;
+            }
+
+            $stream = $archive->getStream('word/document.xml');
+
+            if ($stream === false) {
+                return null;
+            }
+
+            $xml = stream_get_contents($stream, 5 * 1024 * 1024 + 1);
+            fclose($stream);
+
+            if (! is_string($xml) || strlen($xml) > 5 * 1024 * 1024 || preg_match('/<!DOCTYPE/i', $xml)) {
+                return null;
+            }
+
+            $document = new \DOMDocument();
+            $previousErrorMode = libxml_use_internal_errors(true);
+
+            try {
+                $loaded = $document->loadXML($xml, LIBXML_NONET | LIBXML_NOBLANKS);
+            } finally {
+                libxml_clear_errors();
+                libxml_use_internal_errors($previousErrorMode);
+            }
+
+            if (! $loaded) {
+                return null;
+            }
+
+            $paragraphs = $document->getElementsByTagNameNS('*', 'p');
+            $text = '';
+
+            foreach ($paragraphs as $paragraph) {
+                $text .= $this->wordParagraphText($paragraph)."\n";
+
+                if (strlen($text) >= 1024 * 1024) {
+                    return ['text' => substr($text, 0, 1024 * 1024), 'truncated' => true];
+                }
+            }
+
+            return ['text' => rtrim($text), 'truncated' => false];
+        } finally {
+            $archive->close();
+        }
+    }
+
+    private function wordParagraphText(\DOMNode $node): string
+    {
+        $text = '';
+
+        foreach ($node->childNodes as $child) {
+            if ($child->localName === 't') {
+                $text .= $child->textContent;
+            } elseif ($child->localName === 'tab') {
+                $text .= "\t";
+            } elseif ($child->localName === 'br' || $child->localName === 'cr') {
+                $text .= "\n";
+            } else {
+                $text .= $this->wordParagraphText($child);
+            }
+        }
+
+        return $text;
     }
 }

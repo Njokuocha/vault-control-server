@@ -6,6 +6,9 @@
 @section('content')
     <section class="page-heading">
         <div><div class="eyebrow"><span class="eyebrow-line"></span> OPERATIONS TOOLKIT <span class="eyebrow-index">03 / 04</span></div><h1>Precision <span>calculator</span></h1><p class="page-description">A local calculation workspace. History is stored only in this browser.</p></div>
+        <button type="button" class="portable-calc-launch" data-portable-calc-open title="Open portable calculator (Ctrl+Q)">
+            <span aria-hidden="true">＋</span> QUICK CALCULATOR <kbd>CTRL Q</kbd>
+        </button>
     </section>
 
     <section class="calculator-workspace" aria-label="Calculator and history">

@@ -120,12 +120,17 @@
                     </section>
                 @endforeach
             </div>
+            <div class="archive-full-link-row">
+                <button type="button" class="archive-full-link" data-archive-open>
+                    VIEW FULL ARCHIVE <span aria-hidden="true">↗</span>
+                </button>
+            </div>
             <div class="archive-filter-empty" data-filter-empty hidden>No files match the current search or filter.</div>
         @endif
 
         <div class="archive-footer">
             <span><span class="status-dot status-dot-muted"></span> INDEX SYNCHRONIZED</span>
-            <span>{{ number_format($files->count()) }} LOADED OF {{ number_format($fileCount) }} RECORDS <b>·</b> {{ $fileGroups->count() }} GROUPS</span>
+            <span>{{ number_format($files->count()) }} LATEST OF {{ number_format($fileCount) }} RECORDS <b>·</b> {{ $fileGroups->count() }} GROUPS</span>
         </div>
     </section>
 

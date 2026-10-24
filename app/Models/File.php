@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Cache;
 
 class File extends Model
 {
@@ -29,5 +30,19 @@ class File extends Model
             'version' => 'integer',
             'edited_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(function (): void {
+            Cache::forget('dashboard.archive-metrics');
+            Cache::forget('dashboard.archive-years');
+            Cache::forget('dashboard.archive-extensions');
+        });
+        static::deleted(function (): void {
+            Cache::forget('dashboard.archive-metrics');
+            Cache::forget('dashboard.archive-years');
+            Cache::forget('dashboard.archive-extensions');
+        });
     }
 }

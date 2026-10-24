@@ -67,6 +67,8 @@
         </div>
         <div class="mobile-scrim" data-menu-close></div>
         @include('components.vault-shell')
+        @include('components.archive-browser')
+        @include('components.portable-calculator')
         <div class="toast-region" role="status" aria-live="polite" data-toast></div>
     </body>
 </html>

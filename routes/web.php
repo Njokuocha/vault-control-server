@@ -18,6 +18,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/logout', [LoginController::class, 'destroy'])->name('auth.logout');
 
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard.index');
+    Route::get('/archive/files', [DashboardController::class, 'archiveFiles'])->name('archive.files');
     Route::view('/calculator', 'calculator.index')->name('calculator.index');
 
     Route::get('/uploads', [ManualUploadController::class, 'create'])->name('uploads.create');

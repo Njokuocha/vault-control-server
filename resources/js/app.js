@@ -380,13 +380,21 @@ const makePreviewElement = (file) => {
         const pre = document.createElement('pre');
         pre.className = 'preview-text';
         pre.textContent = file.preview;
+        const elements = [];
+        if (file.extracted) {
+            const notice = document.createElement('div');
+            notice.className = 'preview-truncated';
+            notice.textContent = 'Text extracted from the document. Embedded content and formatting are not rendered.';
+            elements.push(notice);
+        }
         if (file.truncated) {
             const notice = document.createElement('div');
             notice.className = 'preview-truncated';
             notice.textContent = 'Preview limited to the first 1 MB. Download the file to view the remainder.';
-            return [notice, pre];
+            elements.push(notice);
         }
-        return [pre];
+        elements.push(pre);
+        return elements;
     }
 
     if (file.mime.startsWith('image/')) {
@@ -444,6 +452,440 @@ const launchFile = async (filePath) => {
     document.querySelector('[data-preview-close]').focus();
 };
 
+const archiveBrowser = document.querySelector('[data-archive-browser]');
+const archiveBrowserRecords = archiveBrowser?.querySelector('[data-full-archive-records]');
+const archiveBrowserState = archiveBrowser?.querySelector('[data-full-archive-state]');
+const archiveBrowserLoading = archiveBrowser?.querySelector('[data-full-archive-loading]');
+const archiveBrowserSearch = archiveBrowser?.querySelector('[data-full-archive-search]');
+const archiveBrowserYear = archiveBrowser?.querySelector('[data-full-archive-year]');
+const archiveBrowserMonth = archiveBrowser?.querySelector('[data-full-archive-month]');
+const archiveBrowserExtension = archiveBrowser?.querySelector('[data-full-archive-extension]');
+const archiveBrowserPreview = archiveBrowser?.querySelector('[data-full-archive-preview-content]');
+let archiveBrowserRecordsLoaded = [];
+let archiveBrowserPage = 0;
+let archiveBrowserLastPage = 1;
+let archiveBrowserRequest = null;
+let archiveBrowserSearchTimer = null;
+
+const renderFullArchive = () => {
+    if (!archiveBrowserRecords) return;
+    archiveBrowserRecords.replaceChildren();
+    archiveBrowserRecords.append(archiveBrowserState);
+
+    const groups = new Map();
+    archiveBrowserRecordsLoaded.forEach((record) => {
+        if (!groups.has(record.month_key)) groups.set(record.month_key, []);
+        groups.get(record.month_key).push(record);
+    });
+
+    groups.forEach((records, monthKey) => {
+        const group = document.createElement('section');
+        group.className = 'archive-month';
+        group.dataset.archiveMonth = monthKey;
+        const heading = document.createElement('h3');
+        heading.className = 'archive-month-heading';
+        heading.textContent = records[0].month_label;
+        const count = document.createElement('span');
+        count.textContent = `${records.length} FILE${records.length === 1 ? '' : 'S'}`;
+        heading.append(count);
+        group.append(heading);
+
+        records.forEach((record) => {
+            const row = document.createElement('article');
+            row.className = 'archive-record';
+            const name = document.createElement('div');
+            name.className = 'archive-record-name';
+            const icon = document.createElement('span');
+            icon.className = 'archive-file-icon';
+            icon.textContent = (record.extension || 'FILE').toUpperCase();
+            icon.setAttribute('aria-hidden', 'true');
+            const details = document.createElement('span');
+            const strong = document.createElement('strong');
+            strong.textContent = record.name;
+            const mime = document.createElement('small');
+            mime.textContent = record.mime;
+            details.append(strong, mime);
+            name.append(icon, details);
+
+            const category = document.createElement('span');
+            category.className = 'archive-record-category';
+            category.textContent = record.category.toUpperCase();
+            const date = document.createElement('time');
+            date.className = 'archive-record-date';
+            date.dateTime = record.created_at;
+            date.textContent = record.date_label;
+            const size = document.createElement('span');
+            size.className = 'archive-record-size';
+            size.textContent = formatBytes(record.size);
+            const actions = document.createElement('div');
+            actions.className = 'archive-record-actions';
+            const open = document.createElement('button');
+            open.type = 'button';
+            open.textContent = 'OPEN';
+            open.dataset.fullArchivePreview = record.path;
+            open.setAttribute('aria-label', `Preview ${record.name}`);
+            const download = document.createElement('a');
+            download.href = pathUrl(archiveBrowser.dataset.downloadUrl, record.path).toString();
+            download.textContent = '↓';
+            download.setAttribute('aria-label', `Download ${record.name}`);
+            actions.append(open, download);
+            row.append(name, category, date, size, actions);
+            group.append(row);
+        });
+        archiveBrowserRecords.append(group);
+    });
+
+    if (archiveBrowserRecordsLoaded.length === 0) {
+        archiveBrowserState.hidden = false;
+        archiveBrowserState.textContent = 'No archive records match the selected filters.';
+    } else {
+        archiveBrowserState.hidden = true;
+    }
+
+    if (archiveBrowserPage < archiveBrowserLastPage) {
+        const more = document.createElement('div');
+        more.className = 'archive-browser-more';
+        more.textContent = 'Scroll to load more records';
+        archiveBrowserRecords.append(more);
+    }
+};
+
+const loadFullArchive = async (reset = false) => {
+    if (!archiveBrowser || !archiveBrowserRecords) return;
+    if (reset) {
+        archiveBrowserRequest?.abort();
+        archiveBrowserRequest = null;
+        archiveBrowserRecordsLoaded = [];
+        archiveBrowserPage = 0;
+        archiveBrowserLastPage = 1;
+        archiveBrowserRecords.scrollTop = 0;
+        archiveBrowserRecords.replaceChildren(archiveBrowserState);
+        archiveBrowserState.hidden = false;
+        archiveBrowserState.textContent = 'Loading archive records…';
+    }
+    if (archiveBrowserRequest || archiveBrowserPage >= archiveBrowserLastPage) return;
+
+    const controller = new AbortController();
+    archiveBrowserRequest = controller;
+    archiveBrowserLoading.hidden = false;
+    const url = new URL(archiveBrowser.dataset.filesUrl, window.location.origin);
+    const params = new URLSearchParams({
+        page: String(archiveBrowserPage + 1),
+        q: archiveBrowserSearch.value.trim(),
+        year: archiveBrowserYear.value,
+        month: archiveBrowserMonth.value,
+        extension: archiveBrowserExtension.value,
+    });
+    url.search = params.toString();
+
+    try {
+        const response = await fetch(url, {
+            headers: { Accept: 'application/json' },
+            signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(await responseError(response));
+
+        const result = await response.json();
+        archiveBrowserRecordsLoaded.push(...result.records);
+        archiveBrowserPage = result.current_page;
+        archiveBrowserLastPage = result.last_page;
+        archiveBrowser.querySelector('[data-full-archive-total]').textContent = `${Number(result.total).toLocaleString()} RECORDS`;
+
+        const yearSelect = archiveBrowserYear;
+        const selectedYear = yearSelect.value;
+        const years = new Set([...yearSelect.options].map((option) => option.value));
+        result.years.forEach((year) => {
+            if (years.has(year)) return;
+            const option = document.createElement('option');
+            option.value = year;
+            option.textContent = year;
+            yearSelect.append(option);
+        });
+        yearSelect.value = selectedYear;
+
+        const extensionSelect = archiveBrowserExtension;
+        const selectedExtension = extensionSelect.value;
+        const extensions = new Set([...extensionSelect.options].map((option) => option.value));
+        result.extensions.forEach((extension) => {
+            if (extensions.has(extension)) return;
+            const option = document.createElement('option');
+            option.value = extension;
+            option.textContent = extension === '__none__' ? 'No extension' : `.${extension}`;
+            extensionSelect.append(option);
+        });
+        extensionSelect.value = selectedExtension;
+        renderFullArchive();
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            archiveBrowserState.hidden = false;
+            archiveBrowserState.textContent = error instanceof Error ? error.message : 'Unable to load archive records.';
+            showToast(archiveBrowserState.textContent);
+        }
+    } finally {
+        if (archiveBrowserRequest === controller) {
+            archiveBrowserRequest = null;
+            archiveBrowserLoading.hidden = true;
+        }
+    }
+};
+
+const openFullArchive = () => {
+    if (!archiveBrowser) return;
+    archiveBrowser.hidden = false;
+    document.body.classList.add('archive-browser-open');
+    loadFullArchive(true);
+    archiveBrowser.querySelector('[data-full-archive-search]').focus();
+};
+
+const closeFullArchive = () => {
+    if (!archiveBrowser) return;
+    archiveBrowser.hidden = true;
+    archiveBrowserRequest?.abort();
+    archiveBrowserRequest = null;
+    document.body.classList.remove('archive-browser-open');
+};
+
+document.querySelector('[data-archive-open]')?.addEventListener('click', openFullArchive);
+document.addEventListener('keydown', (event) => {
+    if (event.altKey && !event.ctrlKey && !event.metaKey && !event.repeat && event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        openFullArchive();
+    }
+});
+archiveBrowser?.querySelector('[data-archive-close]')?.addEventListener('click', closeFullArchive);
+archiveBrowser?.addEventListener('click', (event) => {
+    if (event.target === archiveBrowser) closeFullArchive();
+});
+archiveBrowserSearch?.addEventListener('input', () => {
+    window.clearTimeout(archiveBrowserSearchTimer);
+    archiveBrowserSearchTimer = window.setTimeout(() => loadFullArchive(true), 180);
+});
+[archiveBrowserYear, archiveBrowserMonth, archiveBrowserExtension].forEach((input) => {
+    input?.addEventListener('change', () => loadFullArchive(true));
+});
+archiveBrowserRecords?.addEventListener('scroll', () => {
+    if (archiveBrowserRecords.scrollTop + archiveBrowserRecords.clientHeight >= archiveBrowserRecords.scrollHeight - 180) {
+        loadFullArchive();
+    }
+});
+archiveBrowserRecords?.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-full-archive-preview]');
+    if (!button || !archiveBrowserPreview) return;
+    const previewView = archiveBrowser.querySelector('[data-full-archive-preview-view]');
+    const previewEmpty = archiveBrowser.querySelector('[data-full-archive-preview-empty]');
+    const previewTitleElement = archiveBrowser.querySelector('[data-full-archive-preview-title]');
+    const previewMetaElement = archiveBrowser.querySelector('[data-full-archive-preview-meta]');
+    const previewType = archiveBrowser.querySelector('[data-full-archive-preview-type]');
+    const previewDownloadLink = archiveBrowser.querySelector('[data-full-archive-preview-download]');
+    try {
+        const path = button.dataset.fullArchivePreview;
+        const response = await fetch(pathUrl(archiveBrowser.dataset.previewUrl, path), {
+            headers: { Accept: 'application/json' },
+        });
+        if (!response.ok) throw new Error(await responseError(response));
+        const file = await response.json();
+        previewTitleElement.textContent = file.name;
+        previewMetaElement.textContent = `${file.mime.toUpperCase()} · ${formatBytes(file.size)} · ${file.path}`;
+        previewType.textContent = file.name.split('.').pop().slice(0, 4).toUpperCase() || 'FILE';
+        previewDownloadLink.href = pathUrl(archiveBrowser.dataset.downloadUrl, file.path).toString();
+        previewDownloadLink.download = file.name;
+        archiveBrowserPreview.replaceChildren(...makePreviewElement(file));
+        previewEmpty.hidden = true;
+        previewView.hidden = false;
+        archiveBrowser.querySelectorAll('.archive-record.is-selected').forEach((row) => row.classList.remove('is-selected'));
+        button.closest('.archive-record')?.classList.add('is-selected');
+    } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Unable to preview this file.');
+    }
+});
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && archiveBrowser && !archiveBrowser.hidden) closeFullArchive();
+});
+
+const portableCalculatorTemplate = document.querySelector('#portable-calculator-template');
+const portableCalculatorStorageKey = 'vcs.portable-calculator.v1';
+let portableCalculator = null;
+let portableCalculatorExpression = '';
+let portableCalculatorCompleted = false;
+
+const savePortableCalculator = () => {
+    if (!portableCalculator) return;
+    const rect = portableCalculator.getBoundingClientRect();
+    try {
+        sessionStorage.setItem(portableCalculatorStorageKey, JSON.stringify({
+            open: true,
+            expression: portableCalculatorExpression,
+            completed: portableCalculatorCompleted,
+            left: rect.left,
+            top: rect.top,
+        }));
+    } catch {
+        showToast('Unable to preserve the portable calculator in this browser session.');
+    }
+};
+
+const updatePortableCalculator = () => {
+    if (!portableCalculator) return;
+    const expressionDisplay = portableCalculator.querySelector('[data-portable-calc-expression]');
+    const resultDisplay = portableCalculator.querySelector('[data-portable-calc-result]');
+    expressionDisplay.textContent = portableCalculatorExpression || '0';
+    if (!portableCalculatorExpression) {
+        resultDisplay.textContent = '0';
+        return;
+    }
+    try {
+        resultDisplay.textContent = evaluateTriggerExpression(portableCalculatorExpression) ?? '—';
+    } catch {
+        resultDisplay.textContent = 'Error';
+    }
+};
+
+const closePortableCalculator = () => {
+    if (!portableCalculator) return;
+    portableCalculator.remove();
+    portableCalculator = null;
+    portableCalculatorExpression = '';
+    portableCalculatorCompleted = false;
+    try {
+        sessionStorage.removeItem(portableCalculatorStorageKey);
+    } catch {
+        showToast('Unable to clear the saved portable calculator state.');
+    }
+};
+
+const openPortableCalculator = (savedState = null) => {
+    if (!(portableCalculatorTemplate instanceof HTMLTemplateElement)) return;
+    if (portableCalculator) {
+        portableCalculator.style.zIndex = String(++nextZIndex);
+        return;
+    }
+
+    portableCalculator = portableCalculatorTemplate.content.firstElementChild.cloneNode(true);
+    portableCalculatorExpression = typeof savedState?.expression === 'string'
+        && /^[\d.eE+\-*/%()]*$/.test(savedState.expression)
+        ? savedState.expression.slice(0, 120)
+        : '';
+    portableCalculatorCompleted = savedState?.completed === true;
+    portableCalculator.style.zIndex = String(++nextZIndex);
+    if (Number.isFinite(savedState?.left) && Number.isFinite(savedState?.top)) {
+        portableCalculator.style.left = `${savedState.left}px`;
+        portableCalculator.style.top = `${savedState.top}px`;
+        portableCalculator.style.right = 'auto';
+    }
+    shellLayer?.append(portableCalculator);
+    const calculatorRect = portableCalculator.getBoundingClientRect();
+    const maxLeft = Math.max(8, window.innerWidth - calculatorRect.width - 8);
+    const maxTop = Math.max(8, window.innerHeight - calculatorRect.height - 8);
+    portableCalculator.style.left = `${Math.min(Math.max(8, calculatorRect.left), maxLeft)}px`;
+    portableCalculator.style.top = `${Math.min(Math.max(8, calculatorRect.top), maxTop)}px`;
+    portableCalculator.style.right = 'auto';
+    portableCalculator.style.bottom = 'auto';
+
+    portableCalculator.querySelector('[data-portable-calc-close]').addEventListener('click', closePortableCalculator);
+    portableCalculator.addEventListener('pointerdown', () => {
+        portableCalculator.style.zIndex = String(++nextZIndex);
+    });
+    portableCalculator.querySelector('[data-portable-calc-keys]').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-portable-calc-key]');
+        if (!button) return;
+        const action = button.dataset.portableCalcKey;
+        const value = button.dataset.value ?? '';
+
+        if (action === 'clear') {
+            portableCalculatorExpression = '';
+            portableCalculatorCompleted = false;
+        } else if (action === 'backspace') {
+            portableCalculatorExpression = portableCalculatorExpression.slice(0, -1);
+            portableCalculatorCompleted = false;
+        } else if (action === 'digit') {
+            if (portableCalculatorCompleted) {
+                portableCalculatorExpression = '';
+                portableCalculatorCompleted = false;
+            }
+            const currentNumber = portableCalculatorExpression.split(/[+\-*/%()]/).at(-1) ?? '';
+            if (value === '.' && currentNumber.includes('.')) return;
+            portableCalculatorExpression += value;
+        } else if (action === 'operator') {
+            portableCalculatorCompleted = false;
+            if (!portableCalculatorExpression && value !== '-') return;
+            if (/[+\-*/%]$/.test(portableCalculatorExpression)) {
+                portableCalculatorExpression = portableCalculatorExpression.slice(0, -1);
+            }
+            portableCalculatorExpression += value;
+        } else if (action === 'equals') {
+            try {
+                const result = evaluateTriggerExpression(portableCalculatorExpression);
+                if (result === null) throw new Error('Enter a valid calculation.');
+                portableCalculatorExpression = result;
+                portableCalculatorCompleted = true;
+            } catch (error) {
+                showToast(error instanceof Error ? error.message : 'Unable to calculate this expression.');
+                return;
+            }
+        }
+
+        updatePortableCalculator();
+        savePortableCalculator();
+    });
+
+    const dragHandle = portableCalculator.querySelector('[data-portable-calc-drag]');
+    dragHandle.addEventListener('pointerdown', (event) => {
+        if (event.target.closest('button')) return;
+        event.preventDefault();
+        const rect = portableCalculator.getBoundingClientRect();
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const left = rect.left;
+        const top = rect.top;
+        dragHandle.setPointerCapture(event.pointerId);
+        const move = (moveEvent) => {
+            const maxLeft = Math.max(8, window.innerWidth - rect.width - 8);
+            const maxTop = Math.max(8, window.innerHeight - rect.height - 8);
+            portableCalculator.style.left = `${Math.min(Math.max(8, left + moveEvent.clientX - startX), maxLeft)}px`;
+            portableCalculator.style.top = `${Math.min(Math.max(8, top + moveEvent.clientY - startY), maxTop)}px`;
+            portableCalculator.style.right = 'auto';
+            portableCalculator.style.bottom = 'auto';
+        };
+        const finish = () => {
+            dragHandle.removeEventListener('pointermove', move);
+            dragHandle.removeEventListener('pointerup', finish);
+            dragHandle.removeEventListener('pointercancel', finish);
+            savePortableCalculator();
+        };
+        dragHandle.addEventListener('pointermove', move);
+        dragHandle.addEventListener('pointerup', finish);
+        dragHandle.addEventListener('pointercancel', finish);
+    });
+
+    updatePortableCalculator();
+    savePortableCalculator();
+};
+
+document.querySelectorAll('[data-portable-calc-open]').forEach((button) => {
+    button.addEventListener('click', () => openPortableCalculator());
+});
+document.addEventListener('keydown', (event) => {
+    if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'q') {
+        event.preventDefault();
+        if (portableCalculator) closePortableCalculator();
+        else openPortableCalculator();
+    }
+});
+try {
+    const savedCalculator = JSON.parse(sessionStorage.getItem(portableCalculatorStorageKey) ?? 'null');
+    if (savedCalculator?.open === true) openPortableCalculator(savedCalculator);
+} catch {
+    showToast('Saved portable calculator state could not be restored.');
+}
+document.querySelector('.sidebar-logout')?.addEventListener('submit', () => {
+    try {
+        sessionStorage.removeItem(shellWindowStorageKey);
+        sessionStorage.removeItem(portableCalculatorStorageKey);
+    } catch {
+        showToast('Temporary window state could not be cleared before sign out.');
+    }
+});
+
 document.querySelectorAll('[data-archive-preview]').forEach((button) => {
     button.addEventListener('click', async () => {
         try {
@@ -475,12 +917,25 @@ const executeCommand = async (windowElement, rawCommand) => {
             'mkdir [directory] — create a directory.',
             'copy [source] [destination] — copy a file or directory.',
             'move [source] [destination] — move or rename a file or directory.',
-            'launch [file] — preview a file; launch vs opens another console.',
+            'launch [file] — preview a file; launch vs opens another console; launch calc opens the portable calculator.',
             'del [file] — delete a file after yes/no confirmation.',
             'trigger [text|calculation] — display text or calculate arithmetic; quote text to keep it literal.',
             'exit — close this console window.',
             '?help — show this command reference.',
             'All paths stay inside the private /root directory. Existing destinations are never overwritten.',
+        ].forEach((line) => appendOutput(windowElement, line, 'shell-output-muted'));
+        return;
+    }
+
+    if (normalizedCommand === '?shortcut') {
+        [
+            'Application keyboard shortcuts:',
+            'Ctrl + Shift + X — toggle Vault Shell windows.',
+            'Ctrl + Q — open or close the portable basic calculator.',
+            'Alt + A — open the full archive window.',
+            '/ — focus archive search when not typing in a field.',
+            'Escape — close an open archive or file preview, or close mobile navigation.',
+            'On the /calculator page: digits and operators enter input; Enter or = calculates; Backspace deletes; Escape clears.',
         ].forEach((line) => appendOutput(windowElement, line, 'shell-output-muted'));
         return;
     }
@@ -552,6 +1007,11 @@ const executeCommand = async (windowElement, rawCommand) => {
         if (args[0].toLowerCase() === 'vs') {
             appendOutput(windowElement, 'Opening a new Vault Shell instance…', 'shell-output-success');
             createShellWindow();
+            return;
+        }
+        if (args[0].toLowerCase() === 'calc') {
+            appendOutput(windowElement, 'Opening the portable calculator…', 'shell-output-success');
+            openPortableCalculator();
             return;
         }
         await launchFile(resolveVirtualPath(windowElement.dataset.cwd, args[0]));
@@ -635,26 +1095,97 @@ const focusWindow = (windowElement) => {
     windowElement.style.zIndex = String(nextZIndex);
 };
 
+const shellWindowStorageKey = 'vcs.shell-windows.v1';
+
+const saveShellWindows = () => {
+    try {
+        const state = [...shellWindows].map((windowElement) => {
+            const rect = windowElement.getBoundingClientRect();
+            const transcript = [...windowElement.querySelector('[data-shell-output]').children]
+                .filter((line) => line.matches('.shell-output-line, .shell-command-echo'))
+                .slice(-80)
+                .map((line) => ({ className: line.className, text: (line.textContent ?? '').slice(0, 2000) }));
+
+            return {
+                cwd: (windowElement.dataset.cwd ?? '/root').slice(0, 500),
+                left: rect.left,
+                top: rect.top,
+                width: rect.width,
+                height: rect.height,
+                fullscreen: windowElement.classList.contains('is-fullscreen'),
+                hidden: windowElement.classList.contains('is-hidden'),
+                transcript,
+            };
+        });
+        sessionStorage.setItem(shellWindowStorageKey, JSON.stringify(state));
+    } catch {
+        showToast('Unable to preserve the Vault Shell windows in this browser session.');
+    }
+};
+
+const readShellWindows = () => {
+    try {
+        const saved = JSON.parse(sessionStorage.getItem(shellWindowStorageKey) ?? '[]');
+        return Array.isArray(saved) ? saved.slice(0, 10) : [];
+    } catch {
+        showToast('Saved Vault Shell window state could not be restored.');
+        return [];
+    }
+};
+
 const closeWindow = (windowElement) => {
     shellWindows.delete(windowElement);
     if (pendingDelete?.window === windowElement) pendingDelete = null;
+    saveShellWindows();
     windowElement.classList.add('is-closing');
     window.setTimeout(() => windowElement.remove(), 180);
 };
 
-const createShellWindow = () => {
+const createShellWindow = (savedState = null) => {
     if (!shellLayer || !(shellTemplate instanceof HTMLTemplateElement)) return null;
 
     const windowElement = shellTemplate.content.firstElementChild.cloneNode(true);
     const instance = nextWindowNumber++;
-    windowElement.dataset.cwd = '/root';
+    windowElement.dataset.cwd = typeof savedState?.cwd === 'string'
+        && savedState.cwd.length <= 500
+        && (savedState.cwd === '/root' || savedState.cwd.startsWith('/root/'))
+        ? savedState.cwd
+        : '/root';
     windowElement.querySelector('.shell-window-id').textContent = `VS / INSTANCE ${String(instance).padStart(2, '0')}`;
     windowElement.querySelector('[data-shell-prompt]').textContent = `${appAcronym} vcs:/root>`;
     windowElement.querySelector('[data-shell-input]').id = `shell-command-${instance}`;
     windowElement.querySelector('[data-shell-prompt]').htmlFor = `shell-command-${instance}`;
+    if (Number.isFinite(savedState?.left) && Number.isFinite(savedState?.top)) {
+        windowElement.style.left = `${savedState.left}px`;
+        windowElement.style.top = `${savedState.top}px`;
+        windowElement.style.right = 'auto';
+        windowElement.style.bottom = 'auto';
+    }
+    if (Number.isFinite(savedState?.width)) windowElement.style.width = `${savedState.width}px`;
+    if (Number.isFinite(savedState?.height)) windowElement.style.height = `${savedState.height}px`;
+    if (savedState?.fullscreen === true) windowElement.classList.add('is-fullscreen');
+    if (savedState?.hidden === true) windowElement.classList.add('is-hidden');
     windowElement.style.zIndex = String(++nextZIndex);
     shellLayer.append(windowElement);
+    if (!windowElement.classList.contains('is-fullscreen')) {
+        const rect = windowElement.getBoundingClientRect();
+        clampWindow(windowElement, rect.left, rect.top);
+    }
     shellWindows.add(windowElement);
+
+    const output = windowElement.querySelector('[data-shell-output]');
+    if (Array.isArray(savedState?.transcript)) {
+        output.replaceChildren();
+        savedState.transcript.slice(-200).forEach((item) => {
+            if (typeof item?.text !== 'string') return;
+            const line = document.createElement('div');
+            line.className = item.className === 'shell-command-echo'
+                ? 'shell-command-echo'
+                : `shell-output-line${/^shell-output-line(?: shell-output-[a-z]+)?$/.test(item.className) ? item.className.slice('shell-output-line'.length) : ''}`;
+            line.textContent = item.text;
+            output.append(line);
+        });
+    }
 
     const closeButton = windowElement.querySelector('[data-shell-close]');
     closeButton.addEventListener('click', () => closeWindow(windowElement));
@@ -664,6 +1195,7 @@ const createShellWindow = () => {
             const rect = windowElement.getBoundingClientRect();
             clampWindow(windowElement, rect.left, rect.top);
         }
+        saveShellWindows();
     });
     windowElement.addEventListener('pointerdown', () => focusWindow(windowElement));
 
@@ -681,6 +1213,7 @@ const createShellWindow = () => {
         } catch (error) {
             appendOutput(windowElement, error instanceof Error ? error.message : 'Command failed.', 'shell-output-error');
         }
+        saveShellWindows();
         input.focus();
     });
 
@@ -703,20 +1236,22 @@ const createShellWindow = () => {
             dragHandle.removeEventListener('pointermove', move);
             dragHandle.removeEventListener('pointerup', finish);
             dragHandle.removeEventListener('pointercancel', finish);
+            saveShellWindows();
         };
         dragHandle.addEventListener('pointermove', move);
         dragHandle.addEventListener('pointerup', finish);
         dragHandle.addEventListener('pointercancel', finish);
     });
 
-    fetchDirectory(windowElement).catch((error) => {
+    fetchDirectory(windowElement, windowElement.dataset.cwd).catch((error) => {
         appendOutput(windowElement, error instanceof Error ? error.message : 'Unable to read the private directory.', 'shell-output-error');
     });
     window.requestAnimationFrame(() => {
         windowElement.classList.add('is-open');
-        input.focus();
+        if (!windowElement.classList.contains('is-hidden')) input.focus();
     });
 
+    saveShellWindows();
     return windowElement;
 };
 
@@ -727,6 +1262,7 @@ document.querySelectorAll('[data-shell-open]').forEach((button) => {
             existing.classList.remove('is-hidden');
             focusWindow(existing);
             existing.querySelector('[data-shell-input]').focus();
+            saveShellWindows();
             return;
         }
         createShellWindow();
@@ -739,6 +1275,7 @@ document.addEventListener('keydown', (event) => {
         const visibleWindows = [...shellWindows].filter((windowElement) => !windowElement.classList.contains('is-hidden'));
         if (visibleWindows.length > 0) {
             visibleWindows.forEach((windowElement) => windowElement.classList.add('is-hidden'));
+            saveShellWindows();
             return;
         }
 
@@ -747,10 +1284,16 @@ document.addEventListener('keydown', (event) => {
             existing.classList.remove('is-hidden');
             focusWindow(existing);
             existing.querySelector('[data-shell-input]').focus();
+            saveShellWindows();
         } else {
             createShellWindow();
         }
     }
+});
+
+readShellWindows().forEach((state) => {
+    if (typeof state?.cwd !== 'string' || !state.cwd.startsWith('/root')) return;
+    createShellWindow(state);
 });
 
 document.querySelector('[data-preview-close]')?.addEventListener('click', closePreview);
@@ -767,6 +1310,14 @@ window.addEventListener('resize', () => {
         const rect = windowElement.getBoundingClientRect();
         clampWindow(windowElement, rect.left, rect.top);
     });
+    if (portableCalculator) {
+        const rect = portableCalculator.getBoundingClientRect();
+        const maxLeft = Math.max(8, window.innerWidth - rect.width - 8);
+        const maxTop = Math.max(8, window.innerHeight - rect.height - 8);
+        portableCalculator.style.left = `${Math.min(Math.max(8, rect.left), maxLeft)}px`;
+        portableCalculator.style.top = `${Math.min(Math.max(8, rect.top), maxTop)}px`;
+        savePortableCalculator();
+    }
 });
 
 const uploadInput = document.querySelector('[data-upload-input]');

@@ -69,6 +69,42 @@ test('the shell preview returns source text without executing active content', f
         ->assertHeader('Content-Security-Policy', "sandbox; default-src 'none'");
 });
 
+test('the shell extracts docx text without relying on the file extension or rendering active content', function () {
+    $path = $this->shellRoot.DIRECTORY_SEPARATOR.'report.data';
+    $archive = new ZipArchive();
+    expect($archive->open($path, ZipArchive::CREATE))->toBeTrue();
+    $archive->addFromString('word/document.xml', <<<'XML'
+        <?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p><w:r><w:t>Quarterly report</w:t></w:r></w:p>
+                <w:p><w:r><w:t>&lt;script&gt;do-not-run()&lt;/script&gt;</w:t></w:r></w:p>
+            </w:body>
+        </w:document>
+        XML);
+    $archive->close();
+
+    $this->actingAs(User::factory()->create())
+        ->getJson(route('shell.preview', ['path' => '/root/report.data']))
+        ->assertOk()
+        ->assertJsonPath('extracted', true)
+        ->assertJsonPath('preview', "Quarterly report\n<script>do-not-run()</script>");
+});
+
+test('the shell keeps the download fallback for archives without extractable document text', function () {
+    $path = $this->shellRoot.DIRECTORY_SEPARATOR.'unsupported.docx';
+    $archive = new ZipArchive();
+    expect($archive->open($path, ZipArchive::CREATE))->toBeTrue();
+    $archive->addFromString('readme.txt', 'not a Word document');
+    $archive->close();
+
+    $this->actingAs(User::factory()->create())
+        ->getJson(route('shell.preview', ['path' => '/root/unsupported.docx']))
+        ->assertOk()
+        ->assertJsonPath('preview', null)
+        ->assertJsonPath('extracted', false);
+});
+
 test('shell file deletion requires affirmative confirmation and removes only private files', function () {
     File::put($this->shellRoot.DIRECTORY_SEPARATOR.'remove-me.txt', 'private');
     $this->actingAs(User::factory()->create());
