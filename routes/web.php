@@ -1,8 +1,11 @@
 <?php
 
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\AvatarModelController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\InvestigationCaseController;
 use App\Http\Controllers\ManualUploadController;
+use App\Http\Controllers\PersonController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\VaultShellController;
 use Illuminate\Support\Facades\Route;
@@ -20,6 +23,34 @@ Route::middleware('auth')->group(function () {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard.index');
     Route::get('/archive/files', [DashboardController::class, 'archiveFiles'])->name('archive.files');
     Route::view('/calculator', 'calculator.index')->name('calculator.index');
+
+    Route::get('/people', [PersonController::class, 'index'])->name('people.index');
+    Route::get('/people/create', [PersonController::class, 'create'])->name('people.create');
+    Route::post('/people', [PersonController::class, 'store'])->name('people.store');
+    Route::get('/people/{person}', [PersonController::class, 'show'])->name('people.show');
+    Route::get('/people/{person}/edit', [PersonController::class, 'edit'])->name('people.edit');
+    Route::put('/people/{person}', [PersonController::class, 'update'])->name('people.update');
+    Route::get('/people/{person}/images/{image}', [PersonController::class, 'image'])->name('people.image');
+    Route::get('/people/{person}/images/{image}/download', [PersonController::class, 'image'])->defaults('download', true)->name('people.images.download');
+    Route::post('/people/{person}/images/unlock', [PersonController::class, 'authenticateImages'])->middleware('throttle:8,1')->name('people.images.unlock');
+    Route::delete('/people/{person}/images/{image}', [PersonController::class, 'destroyImage'])->name('people.images.destroy');
+    Route::get('/people/{person}/linkable-cases', [PersonController::class, 'linkableCases'])->name('people.cases.search');
+    Route::post('/people/{person}/cases', [PersonController::class, 'attachCase'])->name('people.cases.attach');
+    Route::delete('/people/{person}/cases/{case}', [PersonController::class, 'detachCase'])->name('people.cases.detach');
+
+    Route::get('/cases', [InvestigationCaseController::class, 'index'])->name('cases.index');
+    Route::get('/cases/create', [InvestigationCaseController::class, 'create'])->name('cases.create');
+    Route::post('/cases', [InvestigationCaseController::class, 'store'])->name('cases.store');
+    Route::get('/cases/{caseFile}', [InvestigationCaseController::class, 'show'])->name('cases.show');
+    Route::get('/cases/{caseFile}/edit', [InvestigationCaseController::class, 'edit'])->name('cases.edit');
+    Route::put('/cases/{caseFile}', [InvestigationCaseController::class, 'update'])->name('cases.update');
+    Route::get('/cases/{caseFile}/images/{image}', [InvestigationCaseController::class, 'image'])->name('cases.image');
+    Route::get('/cases/{caseFile}/images/{image}/download', [InvestigationCaseController::class, 'image'])->defaults('download', true)->name('cases.images.download');
+    Route::delete('/cases/{caseFile}/images/{image}', [InvestigationCaseController::class, 'destroyImage'])->name('cases.images.destroy');
+
+    Route::get('/avatar-models', [AvatarModelController::class, 'index'])->name('avatar-models.index');
+    Route::post('/avatar-models/{group}', [AvatarModelController::class, 'update'])->name('avatar-models.update');
+    Route::get('/avatar-models/{group}/file', [AvatarModelController::class, 'stream'])->name('avatar-models.stream');
 
     Route::get('/uploads', [ManualUploadController::class, 'create'])->name('uploads.create');
     Route::post('/uploads', [ManualUploadController::class, 'store'])
@@ -44,4 +75,6 @@ Route::middleware('auth')->group(function () {
         ->name('settings.upload-policy.update');
     Route::post('/settings/password', [SettingsController::class, 'updatePassword'])
         ->name('settings.password.update');
+    Route::post('/settings/person-image-pin', [SettingsController::class, 'updateImagePin'])
+        ->name('settings.person-image-pin.update');
 });

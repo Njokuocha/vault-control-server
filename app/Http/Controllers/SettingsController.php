@@ -17,6 +17,7 @@ class SettingsController extends Controller
             'uploadEndpoint' => url('/api/upload'),
             'maxUploadMb' => $settings->maxUploadMegabytes(),
             'apiUploadsEnabled' => $settings->apiUploadsEnabled(),
+            'imagePinConfigured' => $settings->get('person_image_pin_hash') !== null,
         ]);
     }
 
@@ -58,5 +59,17 @@ class SettingsController extends Controller
         $settings->set('api_upload_enabled', $request->boolean('api_upload_enabled') ? '1' : '0');
 
         return back()->with('status', 'Upload policy updated.');
+    }
+
+    public function updateImagePin(Request $request, SettingService $settings): RedirectResponse
+    {
+        $validated = $request->validate([
+            'image_pin' => ['required', 'digits:4', 'confirmed'],
+        ]);
+
+        $settings->set('person_image_pin_hash', Hash::make($validated['image_pin']));
+        $request->session()->forget('unlocked_person_images');
+
+        return back()->with('status', 'Person image access PIN updated.');
     }
 }

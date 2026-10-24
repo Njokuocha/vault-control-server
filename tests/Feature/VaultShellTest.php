@@ -71,7 +71,7 @@ test('the shell preview returns source text without executing active content', f
 
 test('the shell extracts docx text without relying on the file extension or rendering active content', function () {
     $path = $this->shellRoot.DIRECTORY_SEPARATOR.'report.data';
-    $archive = new ZipArchive();
+    $archive = new ZipArchive;
     expect($archive->open($path, ZipArchive::CREATE))->toBeTrue();
     $archive->addFromString('word/document.xml', <<<'XML'
         <?xml version="1.0" encoding="UTF-8"?>
@@ -93,7 +93,7 @@ test('the shell extracts docx text without relying on the file extension or rend
 
 test('the shell keeps the download fallback for archives without extractable document text', function () {
     $path = $this->shellRoot.DIRECTORY_SEPARATOR.'unsupported.docx';
-    $archive = new ZipArchive();
+    $archive = new ZipArchive;
     expect($archive->open($path, ZipArchive::CREATE))->toBeTrue();
     $archive->addFromString('readme.txt', 'not a Word document');
     $archive->close();
@@ -103,6 +103,37 @@ test('the shell keeps the download fallback for archives without extractable doc
         ->assertOk()
         ->assertJsonPath('preview', null)
         ->assertJsonPath('extracted', false);
+});
+
+test('the shell preview lists zip entries including nested file paths', function () {
+    $path = $this->shellRoot.DIRECTORY_SEPARATOR.'bundle.zip';
+    $archive = new ZipArchive;
+    expect($archive->open($path, ZipArchive::CREATE))->toBeTrue();
+    $archive->addFromString('readme.txt', 'archive readme');
+    $archive->addFromString('documents/reports/summary.pdf', 'pdf placeholder');
+    $archive->addEmptyDir('empty-folder');
+    $archive->close();
+
+    $this->actingAs(User::factory()->create())
+        ->getJson(route('shell.preview', ['path' => '/root/bundle.zip']))
+        ->assertOk()
+        ->assertJsonPath('is_archive', true)
+        ->assertJsonPath('archive_entries', ['documents/reports/summary.pdf', 'readme.txt'])
+        ->assertJsonPath('archive_entries_truncated', false);
+});
+
+test('the shell identifies empty zip archives as archives', function () {
+    $path = $this->shellRoot.DIRECTORY_SEPARATOR.'empty.zip';
+    $archive = new ZipArchive;
+    expect($archive->open($path, ZipArchive::CREATE))->toBeTrue();
+    $archive->addEmptyDir('empty-folder');
+    $archive->close();
+
+    $this->actingAs(User::factory()->create())
+        ->getJson(route('shell.preview', ['path' => '/root/empty.zip']))
+        ->assertOk()
+        ->assertJsonPath('is_archive', true)
+        ->assertJsonPath('archive_entries', []);
 });
 
 test('shell file deletion requires affirmative confirmation and removes only private files', function () {

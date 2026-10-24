@@ -1,0 +1,314 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\InvestigationCase;
+use App\Models\Person;
+use App\Models\PersonImage;
+use App\Services\PublicRecordId;
+use App\Services\SettingService;
+use Illuminate\Contracts\View\View;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Throwable;
+
+class PersonController extends Controller
+{
+    private const TEXT_FIELDS = [
+        'name', 'first_name', 'last_name', 'surname', 'age', 'date_of_birth',
+        'marital_status', 'spouse', 'gender', 'citizenship', 'state',
+        'blood_group', 'genotype', 'height', 'occupation', 'aliases',
+        'last_known_location', 'identifying_marks', 'statement',
+    ];
+
+    public function index(Request $request): View
+    {
+        $query = Person::query()->withCount(['images', 'cases'])->latest();
+        $search = trim((string) $request->query('q', ''));
+
+        if ($search !== '') {
+            $query->where(function ($query) use ($search): void {
+                $query->where('public_id', 'like', '%'.$search.'%')
+                    ->orWhere('name', 'like', '%'.$search.'%')
+                    ->orWhere('first_name', 'like', '%'.$search.'%')
+                    ->orWhere('last_name', 'like', '%'.$search.'%')
+                    ->orWhere('surname', 'like', '%'.$search.'%')
+                    ->orWhere('state', 'like', '%'.$search.'%')
+                    ->orWhere('citizenship', 'like', '%'.$search.'%');
+            });
+        }
+
+        return view('people.index', [
+            'people' => $query->paginate(24)->withQueryString(),
+            'search' => $search,
+            'totalPeople' => Person::query()->count(),
+        ]);
+    }
+
+    public function create(): View
+    {
+        return view('people.form', ['person' => new Person]);
+    }
+
+    public function store(Request $request, PublicRecordId $ids): RedirectResponse
+    {
+        $validated = $this->validatePerson($request);
+        $mainImage = $request->file('main_image');
+        $otherImages = $request->file('other_images', []);
+        $storedPaths = [];
+
+        try {
+            $person = DB::transaction(function () use ($validated, $mainImage, $otherImages, $ids, &$storedPaths): Person {
+                $attributes = $this->personAttributes($validated);
+                $attributes['public_id'] = $ids->generate(Person::class, 'USR');
+                $attributes['avatar_group'] = $validated['avatar_group'] ?? $this->avatarGroup($attributes['gender']);
+
+                if ($mainImage instanceof UploadedFile) {
+                    $attributes['main_image_path'] = $this->storeImage($mainImage, 'people/main', $storedPaths);
+                }
+
+                $person = Person::query()->create($attributes);
+
+                foreach ($otherImages as $image) {
+                    if ($image instanceof UploadedFile) {
+                        $person->images()->create([
+                            'path' => $this->storeImage($image, 'people/'.$person->id.'/gallery', $storedPaths),
+                            'original_name' => $this->safeImageName($image),
+                        ]);
+                    }
+                }
+
+                return $person;
+            });
+        } catch (Throwable $exception) {
+            Storage::disk(config('vault.upload_disk'))->delete($storedPaths);
+            throw $exception;
+        }
+
+        return redirect()->route('people.show', $person)->with('status', 'Person profile created.');
+    }
+
+    public function show(Person $person, SettingService $settings): Response
+    {
+        request()->session()->forget('unlocked_person_images');
+        $person->load(['images', 'cases' => fn ($query) => $query->latest()]);
+        $avatarGroup = strtolower($person->avatar_group);
+        $avatarPath = in_array($avatarGroup, ['male', 'female', 'group', 'unknown', 'suspect', 'verified'], true)
+            ? $settings->get('avatar_model_'.$avatarGroup)
+            : null;
+
+        return response()->view('people.show', [
+            'person' => $person,
+            'imagePinConfigured' => $settings->get('person_image_pin_hash') !== null,
+            'avatarModelUrl' => is_string($avatarPath) && Storage::disk(config('vault.upload_disk'))->exists($avatarPath)
+                ? route('avatar-models.stream', $avatarGroup)
+                : null,
+        ])->header('Cache-Control', 'no-store, private');
+    }
+
+    public function edit(Person $person): View
+    {
+        $person->load('images');
+
+        return view('people.form', ['person' => $person]);
+    }
+
+    public function update(Request $request, Person $person): RedirectResponse
+    {
+        $validated = $this->validatePerson($request);
+        $mainImage = $request->file('main_image');
+        $otherImages = $request->file('other_images', []);
+        $storedPaths = [];
+        $previousMainImage = $person->main_image_path;
+        $removeMainImage = (bool) ($validated['remove_main_image'] ?? false);
+
+        try {
+            DB::transaction(function () use ($validated, $mainImage, $otherImages, $person, $removeMainImage, &$storedPaths): void {
+                $attributes = $this->personAttributes($validated);
+                $attributes['avatar_group'] = $validated['avatar_group'] ?? $this->avatarGroup($attributes['gender']);
+
+                if ($mainImage instanceof UploadedFile) {
+                    $attributes['main_image_path'] = $this->storeImage($mainImage, 'people/main', $storedPaths);
+                } elseif ($removeMainImage) {
+                    $attributes['main_image_path'] = null;
+                }
+
+                $person->update($attributes);
+
+                foreach ($otherImages as $image) {
+                    if ($image instanceof UploadedFile) {
+                        $person->images()->create([
+                            'path' => $this->storeImage($image, 'people/'.$person->id.'/gallery', $storedPaths),
+                            'original_name' => $this->safeImageName($image),
+                        ]);
+                    }
+                }
+            });
+        } catch (Throwable $exception) {
+            Storage::disk(config('vault.upload_disk'))->delete($storedPaths);
+            throw $exception;
+        }
+
+        if (($mainImage instanceof UploadedFile || $removeMainImage) && $previousMainImage) {
+            Storage::disk(config('vault.upload_disk'))->delete($previousMainImage);
+        }
+
+        return redirect()->route('people.show', $person)->with('status', 'Person profile updated.');
+    }
+
+    public function authenticateImages(Request $request, Person $person, SettingService $settings): JsonResponse
+    {
+        $validated = $request->validate(['pin' => ['required', 'digits:4']]);
+        $pinHash = $settings->get('person_image_pin_hash');
+
+        if (! is_string($pinHash) || ! Hash::check($validated['pin'], $pinHash)) {
+            return response()->json([
+                'message' => is_string($pinHash) ? 'The PIN is incorrect.' : 'No person image PIN has been configured.',
+            ], 422);
+        }
+
+        $request->session()->put('unlocked_person_images', $person->getKey());
+
+        return response()->json(['status' => 'unlocked']);
+    }
+
+    public function image(Person $person, string $image, bool $download = false): mixed
+    {
+        abort_unless(request()->session()->get('unlocked_person_images') === $person->getKey(), 403);
+
+        $path = $image === 'main'
+            ? $person->main_image_path
+            : $person->images()->whereKey($image)->value('path');
+
+        abort_unless(is_string($path) && Storage::disk(config('vault.upload_disk'))->exists($path), 404);
+
+        return Storage::disk(config('vault.upload_disk'))->response($path, null, [
+            'Content-Disposition' => $download ? 'attachment' : 'inline',
+            'X-Content-Type-Options' => 'nosniff',
+            'Content-Security-Policy' => "default-src 'none'; sandbox",
+            'Cache-Control' => 'no-store, private',
+        ]);
+    }
+
+    public function destroyImage(Person $person, PersonImage $image): JsonResponse
+    {
+        abort_unless($image->person_id === $person->id, 404);
+        Storage::disk(config('vault.upload_disk'))->delete($image->path);
+        $image->delete();
+
+        return response()->json(['status' => 'deleted']);
+    }
+
+    public function linkableCases(Request $request, Person $person): JsonResponse
+    {
+        $search = trim((string) $request->query('q', ''));
+
+        $cases = InvestigationCase::query()
+            ->whereDoesntHave('people', fn ($query) => $query->whereKey($person->id))
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($query) use ($search): void {
+                    $query->where('public_id', 'like', '%'.$search.'%')
+                        ->orWhere('title', 'like', '%'.$search.'%')
+                        ->orWhere('classification', 'like', '%'.$search.'%');
+                });
+            })
+            ->latest()
+            ->limit(20)
+            ->get(['id', 'public_id', 'title', 'classification', 'case_status']);
+
+        return response()->json(['cases' => $cases]);
+    }
+
+    public function attachCase(Request $request, Person $person): JsonResponse
+    {
+        $validated = $request->validate([
+            'case_id' => ['required', 'integer', 'exists:case_files,id'],
+        ]);
+        $person->cases()->syncWithoutDetaching([$validated['case_id']]);
+
+        return response()->json(['status' => 'linked']);
+    }
+
+    public function detachCase(Person $person, InvestigationCase $case): JsonResponse
+    {
+        $person->cases()->detach($case->id);
+
+        return response()->json(['status' => 'unlinked']);
+    }
+
+    private function validatePerson(Request $request): array
+    {
+        $rules = [];
+        foreach (self::TEXT_FIELDS as $field) {
+            $rules[$field] = ['nullable', 'string', 'max:'.($field === 'statement' || $field === 'identifying_marks' ? 20000 : 255)];
+        }
+
+        return $request->validate([
+            ...$rules,
+            'flag' => ['nullable', Rule::in(['Alive', 'Deceased', 'Wanted', 'Unknown'])],
+            'avatar_group' => ['nullable', Rule::in(['Male', 'Female', 'Group', 'Unknown', 'Suspect', 'Verified'])],
+            'main_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,gif', 'max:10240'],
+            'other_images' => ['nullable', 'array', 'max:40'],
+            'other_images.*' => ['image', 'mimes:jpg,jpeg,png,webp,gif', 'max:10240'],
+            'remove_main_image' => ['nullable', 'boolean'],
+        ]);
+    }
+
+    private function personAttributes(array $validated): array
+    {
+        $attributes = [];
+        foreach (self::TEXT_FIELDS as $field) {
+            $value = trim((string) ($validated[$field] ?? ''));
+            $attributes[$field] = $value === '' ? 'Unknown' : $value;
+        }
+
+        $attributes['flag'] = $validated['flag'] ?? 'Unknown';
+
+        if ($attributes['name'] === 'Unknown') {
+            $nameParts = array_filter([
+                $attributes['first_name'],
+                $attributes['last_name'],
+                $attributes['surname'],
+            ], fn (string $value): bool => $value !== 'Unknown');
+            $attributes['name'] = $nameParts === [] ? 'Unknown' : implode(' ', $nameParts);
+        }
+
+        return $attributes;
+    }
+
+    private function avatarGroup(string $gender): string
+    {
+        return match (strtolower($gender)) {
+            'male' => 'Male',
+            'female' => 'Female',
+            'group' => 'Group',
+            default => 'Unknown',
+        };
+    }
+
+    private function storeImage(UploadedFile $image, string $directory, array &$storedPaths): string
+    {
+        $extension = strtolower($image->guessExtension() ?: 'img');
+        $path = $image->storeAs($directory, Str::uuid().'.'.$extension, config('vault.upload_disk'));
+        if (! is_string($path)) {
+            throw new \RuntimeException('Unable to store the uploaded image.');
+        }
+
+        $storedPaths[] = $path;
+
+        return $path;
+    }
+
+    private function safeImageName(UploadedFile $image): string
+    {
+        return Str::limit(basename(str_replace('\\', '/', $image->getClientOriginalName())), 255, '');
+    }
+}

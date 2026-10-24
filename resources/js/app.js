@@ -20,6 +20,13 @@ const showToast = (message) => {
     window.setTimeout(() => toast.remove(), 3200);
 };
 
+if (document.querySelector('model-viewer')) {
+    import('@google/model-viewer').catch((error) => {
+        console.error('Unable to load the 3D avatar viewer.', error);
+        showToast('3D avatar preview could not be loaded.');
+    });
+}
+
 const updateTime = () => {
     const now = new Date();
 
@@ -375,12 +382,46 @@ const closePreview = () => {
 
 const makePreviewElement = (file) => {
     const streamUrl = pathUrl(shellEndpoints.stream, file.path).toString();
+    const archiveElements = [];
+    if (file.is_archive) {
+        const archiveSection = document.createElement('section');
+        archiveSection.className = 'archive-entry-preview';
+        const heading = document.createElement('div');
+        heading.className = 'archive-entry-preview-heading';
+        const title = document.createElement('strong');
+        title.textContent = 'ARCHIVE CONTENTS';
+        const count = document.createElement('span');
+        count.textContent = `${file.archive_entries.length}${file.archive_entries_truncated ? '+' : ''} FILES`;
+        heading.append(title, count);
+        const list = document.createElement('ul');
+        list.className = 'archive-entry-list';
+        if (file.archive_entries.length > 0) {
+            file.archive_entries.forEach((entryName) => {
+                const item = document.createElement('li');
+                item.textContent = entryName;
+                list.append(item);
+            });
+            archiveSection.append(heading, list);
+        } else {
+            const empty = document.createElement('p');
+            empty.className = 'archive-entry-empty';
+            empty.textContent = 'This ZIP archive contains no files.';
+            archiveSection.append(heading, empty);
+        }
+        if (file.archive_entries_truncated) {
+            const notice = document.createElement('p');
+            notice.className = 'preview-truncated';
+            notice.textContent = 'Archive listing limited to the first 1,000 entries or 256 KB of file names.';
+            archiveSection.append(notice);
+        }
+        archiveElements.push(archiveSection);
+    }
 
     if (file.preview !== null) {
         const pre = document.createElement('pre');
         pre.className = 'preview-text';
         pre.textContent = file.preview;
-        const elements = [];
+        const elements = [...archiveElements];
         if (file.extracted) {
             const notice = document.createElement('div');
             notice.className = 'preview-truncated';
@@ -396,6 +437,8 @@ const makePreviewElement = (file) => {
         elements.push(pre);
         return elements;
     }
+
+    if (file.is_archive) return archiveElements;
 
     if (file.mime.startsWith('image/')) {
         const image = document.createElement('img');
@@ -1362,6 +1405,520 @@ const apiUploadSwitch = document.querySelector('#api-upload-enabled');
 const apiUploadStatus = document.querySelector('[data-switch-status]');
 apiUploadSwitch?.addEventListener('change', () => {
     if (apiUploadStatus) apiUploadStatus.textContent = apiUploadSwitch.checked ? 'ENABLED' : 'DISABLED';
+});
+
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+
+const addPersonImageInput = (list) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.name = 'other_images[]';
+    input.accept = 'image/jpeg,image/png,image/webp,image/gif';
+    input.className = 'visually-hidden-file';
+    input.dataset.personImageInput = '';
+    list.append(input);
+    input.click();
+};
+
+document.querySelector('[data-main-image-trigger]')?.addEventListener('click', () => {
+    document.querySelector('[data-main-image-input]')?.click();
+});
+document.querySelector('[data-main-image-input]')?.addEventListener('change', (event) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+    const image = document.createElement('img');
+    image.src = URL.createObjectURL(file);
+    image.alt = 'Selected main image';
+    image.dataset.mainImagePreview = '';
+    const placeholder = document.querySelector('[data-main-image-placeholder]');
+    if (placeholder) placeholder.replaceWith(image);
+    else document.querySelector('[data-main-image-preview]')?.replaceWith(image);
+});
+document.querySelector('[data-add-person-image]')?.addEventListener('click', (event) => {
+    addPersonImageInput(event.currentTarget.closest('.record-form-visual').querySelector('[data-person-gallery-upload-list]'));
+});
+document.addEventListener('change', (event) => {
+    const input = event.target.closest('[data-person-image-input]');
+    if (!input || !input.files?.[0]) return;
+    const list = input.closest('[data-person-gallery-upload-list]');
+    const file = input.files[0];
+    const card = document.createElement('div');
+    card.className = 'new-upload-image';
+    const preview = document.createElement('img');
+    preview.src = URL.createObjectURL(file);
+    preview.alt = file.name;
+    const name = document.createElement('span');
+    name.textContent = file.name;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.setAttribute('aria-label', `Remove ${file.name}`);
+    remove.addEventListener('click', () => card.remove());
+    card.append(input, preview, name, remove);
+    list.append(card);
+});
+
+document.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-delete-person-image], [data-delete-case-image]');
+    if (!button) return;
+    button.disabled = true;
+    try {
+        const response = await fetch(button.dataset.deletePersonImage ?? button.dataset.deleteCaseImage, {
+            method: 'DELETE',
+            headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
+        });
+        if (!response.ok) throw new Error(await responseError(response));
+        button.closest('[data-existing-image], [data-existing-case-image]')?.remove();
+        showToast('Image removed from the private record.');
+    } catch (error) {
+        button.disabled = false;
+        showToast(error instanceof Error ? error.message : 'Unable to remove this image.');
+    }
+});
+
+const createCategoryEditor = (container, template) => {
+    if (container.dataset.nextCategoryIndex === undefined) {
+        const existingIndices = [...container.querySelectorAll('[data-case-category]')]
+            .map((category) => Number(category.dataset.caseIndex))
+            .filter(Number.isFinite);
+        container.dataset.nextCategoryIndex = String(existingIndices.length ? Math.max(...existingIndices) + 1 : 0);
+    }
+    const categoryIndex = Number(container.dataset.nextCategoryIndex);
+    if (categoryIndex >= 30) {
+        showToast('A case file can have up to 30 image categories.');
+        return;
+    }
+    container.dataset.nextCategoryIndex = String(categoryIndex + 1);
+    const category = template.content.firstElementChild.cloneNode(true);
+    category.dataset.caseIndex = String(categoryIndex);
+    category.querySelector('[data-category-number]').textContent = String(categoryIndex + 1).padStart(2, '0');
+    category.querySelectorAll('[data-category-field]').forEach((field) => {
+        field.name = `categories[${categoryIndex}][${field.dataset.categoryField}]`;
+    });
+    container.append(category);
+};
+
+document.querySelectorAll('[data-case-form-layout]').forEach((layout) => {
+    const categoryList = layout.querySelector('[data-case-category-list]');
+    const categoryTemplate = layout.querySelector('[data-case-category-template]');
+    const imageTemplate = layout.querySelector('[data-case-image-template]');
+    layout.querySelector('[data-add-case-category]')?.addEventListener('click', () => createCategoryEditor(categoryList, categoryTemplate));
+    layout.addEventListener('click', (event) => {
+        const removeCategory = event.target.closest('[data-remove-category]');
+        if (removeCategory) {
+            const category = removeCategory.closest('[data-case-category]');
+            const idInput = category.querySelector('input[name$="[id]"]');
+            if (idInput) {
+                const deleted = document.createElement('input');
+                deleted.type = 'hidden';
+                deleted.name = 'delete_categories[]';
+                deleted.value = idInput.value;
+                layout.closest('form').append(deleted);
+            }
+            category.remove();
+            return;
+        }
+
+        const addImage = event.target.closest('[data-add-case-image]');
+        if (addImage) {
+            const category = addImage.closest('[data-case-category]');
+            const index = category.dataset.caseIndex;
+            if (index === undefined) return;
+            const input = imageTemplate.content.querySelector('input').cloneNode(true);
+            input.name = `categories[${index}][images][]`;
+            category.querySelector('[data-case-image-list]').append(input);
+            input.click();
+        }
+
+        const removeImage = event.target.closest('[data-remove-case-image]');
+        if (removeImage) removeImage.closest('[data-new-case-image]')?.remove();
+    });
+    layout.addEventListener('change', (event) => {
+        const input = event.target.closest('[data-case-image-input]');
+        if (!input || !input.files?.[0]) return;
+        const list = input.closest('[data-case-image-list]');
+        const file = input.files[0];
+        const wrapper = imageTemplate.content.firstElementChild.cloneNode(true);
+        const preview = document.createElement('img');
+        preview.src = URL.createObjectURL(file);
+        preview.alt = file.name;
+        wrapper.querySelector('input')?.remove();
+        wrapper.querySelector('[data-case-image-name]').textContent = file.name;
+        wrapper.insertBefore(input, wrapper.querySelector('[data-case-image-name]'));
+        wrapper.insertBefore(preview, wrapper.querySelector('[data-case-image-name]'));
+        wrapper.dataset.newCaseImage = '';
+        list?.append(wrapper);
+    });
+});
+
+document.querySelectorAll('[data-glb-form]').forEach((form) => {
+    const input = form.querySelector('[data-glb-input]');
+    form.querySelector('[data-glb-select]')?.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => {
+        const name = form.querySelector('[data-glb-file-name]');
+        name.textContent = input.files?.[0]?.name ?? 'No file selected';
+    });
+});
+
+const imagePinDialog = document.querySelector('[data-image-pin-dialog]');
+const imagePinDigits = [...(imagePinDialog?.querySelectorAll('[data-pin-digit]') ?? [])];
+const imagePinError = imagePinDialog?.querySelector('[data-pin-error]');
+const imagePinForm = imagePinDialog?.querySelector('[data-image-pin-form]');
+const submitImagePin = imagePinDialog?.querySelector('[data-submit-image-pin]');
+const profileImageToggle = document.querySelector('[data-profile-visual-toggle]');
+const profileMainImage = document.querySelector('[data-profile-main-image]');
+let personViewablesUnlocked = false;
+
+const loadProtectedImage = (image) => {
+    if (image && !image.getAttribute('src') && image.dataset.imageUrl) {
+        image.src = image.dataset.imageUrl;
+    }
+};
+
+const activatePersonViewables = () => {
+    personViewablesUnlocked = true;
+    document.querySelectorAll('[data-protected-image]').forEach((image) => {
+        image.hidden = false;
+        if (!image.closest('[hidden]')) loadProtectedImage(image);
+        image.closest('[data-image-viewer]')?.querySelector('[data-image-lock-placeholder]')?.remove();
+    });
+    document.querySelector('[data-profile-gallery]')?.classList.remove('is-locked');
+    if (profileImageToggle instanceof HTMLButtonElement) {
+        profileImageToggle.disabled = false;
+        profileImageToggle.innerHTML = 'VIEW MAIN IMAGE <span>↗</span>';
+    }
+    const unlockButton = document.querySelector('[data-open-image-pin]');
+    if (unlockButton) {
+        unlockButton.textContent = 'VIEWABLES UNLOCKED';
+        unlockButton.disabled = true;
+        unlockButton.setAttribute('aria-pressed', 'true');
+    }
+};
+
+const authenticateImagePin = async () => {
+    if (!imagePinDialog || !submitImagePin || submitImagePin.disabled) return;
+    const pin = imagePinDigits.map((input) => input.value).join('');
+    if (!/^\d{4}$/.test(pin)) {
+        if (imagePinError) imagePinError.textContent = 'Enter all four PIN digits.';
+        imagePinDigits.find((input) => !input.value)?.focus();
+        return;
+    }
+    submitImagePin.disabled = true;
+    submitImagePin.textContent = 'VERIFYING...';
+    if (imagePinError) imagePinError.textContent = '';
+    try {
+        const response = await fetch(imagePinDialog.dataset.unlockUrl, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: JSON.stringify({ pin }),
+        });
+        if (!response.ok) throw new Error(await responseError(response));
+        activatePersonViewables();
+        imagePinDigits.forEach((input) => { input.value = ''; });
+        imagePinDialog.close();
+    } catch (error) {
+        if (imagePinError) imagePinError.textContent = error instanceof Error ? error.message : 'PIN verification failed.';
+        imagePinDigits.forEach((input) => { input.value = ''; });
+        imagePinDigits[0]?.focus();
+    } finally {
+        if (imagePinDialog.open) {
+            submitImagePin.disabled = false;
+            submitImagePin.textContent = 'AUTHENTICATE PIN';
+        }
+    }
+};
+
+document.querySelector('[data-open-image-pin]')?.addEventListener('click', (event) => {
+    if (personViewablesUnlocked) {
+        event.currentTarget.disabled = true;
+        return;
+    }
+    imagePinDialog?.showModal();
+    imagePinDigits[0]?.focus();
+});
+imagePinForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    authenticateImagePin();
+});
+imagePinDigits.forEach((input, index) => {
+    input.addEventListener('input', () => {
+        const enteredDigits = input.value.replace(/\D/g, '').slice(0, 4);
+        if (enteredDigits.length > 1) {
+            [...enteredDigits].forEach((digit, digitIndex) => {
+                if (imagePinDigits[digitIndex]) imagePinDigits[digitIndex].value = digit;
+            });
+            imagePinDigits[Math.min(enteredDigits.length, 3)]?.focus();
+            return;
+        }
+        input.value = enteredDigits.slice(-1);
+        if (input.value) imagePinDigits[index + 1]?.focus();
+    });
+    input.addEventListener('keydown', (event) => {
+        if (event.key === 'Backspace' && !input.value) imagePinDigits[index - 1]?.focus();
+    });
+    input.addEventListener('paste', (event) => {
+        const pasted = event.clipboardData?.getData('text').replace(/\D/g, '').slice(0, 4);
+        if (!pasted) return;
+        event.preventDefault();
+        [...pasted].forEach((digit, digitIndex) => {
+            if (imagePinDigits[digitIndex]) imagePinDigits[digitIndex].value = digit;
+        });
+        imagePinDigits[Math.min(pasted.length, 3)]?.focus();
+    });
+});
+profileImageToggle?.addEventListener('click', () => {
+    if (!profileMainImage) return;
+    const showImage = profileMainImage.hidden;
+    if (showImage) loadProtectedImage(profileMainImage.querySelector('[data-protected-image]'));
+    profileMainImage.hidden = !showImage;
+    document.querySelectorAll('[data-profile-model]').forEach((model) => { model.hidden = showImage; });
+    profileImageToggle.innerHTML = showImage ? 'VIEW 3D MODEL <span>↗</span>' : 'VIEW MAIN IMAGE <span>↗</span>';
+});
+
+const imageViewerDialog = document.querySelector('[data-image-viewer-dialog]');
+const imageViewer = imageViewerDialog?.querySelector('[data-image-viewer-image]');
+const imageViewerTitle = imageViewerDialog?.querySelector('[data-image-viewer-title]');
+const imageViewerDownload = imageViewerDialog?.querySelector('[data-image-viewer-download]');
+const imageViewerStage = imageViewerDialog?.querySelector('[data-image-viewer-stage]');
+const imageZoomIn = imageViewerDialog?.querySelector('[data-image-zoom-in]');
+const imageZoomOut = imageViewerDialog?.querySelector('[data-image-zoom-out]');
+const imageZoomLevel = imageViewerDialog?.querySelector('[data-image-zoom-level]');
+const imageGrayscaleToggle = imageViewerDialog?.querySelector('[data-image-grayscale]');
+let imageZoom = 1;
+let imagePanX = 0;
+let imagePanY = 0;
+let imageDragPointer = null;
+
+const updateImageViewerTransform = () => {
+    if (!imageViewer || !imageViewerStage) return;
+    const maxX = Math.max(0, (imageViewer.offsetWidth * imageZoom - imageViewerStage.clientWidth) / 2 - 8);
+    const maxY = Math.max(0, (imageViewer.offsetHeight * imageZoom - imageViewerStage.clientHeight) / 2 - 8);
+    imagePanX = Math.max(-maxX, Math.min(maxX, imagePanX));
+    imagePanY = Math.max(-maxY, Math.min(maxY, imagePanY));
+    imageViewer.style.setProperty('--image-zoom', String(imageZoom));
+    imageViewer.style.setProperty('--image-pan-x', `${imagePanX}px`);
+    imageViewer.style.setProperty('--image-pan-y', `${imagePanY}px`);
+    imageViewerStage.classList.toggle('is-zoomed', imageZoom > 1);
+    if (imageZoomLevel) imageZoomLevel.textContent = `${Math.round(imageZoom * 100)}%`;
+    if (imageZoomIn instanceof HTMLButtonElement) imageZoomIn.disabled = imageZoom >= 5;
+    if (imageZoomOut instanceof HTMLButtonElement) imageZoomOut.disabled = imageZoom <= 1;
+};
+
+const resetImageViewer = () => {
+    imageZoom = 1;
+    imagePanX = 0;
+    imagePanY = 0;
+    imageDragPointer = null;
+    imageViewerStage?.classList.remove('is-dragging');
+    if (imageViewer) imageViewer.style.filter = '';
+    if (imageGrayscaleToggle instanceof HTMLInputElement) imageGrayscaleToggle.checked = false;
+    updateImageViewerTransform();
+};
+
+const updateImageGrayscale = () => {
+    if (imageViewer && imageGrayscaleToggle instanceof HTMLInputElement) {
+        imageViewer.style.filter = imageGrayscaleToggle.checked ? 'grayscale(1)' : '';
+    }
+};
+
+const downloadGrayscaleImage = async (event) => {
+    if (!(imageGrayscaleToggle instanceof HTMLInputElement) || !imageGrayscaleToggle.checked) return;
+    event.preventDefault();
+    if (!imageViewer?.src || !imageViewerDownload) return;
+
+    try {
+        await imageViewer.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = imageViewer.naturalWidth;
+        canvas.height = imageViewer.naturalHeight;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Could not prepare the grayscale image for download.');
+        context.filter = 'grayscale(1)';
+        context.drawImage(imageViewer, 0, 0);
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+        if (!blob) throw new Error('Could not create the grayscale image download.');
+
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        const baseName = (imageViewerTitle?.textContent || 'image')
+            .replace(/\.[^.]+$/, '')
+            .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+            .trim() || 'image';
+        anchor.href = objectUrl;
+        anchor.download = `${baseName}-grayscale.png`;
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Could not prepare the grayscale image download.');
+    }
+};
+
+imageZoomIn?.addEventListener('click', () => {
+    imageZoom = Math.min(5, Math.round((imageZoom + 0.25) * 100) / 100);
+    updateImageViewerTransform();
+});
+imageZoomOut?.addEventListener('click', () => {
+    imageZoom = Math.max(1, Math.round((imageZoom - 0.25) * 100) / 100);
+    updateImageViewerTransform();
+});
+imageGrayscaleToggle?.addEventListener('change', updateImageGrayscale);
+imageViewerDownload?.addEventListener('click', downloadGrayscaleImage);
+imageViewer?.addEventListener('load', updateImageViewerTransform);
+imageViewerStage?.addEventListener('pointerdown', (event) => {
+    if (imageZoom <= 1 || event.target !== imageViewer || event.button !== 0) return;
+    imageDragPointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    imageViewerStage.setPointerCapture(event.pointerId);
+    imageViewerStage.classList.add('is-dragging');
+    event.preventDefault();
+});
+imageViewerStage?.addEventListener('pointermove', (event) => {
+    if (!imageDragPointer || event.pointerId !== imageDragPointer.id) return;
+    imagePanX += event.clientX - imageDragPointer.x;
+    imagePanY += event.clientY - imageDragPointer.y;
+    imageDragPointer.x = event.clientX;
+    imageDragPointer.y = event.clientY;
+    updateImageViewerTransform();
+});
+imageViewerStage?.addEventListener('pointerup', (event) => {
+    if (!imageDragPointer || event.pointerId !== imageDragPointer.id) return;
+    imageDragPointer = null;
+    imageViewerStage.classList.remove('is-dragging');
+    if (imageViewerStage.hasPointerCapture(event.pointerId)) imageViewerStage.releasePointerCapture(event.pointerId);
+});
+imageViewerStage?.addEventListener('pointercancel', () => {
+    imageDragPointer = null;
+    imageViewerStage.classList.remove('is-dragging');
+});
+
+document.addEventListener('click', (event) => {
+    const expandButton = event.target.closest('[data-expand-gallery]');
+    if (expandButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        const gallery = expandButton.closest('[data-expandable-gallery], [data-profile-gallery]');
+        gallery?.querySelectorAll('[data-gallery-extra]').forEach((image) => {
+            image.hidden = false;
+            if (personViewablesUnlocked) {
+                loadProtectedImage(image.matches('[data-protected-image]') ? image : image.querySelector('[data-protected-image]'));
+            }
+        });
+        gallery?.classList.add('is-expanded');
+        expandButton.remove();
+        return;
+    }
+
+    const imageTrigger = event.target.closest('[data-image-viewer]');
+    if (!imageTrigger || !imageViewerDialog || !imageViewer) return;
+    event.preventDefault();
+    const protectedImage = imageTrigger.matches('[data-protected-image]')
+        ? imageTrigger
+        : imageTrigger.querySelector('[data-protected-image]');
+    if (protectedImage && !protectedImage.getAttribute('src') && !personViewablesUnlocked) {
+        imagePinDialog?.showModal();
+        imagePinDigits[0]?.focus();
+        return;
+    }
+    if (protectedImage) loadProtectedImage(protectedImage);
+    const imageUrl = protectedImage?.src || imageTrigger.dataset.imageUrl;
+    if (!imageUrl) return;
+    imageViewer.src = imageUrl;
+    imageViewer.alt = imageTrigger.dataset.imageTitle
+        ?? protectedImage?.alt
+        ?? imageTrigger.querySelector('img')?.alt
+        ?? 'Private image';
+    if (imageViewerTitle) imageViewerTitle.textContent = imageViewer.alt;
+    resetImageViewer();
+    if (imageViewerDownload) imageViewerDownload.href = imageTrigger.dataset.downloadUrl
+        ?? protectedImage?.dataset.downloadUrl
+        ?? '';
+    imageViewerDialog.showModal();
+});
+
+document.querySelector('[data-close-image-viewer]')?.addEventListener('click', () => imageViewerDialog?.close());
+imageViewerDialog?.addEventListener('click', (event) => {
+    if (event.target === imageViewerDialog) imageViewerDialog.close();
+});
+imageViewerDialog?.addEventListener('close', () => {
+    if (imageViewer) imageViewer.removeAttribute('src');
+    if (imageViewerDownload) imageViewerDownload.removeAttribute('href');
+    resetImageViewer();
+});
+
+window.addEventListener('pageshow', (event) => {
+    if (event.persisted && document.querySelector('[data-image-pin-dialog]')) window.location.reload();
+});
+
+const caseLinkDialog = document.querySelector('[data-case-link-dialog]');
+const caseLinkResults = document.querySelector('[data-case-link-results]');
+const caseLinkSearch = document.querySelector('[data-case-link-search]');
+let caseSearchTimer = null;
+
+const searchLinkableCases = async () => {
+    if (!caseLinkResults) return;
+    const url = new URL(caseLinkResults.dataset.searchUrl, window.location.origin);
+    url.searchParams.set('q', caseLinkSearch.value.trim());
+    caseLinkResults.textContent = 'Searching case files…';
+    try {
+        const response = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error(await responseError(response));
+        const result = await response.json();
+        caseLinkResults.replaceChildren();
+        if (result.cases.length === 0) {
+            caseLinkResults.textContent = 'No unlinked case files found.';
+            return;
+        }
+        result.cases.forEach((caseFile) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'case-link-result';
+            const details = document.createElement('span');
+            const id = document.createElement('strong');
+            id.textContent = caseFile.public_id;
+            const title = document.createElement('small');
+            title.textContent = caseFile.title;
+            details.append(id, title);
+            const classification = document.createElement('small');
+            classification.textContent = caseFile.classification;
+            button.append(details, classification);
+            button.addEventListener('click', async () => {
+                try {
+                    const attachResponse = await fetch(caseLinkResults.dataset.attachUrl, {
+                        method: 'POST',
+                        headers: {
+                            Accept: 'application/json',
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': csrfToken,
+                        },
+                        body: JSON.stringify({ case_id: caseFile.id }),
+                    });
+                    if (!attachResponse.ok) throw new Error(await responseError(attachResponse));
+                    window.location.reload();
+                } catch (error) {
+                    showToast(error instanceof Error ? error.message : 'Unable to link the case file.');
+                }
+            });
+            caseLinkResults.append(button);
+        });
+    } catch (error) {
+        caseLinkResults.textContent = error instanceof Error ? error.message : 'Unable to search case files.';
+    }
+};
+
+document.querySelector('[data-open-case-link]')?.addEventListener('click', () => {
+    caseLinkDialog?.showModal();
+    searchLinkableCases();
+    caseLinkSearch?.focus();
+});
+caseLinkSearch?.addEventListener('input', () => {
+    window.clearTimeout(caseSearchTimer);
+    caseSearchTimer = window.setTimeout(searchLinkableCases, 180);
 });
 
 const calculator = document.querySelector('[data-calculator]');

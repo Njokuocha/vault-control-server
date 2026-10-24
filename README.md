@@ -67,6 +67,9 @@ Vault Control Server is a private file repository. Administrators can upload fil
 | 8 | Search + type filter | Light client/server filtering so the dashboard stays usable |
 | 9 | Summary stat cards | Total files, total size, uploads this month, last activity |
 | 10 | Settings page | Upload key, endpoint info + cURL sample, admin password change |
+| 11 | Person records | Optional person dossiers, private main/gallery images, linked cases, and public IDs |
+| 12 | Case files | Classified case dossiers with grouped image evidence and linked people |
+| 13 | Avatar models | Authenticated configuration of private Male, Female, Group, Unknown, Suspect, and Verified GLB models |
 
 Deliberately **excluded** from v1: roles, sharing links, folders, tags, versions UI, bulk ops. The architecture leaves room for all of them.
 
@@ -248,6 +251,33 @@ Indexes: `uuid` (unique), `created_at`, `category`, fulltext or index on `origin
 
 > The upload key is stored **encrypted** (not hashed) so the admin can view and copy it on the dashboard. Comparison on the endpoint uses `hash_equals` against the decrypted value.
 
+### Investigation records
+
+The investigation module uses `people`, `person_images`, `case_files`,
+`case_categories`, `case_images`, and `case_person`. Person and case records
+receive unique `USR-` and `CSE-` public identifiers, respectively. IDs use a
+seven-character uppercase alphanumeric suffix and grow to eight or nine
+characters when collisions prevent allocation.
+
+Person data fields are optional; blank values are stored as `Unknown`. A
+person's main image is stored separately from additional gallery images.
+Case files have a classification (`CLASSIFIED`, `HIGHLY SENSITIVE`, or
+`ACCESSIBLE`), workflow status, narrative, comments, and any number of named
+image categories. People and cases are linked through the `case_person` pivot.
+
+All profile and case images are limited to raster formats and 10 MB per image.
+Their bytes remain on the private `vault` disk and are served only through
+authenticated routes. Person images additionally require a four-digit
+administrator-configured PIN; the PIN is stored as an encrypted password hash,
+and unlocking applies only to the current person profile visit. Main images and
+galleries are not requested by the browser before PIN verification. Male,
+Female, and Group GLB avatars are stored on the same private disk; uploads are
+checked for a GLB 2.0 header and external asset references are rejected. The
+model-viewer JavaScript is loaded only on pages that display a 3D model.
+Person and case image viewers fit the complete image by default, with zoom and
+drag-to-pan controls. Grayscale can be toggled for inspection and is applied to
+the full-resolution PNG generated when downloading while grayscale is enabled.
+
 ### Example migration (files)
 
 ```php
@@ -404,6 +434,32 @@ GET   /settings                      settings.index
 POST  /settings/upload-key           settings.key.reset
 POST  /settings/upload-policy        settings.upload-policy.update
 POST  /settings/password             settings.password.update
+GET   /people                        people.index
+GET   /people/create                 people.create
+POST  /people                        people.store
+GET   /people/{person}               people.show
+GET   /people/{person}/edit          people.edit
+PUT   /people/{person}               people.update
+GET   /people/{person}/images/{image} people.image
+GET   /people/{person}/images/{image}/download people.images.download
+POST  /people/{person}/images/unlock people.images.unlock
+DELETE /people/{person}/images/{image} people.images.destroy
+GET   /people/{person}/linkable-cases people.cases.search
+POST  /people/{person}/cases         people.cases.attach
+DELETE /people/{person}/cases/{case} people.cases.detach
+GET   /cases                         cases.index
+GET   /cases/create                  cases.create
+POST  /cases                         cases.store
+GET   /cases/{caseFile}              cases.show
+GET   /cases/{caseFile}/edit         cases.edit
+PUT   /cases/{caseFile}              cases.update
+GET   /cases/{caseFile}/images/{image} cases.image
+GET   /cases/{caseFile}/images/{image}/download cases.images.download
+DELETE /cases/{caseFile}/images/{image} cases.images.destroy
+GET   /avatar-models                 avatar-models.index
+POST  /avatar-models/{group}         avatar-models.update
+GET   /avatar-models/{group}/file    avatar-models.stream
+POST  /settings/person-image-pin     settings.person-image-pin.update
 GET   /shell/directory               shell.directory
 GET   /shell/preview                 shell.preview
 GET   /shell/stream                  shell.stream
@@ -414,6 +470,13 @@ POST  /shell/copy                    shell.copy
 POST  /shell/move                    shell.move
 ```
 
+Person dossiers are managed at `/people`; case-file creation, evidence groups,
+and linked people are managed at `/cases`. The `/avatar-models` page configures
+private Male, Female, Group, Unknown, Suspect, and Verified GLB profiles. The
+person form keeps biological gender separate from the independently selectable
+avatar group. Profile, evidence, and model media are never exposed as public
+storage URLs.
+
 `GET /uploads` and `POST /uploads` provide the authenticated manual upload page and handler. The file stream/preview routes listed above are Vault Shell routes and operate only within the private shell root.
 
 The authenticated Vault Shell is mounted on every dashboard route. Its `Ctrl + Shift + X` shortcut opens, hides, or shows a console from the archive, calculator, manual upload, or Settings pages. Open shell instances, their positions, directories, and command transcript are restored when navigating between dashboard routes in the same tab. Shell endpoints are not operating-system shell execution routes.
@@ -421,6 +484,8 @@ The authenticated Vault Shell is mounted on every dashboard route. Its `Ctrl + S
 The dashboard includes a draggable, multi-instance Vault Shell console. Its prompt begins at `VCS vcs:/root>`. The virtual root is `storage/app/private/vault`; paths cannot escape this directory, hidden entries and symbolic links are excluded, and each console window maintains its own current directory.
 
 Available commands are `cd`, `dir`, `mkdir`, `copy`, `move`, `launch`, `del`, `trigger`, `?help`, and `exit`. `launch` previews files, `launch vs` opens another console, and `launch calc` opens the portable calculator. `trigger 3+3` evaluates arithmetic, while `trigger "3+3"` displays literal text. `del` requires an explicit `yes` or `no` response. Copy and move can handle files and directories, never overwrite an existing destination, and cannot leave the private root. No operating-system commands are executed. See [COMMAND.md](./COMMAND.md) for the complete command reference.
+
+When a ZIP archive is opened in Vault Shell, its contained file paths—including nested paths—are listed in the preview. Listings are capped at 1,000 entries and 256 KB of names; archive contents are not extracted or executed.
 
 Manual uploads are available at `/uploads`; API uploads are available at `POST /api/upload`. Both paths enforce the configured per-file size and write files to the private vault disk with metadata. The Settings page can change the size limit and disable API uploads. Setting the limit to `0` blocks all uploads.
 

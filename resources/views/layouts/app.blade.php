@@ -33,6 +33,15 @@
                     <a class="nav-item {{ request()->routeIs('calculator.index') ? 'is-active' : '' }}" href="{{ route('calculator.index') }}" @if(request()->routeIs('calculator.index')) aria-current="page" @endif>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h1M12 12h1M16 12h.01M8 16h1M12 16h1M16 16h.01"/></svg><span>Calculator</span>
                     </a>
+                    <a class="nav-item {{ request()->routeIs('people.*') ? 'is-active' : '' }}" href="{{ route('people.index') }}" @if(request()->routeIs('people.*')) aria-current="page" @endif>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5v-1.2a5.5 5.5 0 0 1 11 0v1.2zM16 5.2a3.2 3.2 0 0 1 0 6.2M17 14a4.7 4.7 0 0 1 3.5 4.5v1"/></svg><span>Person records</span>
+                    </a>
+                    <a class="nav-item {{ request()->routeIs('cases.*') ? 'is-active' : '' }}" href="{{ route('cases.index') }}" @if(request()->routeIs('cases.*')) aria-current="page" @endif>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h6l2 2h8v10.8H4z"/><path d="M8 13h8M8 16.5h5"/></svg><span>Case files</span>
+                    </a>
+                    <a class="nav-item {{ request()->routeIs('avatar-models.*') ? 'is-active' : '' }}" href="{{ route('avatar-models.index') }}" @if(request()->routeIs('avatar-models.*')) aria-current="page" @endif>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4.5 7.7 7.5 4.4 7.5-4.4M12 12v8.5"/></svg><span>Avatar models</span>
+                    </a>
                     <a class="nav-item {{ request()->routeIs('settings.index') ? 'is-active' : '' }}" href="{{ route('settings.index') }}" @if(request()->routeIs('settings.index')) aria-current="page" @endif>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"/><path d="m19.4 13.8 1.1.9-1.7 3-1.4-.5a7.6 7.6 0 0 1-1.5.9l-.3 1.5h-3.4l-.3-1.5a7.6 7.6 0 0 1-1.5-.9l-1.4.5-1.7-3 1.1-.9a7 7 0 0 1 0-1.8l-1.1-.9 1.7-3 1.4.5a7.6 7.6 0 0 1 1.5-.9l.3-1.5h3.4l.3 1.5a7.6 7.6 0 0 1 1.5.9l1.4-.5 1.7 3-1.1.9a7 7 0 0 1 0 1.8Z"/></svg><span>Settings</span>
                     </a>

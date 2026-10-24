@@ -74,7 +74,7 @@ class VaultShellService
     }
 
     /**
-     * @return array{name: string, path: string, size: int, mime: string, preview: string|null, truncated: bool}
+     * @return array{name: string, path: string, size: int, mime: string, preview: string|null, truncated: bool, extracted: bool, archive_entries: array<int, string>, archive_entries_truncated: bool}
      */
     public function preview(string $virtualPath): array
     {
@@ -91,10 +91,14 @@ class VaultShellService
         $preview = null;
         $truncated = false;
         $extracted = false;
+        $isArchive = $this->isZipFile($absolutePath, $mime);
+        $archiveEntries = [];
+        $archiveEntriesTruncated = false;
 
         if ($this->isText($mime) && is_int($size)) {
             [$preview, $truncated] = $this->readTextPreview($absolutePath, $size);
-        } elseif ($this->isZipFile($absolutePath, $mime)) {
+        } elseif ($isArchive) {
+            [$archiveEntries, $archiveEntriesTruncated] = $this->listArchiveEntries($absolutePath);
             $extractedText = $this->extractWordDocumentText($absolutePath);
             $preview = $extractedText['text'] ?? null;
             $extracted = $extractedText !== null;
@@ -109,6 +113,9 @@ class VaultShellService
             'preview' => $preview,
             'truncated' => $truncated,
             'extracted' => $extracted,
+            'is_archive' => $isArchive,
+            'archive_entries' => $archiveEntries,
+            'archive_entries_truncated' => $archiveEntriesTruncated,
         ];
     }
 
@@ -490,6 +497,49 @@ class VaultShellService
     }
 
     /**
+     * @return array{0: array<int, string>, 1: bool}
+     */
+    private function listArchiveEntries(string $path): array
+    {
+        if (! class_exists(\ZipArchive::class)) {
+            return [[], false];
+        }
+
+        $archive = new \ZipArchive;
+        if ($archive->open($path) !== true) {
+            return [[], false];
+        }
+
+        try {
+            $entries = [];
+            $entryCount = $archive->numFiles;
+            $limit = 1000;
+            $nameBytes = 0;
+
+            for ($index = 0; $index < min($entryCount, $limit); $index++) {
+                $name = $archive->getNameIndex($index);
+                if (! is_string($name) || $name === '' || str_ends_with($name, '/')) {
+                    continue;
+                }
+
+                $name = mb_strcut($name, 0, 512, 'UTF-8');
+                $nameBytes += strlen($name);
+                if ($nameBytes > 262144) {
+                    return [$entries, true];
+                }
+
+                $entries[] = $name;
+            }
+
+            sort($entries, SORT_NATURAL | SORT_FLAG_CASE);
+
+            return [$entries, $entryCount > $limit];
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /**
      * @return array{text: string, truncated: bool}|null
      */
     private function extractWordDocumentText(string $path): ?array
@@ -498,7 +548,7 @@ class VaultShellService
             return null;
         }
 
-        $archive = new \ZipArchive();
+        $archive = new \ZipArchive;
 
         if ($archive->open($path) !== true) {
             return null;
@@ -524,7 +574,7 @@ class VaultShellService
                 return null;
             }
 
-            $document = new \DOMDocument();
+            $document = new \DOMDocument;
             $previousErrorMode = libxml_use_internal_errors(true);
 
             try {
