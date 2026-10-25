@@ -967,6 +967,7 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
 .linked-case-empty, .profile-gallery-empty { padding: 12px; border: 1px dashed var(--line-strong); border-radius: 5px; color: var(--text-muted); font-size: 11px; text-align: center; }
 .profile-gallery-block { padding-top: 13px; }
 .profile-gallery { display: grid; width: min(100%, 290px); grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.profile-gallery.is-expanded { width: 100%; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); }
 .profile-gallery a, .case-evidence-gallery a { position: relative; display: block; aspect-ratio: 1; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 5px; background: #070c12; }
 .profile-gallery img, .case-evidence-gallery img { width: 100%; height: 100%; object-fit: cover; transition: transform .25s; }
 .profile-gallery a:hover img, .case-evidence-gallery a:hover img { transform: scale(1.04); }
@@ -1193,7 +1194,8 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
     .record-field-wide { grid-column: auto; }
     .profile-heading-actions { align-self: flex-end; }
     .profile-quick-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .profile-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .profile-gallery:not(.is-expanded) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .profile-gallery.is-expanded { grid-template-columns: repeat(auto-fill, minmax(min(120px, 100%), 1fr)); }
     .profile-details-list { grid-template-columns: minmax(0, 1fr); }
     .avatar-model-grid { grid-template-columns: minmax(0, 1fr); }
     .case-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }

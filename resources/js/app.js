@@ -1696,8 +1696,16 @@ let imageDragPointer = null;
 
 const updateImageViewerTransform = () => {
     if (!imageViewer || !imageViewerStage) return;
-    const maxX = Math.max(0, (imageViewer.offsetWidth * imageZoom - imageViewerStage.clientWidth) / 2 - 8);
-    const maxY = Math.max(0, (imageViewer.offsetHeight * imageZoom - imageViewerStage.clientHeight) / 2 - 8);
+    const imageFitScale = imageViewer.naturalWidth && imageViewer.naturalHeight
+        ? Math.min(imageViewer.clientWidth / imageViewer.naturalWidth, imageViewer.clientHeight / imageViewer.naturalHeight)
+        : 0;
+    const displayedWidth = imageViewer.naturalWidth * imageFitScale;
+    const displayedHeight = imageViewer.naturalHeight * imageFitScale;
+    const stageStyle = getComputedStyle(imageViewerStage);
+    const stageWidth = imageViewerStage.clientWidth - parseFloat(stageStyle.paddingLeft) - parseFloat(stageStyle.paddingRight);
+    const stageHeight = imageViewerStage.clientHeight - parseFloat(stageStyle.paddingTop) - parseFloat(stageStyle.paddingBottom);
+    const maxX = Math.max(0, (displayedWidth * imageZoom - stageWidth) / 2);
+    const maxY = Math.max(0, (displayedHeight * imageZoom - stageHeight) / 2);
     imagePanX = Math.max(-maxX, Math.min(maxX, imagePanX));
     imagePanY = Math.max(-maxY, Math.min(maxY, imagePanY));
     imageViewer.style.setProperty('--image-zoom', String(imageZoom));

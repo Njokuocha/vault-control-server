@@ -87,6 +87,26 @@ test('person profiles securely store a main image and multiple gallery images', 
         ->assertHeader('X-Content-Type-Options', 'nosniff');
 });
 
+test('person galleries expand beyond four images and expose the gallery expansion control', function () {
+    $this->actingAs(User::factory()->create())
+        ->post(route('people.store'), [
+            'other_images' => array_map(
+                fn (int $index): UploadedFile => investigationImageUpload('gallery-'.$index.'.png'),
+                range(1, 6),
+            ),
+        ])
+        ->assertRedirect();
+
+    $person = Person::query()->firstOrFail();
+    $response = $this->get(route('people.show', $person))
+        ->assertOk()
+        ->assertSee('data-profile-gallery', false)
+        ->assertSee('+2')
+        ->assertSee('data-gallery-extra', false);
+
+    expect(substr_count($response->getContent(), 'data-gallery-extra'))->toBe(2);
+});
+
 test('case files create grouped evidence and link to person profiles', function () {
     $user = User::factory()->create();
     $person = Person::query()->create([
