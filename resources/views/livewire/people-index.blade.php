@@ -15,7 +15,7 @@
     @else
         <section class="person-card-grid" aria-label="Person records">
             @foreach ($people as $person)
-                <a class="person-index-card" wire:key="person-{{ $person->id }}"
+                <a class="person-index-card" wire:navigate wire:key="person-{{ $person->id }}"
                     data-search="{{ strtolower($person->public_id.' '.$person->name.' '.$person->state.' '.$person->citizenship) }}"
                     x-show="!term || $el.dataset.search.includes(term)"
                     href="{{ route('people.show', $person) }}">

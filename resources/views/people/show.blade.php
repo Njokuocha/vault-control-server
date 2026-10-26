@@ -6,7 +6,7 @@
 @section('content')
     <section class="page-heading">
         <div><div class="eyebrow"><span class="eyebrow-line"></span> SUBJECT DOSSIER <span class="eyebrow-index">{{ $person->public_id }}</span></div><h1>{{ $person->name }} <span>profile</span></h1><p class="page-description">Private subject record · last updated {{ $person->updated_at->format('M j, Y H:i') }}</p></div>
-        <div class="profile-heading-actions"><button class="button-secondary" type="button" data-open-image-pin>UNLOCK VIEWABLES</button><a class="button-secondary" href="{{ route('people.index') }}">ALL PEOPLE</a><a class="button-primary" href="{{ route('people.edit', $person) }}">EDIT PROFILE</a></div>
+        <div class="profile-heading-actions"><button class="button-secondary" type="button" data-open-image-pin>UNLOCK VIEWABLES</button><a class="button-secondary" href="{{ route('people.index') }}" wire:navigate>ALL PEOPLE</a><a class="button-primary" href="{{ route('people.edit', $person) }}" wire:navigate>EDIT PROFILE</a></div>
     </section>
     <section class="person-profile-hero">
         <div class="profile-visual-panel">
@@ -28,7 +28,7 @@
             @if ($imagePinConfigured)
                 <button class="profile-visual-toggle" type="button" data-profile-visual-toggle data-has-main-image="{{ $person->main_image_path ? 'true' : 'false' }}" disabled>VIEW MAIN IMAGE <span>↗</span></button>
             @else
-                <a class="profile-visual-toggle profile-visual-setup" href="{{ route('settings.index') }}">CONFIGURE IMAGE PIN IN SETTINGS <span>↗</span></a>
+                <a class="profile-visual-toggle profile-visual-setup" href="{{ route('settings.index') }}" wire:navigate>CONFIGURE IMAGE PIN IN SETTINGS <span>↗</span></a>
             @endif
             <div class="profile-model-caption"><span class="status-dot"></span> ROTATION PREVIEW <i>·</i> {{ strtoupper($person->avatar_group) }} MODEL</div>
         </div>
@@ -47,7 +47,7 @@
                 @if ($person->cases->isNotEmpty())
                     <div class="linked-case-list">
                         @foreach ($person->cases as $case)
-                            <a class="linked-case-row" href="{{ route('cases.show', $case) }}"><span class="case-link-mark">CSE</span><span><strong>{{ $case->public_id }}</strong><small>{{ $case->title }}</small></span><span class="case-classification-chip">{{ $case->classification }}</span><span aria-hidden="true">↗</span></a>
+                            <a class="linked-case-row" href="{{ route('cases.show', $case) }}" wire:navigate><span class="case-link-mark">CSE</span><span><strong>{{ $case->public_id }}</strong><small>{{ $case->title }}</small></span><span class="case-classification-chip">{{ $case->classification }}</span><span aria-hidden="true">↗</span></a>
                         @endforeach
                     </div>
                 @else
@@ -55,13 +55,15 @@
                 @endif
             </div>
             <div class="profile-gallery-block">
-                <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h3>Gallery <span>{{ $person->images->count() }}</span></h3></div><a href="{{ route('people.edit', $person) }}" class="text-action">MANAGE MEDIA</a></div>
+                <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h3>Gallery <span>{{ $person->images->count() }}</span></h3></div><a href="{{ route('people.edit', $person) }}" wire:navigate class="text-action">MANAGE MEDIA</a></div>
                 @if ($person->images->isNotEmpty())
                     <div class="profile-gallery is-locked" data-profile-gallery>
                         @foreach ($person->images as $image)
                             @if ($image->type === 'video')
                                 <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route('people.image', ['person' => $person, 'image' => $image->id]) }}" data-video-download-url="{{ route('people.images.download', ['person' => $person, 'image' => $image->id]) }}" data-video-title="{{ $image->original_name }}" data-video-pin-required aria-label="Locked video. Unlock viewables to preview." @if ($loop->index >= 4) hidden data-gallery-extra @endif>
-                                    <span class="image-lock-placeholder" data-image-lock-placeholder>?</span><span class="video-play-overlay" aria-hidden="true">▶ VIDEO</span>
+                                    <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
+                                    @if ($image->poster_path)<img data-protected-image data-image-url="{{ route('people.images.poster', ['person' => $person, 'image' => $image->id]) }}" alt="" loading="lazy" hidden>@endif
+                                    <span class="video-play-overlay" aria-hidden="true">▶ VIDEO</span>
                                     @if ($loop->index === 3 && $person->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $person->images->count() - 4 }}</span>@endif
                                 </button>
                             @else

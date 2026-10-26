@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\VideoUpload;
 use App\Services\FileUploadService;
 use App\Services\SettingService;
+use App\Services\VideoProcessingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
@@ -139,13 +140,15 @@ test('finalization stores video bytes as a private vault file and completes its 
     ]);
     Storage::disk('local')->put('vault-chunks/'.$upload->token.'/0.part', $video);
 
-    (new FinalizeVideoUploadJob($upload->id))->handle(app(FileUploadService::class));
+    (new FinalizeVideoUploadJob($upload->id))->handle(app(FileUploadService::class), app(VideoProcessingService::class));
 
     $upload->refresh();
     $file = VaultFile::query()->findOrFail($upload->file_id);
     expect($upload->status)->toBe('completed')
         ->and($file->category)->toBe('video')
-        ->and($file->mime_type)->toBe('video/mp4');
+        ->and($file->mime_type)->toBe('video/mp4')
+        ->and($file->video_playable_path)->toBeNull()
+        ->and($file->video_poster_path)->toBeNull();
     Storage::disk('vault')->assertExists($file->stored_path);
     Storage::disk('local')->assertMissing('vault-chunks/'.$upload->token.'/0.part');
 });
@@ -162,7 +165,7 @@ test('video finalization rejects non-video content even when its name has a vide
     ]);
     Storage::disk('local')->put('vault-chunks/'.$upload->token.'/0.part', 'not a video');
 
-    expect(fn () => (new FinalizeVideoUploadJob($upload->id))->handle(app(FileUploadService::class)))
+    expect(fn () => (new FinalizeVideoUploadJob($upload->id))->handle(app(FileUploadService::class), app(VideoProcessingService::class)))
         ->toThrow(\Illuminate\Validation\ValidationException::class);
 
     expect($upload->fresh()->status)->toBe('failed')

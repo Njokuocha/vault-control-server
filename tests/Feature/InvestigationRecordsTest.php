@@ -52,10 +52,19 @@ test('person profiles are optional, receive unique public identifiers, and store
     $this->get(route('people.index'))->assertOk()->assertSee($person->public_id);
     $this->get(route('people.edit', $person))
         ->assertOk()
+        ->assertSee('wire:id', false)
         ->assertSee('Identity dossier')
+        ->assertSee('class="case-add-image" data-add-person-image', false)
+        ->assertSee('class="case-add-image" data-add-person-video', false)
         ->assertSee('name="avatar_group"', false)
         ->assertSee('>Suspect</option>', false)
         ->assertSee('>Verified</option>', false);
+    $this->get(route('people.create'))
+        ->assertOk()
+        ->assertSee('wire:id', false)
+        ->assertSee('method="POST"', false)
+        ->assertSee('data-person-image-input', false)
+        ->assertSee('data-video-upload-input', false);
 });
 
 test('people index searches live and returns only matching profiles', function () {
@@ -84,15 +93,62 @@ test('case index cache reflects case creation, edits, and deletion immediately',
 
     $this->get(route('cases.index'))
         ->assertSee('Cache Test Case');
+    Livewire::test(\App\Livewire\CaseIndex::class)
+        ->assertSee('Cache Test Case');
 
     $case->update(['title' => 'Renamed Cache Test Case']);
     $this->get(route('cases.index'))
+        ->assertSee('Renamed Cache Test Case')
+        ->assertDontSee('>Cache Test Case</strong>', false);
+    Livewire::test(\App\Livewire\CaseIndex::class)
         ->assertSee('Renamed Cache Test Case')
         ->assertDontSee('>Cache Test Case</strong>', false);
 
     $case->delete();
     $this->get(route('cases.index'))
         ->assertDontSee('Renamed Cache Test Case');
+});
+
+test('case dossiers and create forms render through Livewire without changing existing form posts', function () {
+    $this->actingAs(User::factory()->create());
+    $case = InvestigationCase::query()->create([
+        'public_id' => 'CSE-LIVE001',
+        'title' => 'Livewire case dossier',
+        'classification' => 'CLASSIFIED',
+        'case_status' => 'OPEN',
+        'narrative' => 'Dossier narrative.',
+        'comment' => 'Continuity note.',
+    ]);
+
+    $this->get(route('cases.show', $case))
+        ->assertOk()
+        ->assertSee('wire:id', false)
+        ->assertSee('Livewire case dossier')
+        ->assertSee('data-image-viewer-dialog', false);
+
+    Livewire::test(\App\Livewire\CaseDossier::class, ['caseFile' => $case])
+        ->assertSee('Livewire case dossier')
+        ->assertSee('Dossier narrative.')
+        ->assertSee('Continuity note.');
+
+    $this->get(route('cases.create'))
+        ->assertOk()
+        ->assertSee('wire:id', false)
+        ->assertSee('method="POST"', false)
+        ->assertSee('data-video-upload-input', false);
+    $this->get(route('cases.edit', $case))
+        ->assertOk()
+        ->assertSee('wire:id', false)
+        ->assertSee('method="POST"', false)
+        ->assertSee('name="_method" value="PUT"', false)
+        ->assertSee('data-video-upload-input', false);
+
+    Livewire::test(\App\Livewire\CaseFormPage::class, [
+        'caseFile' => new InvestigationCase,
+        'maxUploadMb' => 100,
+        'maxVideoUploadMb' => 0,
+    ])->assertSee('CREATE CASE')
+        ->assertSee('data-video-upload-input', false);
 });
 
 test('cached profile and case galleries refresh immediately after media changes', function () {

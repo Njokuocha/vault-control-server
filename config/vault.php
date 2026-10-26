@@ -6,6 +6,8 @@ return [
     'max_video_upload_mb' => (int) env('VAULT_MAX_VIDEO_MB', 0),
     'chunk_size_mb' => (int) env('VAULT_CHUNK_SIZE_MB', 5),
     'sendfile' => strtolower((string) env('VAULT_SENDFILE', 'off')),
+    'ffmpeg_path' => env('VAULT_FFMPEG_PATH'),
+    'ffprobe_path' => env('VAULT_FFPROBE_PATH'),
     'archive_max_entries' => 10000,
     'archive_max_uncompressed_bytes' => 2147483648,
     'archive_max_compression_ratio' => 1000,

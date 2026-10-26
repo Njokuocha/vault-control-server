@@ -141,6 +141,34 @@ class FileController extends Controller
         ]);
     }
 
+    public function videoRendition(File $file): BinaryFileResponse
+    {
+        abort_unless($file->category === 'video' && is_string($file->video_playable_path), 404);
+        $path = $this->privateRelativePath($file->video_playable_path);
+        $response = response()->file($path, [
+            'Content-Type' => 'video/mp4',
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store',
+        ]);
+        $response->setPrivate();
+
+        return $response;
+    }
+
+    public function videoPoster(File $file): BinaryFileResponse
+    {
+        abort_unless($file->category === 'video' && is_string($file->video_poster_path), 404);
+        $path = $this->privateRelativePath($file->video_poster_path);
+        $response = response()->file($path, [
+            'Content-Type' => 'image/jpeg',
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store',
+        ]);
+        $response->setPrivate();
+
+        return $response;
+    }
+
     public function archiveEntry(Request $request, File $file): JsonResponse|Response
     {
         abort_unless($file->extension === 'zip' || $file->mime_type === 'application/zip', 404);
@@ -353,9 +381,14 @@ class FileController extends Controller
 
     private function privateAbsolutePath(File $file): string
     {
+        return $this->privateRelativePath($file->stored_path);
+    }
+
+    private function privateRelativePath(string $relativePath): string
+    {
         $disk = Storage::disk(config('vault.upload_disk', 'vault'));
         $root = realpath($disk->path(''));
-        $path = realpath($disk->path($file->stored_path));
+        $path = realpath($disk->path($relativePath));
         abort_unless(is_string($root) && is_string($path) && is_file($path), 404, 'File not found.');
 
         $rootPrefix = rtrim($root, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR;

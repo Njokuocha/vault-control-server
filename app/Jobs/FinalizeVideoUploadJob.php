@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Events\VideoUploadStatusChanged;
 use App\Models\VideoUpload;
 use App\Services\FileUploadService;
+use App\Services\VideoProcessingService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -23,12 +24,16 @@ class FinalizeVideoUploadJob implements ShouldQueue
 
     public int $tries = 3;
 
+    public int $timeout = 2100;
+
+    public bool $failOnTimeout = true;
+
     public function __construct(public readonly int $videoUploadId)
     {
         $this->onQueue('default');
     }
 
-    public function handle(FileUploadService $uploads): void
+    public function handle(FileUploadService $uploads, VideoProcessingService $videoProcessor): void
     {
         $upload = VideoUpload::query()->findOrFail($this->videoUploadId);
         if ($upload->status !== 'processing') {
@@ -81,7 +86,6 @@ class FinalizeVideoUploadJob implements ShouldQueue
                     'file' => 'The uploaded content is not a video.',
                 ]);
             }
-
             $claimed = VideoUpload::query()
                 ->whereKey($upload->id)
                 ->where('status', 'processing')
@@ -91,11 +95,27 @@ class FinalizeVideoUploadJob implements ShouldQueue
             }
             event(new VideoUploadStatusChanged($upload->token, 'finalizing', 100));
 
-            $file = $uploads->store(
-                new UploadedFile($assembledAbsolutePath, $upload->original_name, null, null, true),
-                null,
-                'manual',
-            );
+            $preview = $videoProcessor->process($assembledAbsolutePath, $upload->token);
+            try {
+                $file = $uploads->store(
+                    new UploadedFile($assembledAbsolutePath, $upload->original_name, null, null, true),
+                    null,
+                    'manual',
+                );
+            } catch (Throwable $exception) {
+                Storage::disk(config('vault.upload_disk', 'vault'))->delete(array_filter([
+                    $preview['playable_path'],
+                    $preview['poster_path'],
+                ]));
+                throw $exception;
+            }
+            if ($preview['playable_path'] !== null || $preview['poster_path'] !== null || $preview['duration'] !== null) {
+                $file->forceFill([
+                    'video_playable_path' => $preview['playable_path'],
+                    'video_poster_path' => $preview['poster_path'],
+                    'video_duration' => $preview['duration'],
+                ])->save();
+            }
 
             $upload->forceFill([
                 'status' => 'completed',

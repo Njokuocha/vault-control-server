@@ -52,6 +52,20 @@ if (pusherKey && pusherCluster) {
     });
 }
 
+let pageCleanup = [];
+let clockInterval = null;
+let navigationInProgress = false;
+
+const listenForPageEvent = (target, type, listener, options) => {
+    target.addEventListener(type, listener, options);
+    pageCleanup.push(() => target.removeEventListener(type, listener, options));
+};
+
+const initializeVaultPage = () => {
+    pageCleanup.forEach((cleanup) => cleanup());
+    pageCleanup = [];
+    if (clockInterval !== null) window.clearInterval(clockInterval);
+
 const clock = document.querySelector('[data-clock]');
 const date = document.querySelector('[data-date]');
 const search = document.querySelector('[data-search]');
@@ -118,7 +132,7 @@ const setMenuOpen = (isOpen) => {
 };
 
 updateTime();
-window.setInterval(updateTime, 1000);
+clockInterval = window.setInterval(updateTime, 1000);
 
 menuToggle?.addEventListener('click', () => {
     setMenuOpen(menuToggle.getAttribute('aria-expanded') !== 'true');
@@ -128,6 +142,7 @@ menuClose?.addEventListener('click', () => setMenuOpen(false));
 const archiveCount = document.querySelector('[data-archive-count]');
 const archiveFilterEmpty = document.querySelector('[data-filter-empty]');
 let activeArchiveFilter = 'all';
+let archiveSearchTimer = null;
 
 const filterArchive = () => {
     const query = search?.value.trim().toLocaleLowerCase() ?? '';
@@ -150,15 +165,23 @@ const filterArchive = () => {
 };
 
 search?.addEventListener('input', filterArchive);
+search?.addEventListener('input', () => {
+    window.clearTimeout(archiveSearchTimer);
+    archiveSearchTimer = window.setTimeout(() => {
+        window.Livewire?.dispatch('dashboard-archive-search', { search: search.value });
+    }, 250);
+});
 search?.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     event.preventDefault();
     search.value = '';
     filterArchive();
+    window.Livewire?.dispatch('dashboard-archive-search', { search: '' });
 });
 document.querySelectorAll('[data-archive-filter]').forEach((button) => {
     button.addEventListener('click', () => {
         activeArchiveFilter = button.dataset.archiveFilter ?? 'all';
+        window.Livewire?.dispatch('dashboard-archive-filter', { filter: activeArchiveFilter });
         document.querySelectorAll('[data-archive-filter]').forEach((filterButton) => {
             const selected = filterButton === button;
             filterButton.classList.toggle('is-selected', selected);
@@ -168,7 +191,7 @@ document.querySelectorAll('[data-archive-filter]').forEach((button) => {
     });
 });
 
-document.addEventListener('keydown', (event) => {
+listenForPageEvent(document, 'keydown', (event) => {
     if (event.key === 'Escape') {
         setMenuOpen(false);
     }
@@ -198,24 +221,6 @@ document.querySelectorAll('[data-password-toggle]').forEach((button) => {
         button.setAttribute('aria-pressed', String(showPassword));
         button.setAttribute('aria-label', showPassword ? 'Hide access code' : 'Show access code');
     });
-});
-
-const loginForm = document.querySelector('[data-login-form]');
-loginForm?.addEventListener('submit', () => {
-    const submit = document.querySelector('[data-login-submit]');
-    const label = document.querySelector('[data-login-label]');
-    const progress = document.querySelector('[data-login-progress]');
-
-    if (!(submit instanceof HTMLButtonElement) || !label || !progress) return;
-
-    submit.disabled = true;
-    submit.classList.add('is-loading');
-    label.textContent = 'VERIFYING';
-    progress.textContent = 'Verifying credentials…';
-
-    window.setTimeout(() => {
-        progress.textContent = 'Establishing secure session…';
-    }, 900);
 });
 
 document.querySelector('[data-generate-key]')?.addEventListener('click', () => {
@@ -822,17 +827,14 @@ const loadFullArchive = async (reset = false) => {
 
 const openFullArchive = () => {
     if (!archiveBrowser) return;
-    archiveBrowser.hidden = false;
+    window.Livewire?.dispatch('open-archive');
     document.body.classList.add('archive-browser-open');
-    loadFullArchive(true);
-    archiveBrowser.querySelector('[data-full-archive-search]').focus();
+    window.setTimeout(() => archiveBrowser.querySelector('[data-full-archive-search]')?.focus(), 250);
 };
 
 const closeFullArchive = () => {
     if (!archiveBrowser) return;
-    archiveBrowser.hidden = true;
-    archiveBrowserRequest?.abort();
-    archiveBrowserRequest = null;
+    window.Livewire?.dispatch('close-archive');
     document.body.classList.remove('archive-browser-open');
 };
 
@@ -940,88 +942,72 @@ const refreshDashboardSnapshot = async () => {
         const summary = document.querySelector('[data-dashboard-record-summary]');
         if (summary) summary.textContent = `${snapshot.files.length} LATEST OF ${Number(metrics.fileCount).toLocaleString()} RECORDS · ${groups.size} GROUPS`;
         filterArchive();
-        if (archiveBrowser && !archiveBrowser.hidden) loadFullArchive(true);
+        if (archiveBrowser && !archiveBrowser.hidden) window.Livewire?.dispatch('refresh-archive');
     } catch (error) {
         window.vaultAlert({ type: 'warning', message: error instanceof Error ? error.message : 'Realtime archive refresh failed.' });
     }
 };
 
-window.addEventListener('vault:file-uploaded', refreshDashboardSnapshot);
-window.addEventListener('vault:file-edited', refreshDashboardSnapshot);
-window.addEventListener('vault:file-deleted', (event) => {
+listenForPageEvent(window, 'vault:file-deleted', (event) => {
     if (previewBackdrop?.dataset.fileUuid === event.detail.uuid) closePreview();
-    refreshDashboardSnapshot();
 });
-window.addEventListener('vault:archive-index-updated', async (event) => {
-    if (archiveBrowser && !archiveBrowser.hidden) {
-        archiveBrowser.querySelector(`[data-full-archive-preview="${CSS.escape(event.detail.uuid)}"]`)?.click();
-    }
-    if (previewBackdrop?.dataset.fileUuid === event.detail.uuid) {
-        const response = await fetch(`${archiveBrowser.dataset.fileUrl}/${encodeURIComponent(event.detail.uuid)}/preview`, {
-            headers: { Accept: 'application/json' },
-        });
-        if (response.ok) {
-            const file = await response.json();
-            previewContent.replaceChildren(...makePreviewElement(file));
-        }
-    }
+listenForPageEvent(window, 'vault:archive-index-updated', (event) => {
+    window.Livewire?.dispatch('refresh-archive');
+    window.Livewire?.dispatch('refresh-private-preview', event.detail.uuid);
+});
+
+listenForPageEvent(window, 'vault-file-preview-ready', (event) => {
+    const file = event.detail.file;
+    if (!file) return;
+
+    previewTitle.textContent = file.name;
+    previewMeta.textContent = `${file.mime.toUpperCase()} · ${formatBytes(file.size)}`;
+    previewContent.replaceChildren(...makePreviewElement(file));
+    previewDownload.href = file.download_url;
+    previewDownload.download = file.name;
+    previewBackdrop.dataset.fileUuid = event.detail.uuid;
+    previewBackdrop.hidden = false;
+    document.querySelector('[data-preview-close]')?.focus();
+});
+
+listenForPageEvent(window, 'archive-preview-ready', (event) => {
+    const browser = document.querySelector('[data-archive-browser]');
+    const preview = browser?.querySelector('[data-full-archive-preview-content]');
+    if (!browser || !preview) return;
+
+    const file = event.detail.file;
+    const previewView = browser.querySelector('[data-full-archive-preview-view]');
+    const previewEmpty = browser.querySelector('[data-full-archive-preview-empty]');
+    const title = browser.querySelector('[data-full-archive-preview-title]');
+    const meta = browser.querySelector('[data-full-archive-preview-meta]');
+    const type = browser.querySelector('[data-full-archive-preview-type]');
+    const download = browser.querySelector('[data-full-archive-preview-download]');
+    if (!file || !previewView || !previewEmpty || !title || !meta || !type || !download) return;
+
+    title.textContent = file.name;
+    meta.textContent = `${file.mime.toUpperCase()} · ${formatBytes(file.size)}`;
+    type.textContent = file.name.split('.').pop().slice(0, 4).toUpperCase() || 'FILE';
+    download.href = file.download_url;
+    download.download = file.name;
+    preview.dataset.fileUuid = event.detail.uuid;
+    preview.replaceChildren(...makePreviewElement(file));
+    previewEmpty.hidden = true;
+    previewView.hidden = false;
+    browser.querySelectorAll('.archive-record.is-selected').forEach((row) => row.classList.remove('is-selected'));
+    browser.querySelector(`[data-full-archive-preview="${CSS.escape(event.detail.uuid)}"]`)?.closest('.archive-record')?.classList.add('is-selected');
+});
+listenForPageEvent(window, 'archive-closed', () => {
+    document.body.classList.remove('archive-browser-open');
 });
 
 document.querySelector('[data-archive-open]')?.addEventListener('click', openFullArchive);
-document.addEventListener('keydown', (event) => {
+listenForPageEvent(document, 'keydown', (event) => {
     if (event.altKey && !event.ctrlKey && !event.metaKey && !event.repeat && event.key.toLowerCase() === 'a') {
         event.preventDefault();
         openFullArchive();
     }
 });
-archiveBrowser?.querySelector('[data-archive-close]')?.addEventListener('click', closeFullArchive);
-archiveBrowser?.addEventListener('click', (event) => {
-    if (event.target === archiveBrowser) closeFullArchive();
-});
-archiveBrowserSearch?.addEventListener('input', () => {
-    window.clearTimeout(archiveBrowserSearchTimer);
-    archiveBrowserSearchTimer = window.setTimeout(() => loadFullArchive(true), 180);
-});
-[archiveBrowserYear, archiveBrowserMonth, archiveBrowserExtension, archiveBrowserUploadMethod].forEach((input) => {
-    input?.addEventListener('change', () => loadFullArchive(true));
-});
-archiveBrowserRecords?.addEventListener('scroll', () => {
-    if (archiveBrowserRecords.scrollTop + archiveBrowserRecords.clientHeight >= archiveBrowserRecords.scrollHeight - 180) {
-        loadFullArchive();
-    }
-});
-archiveBrowserRecords?.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-full-archive-preview]');
-    if (!button || !archiveBrowserPreview) return;
-    const previewView = archiveBrowser.querySelector('[data-full-archive-preview-view]');
-    const previewEmpty = archiveBrowser.querySelector('[data-full-archive-preview-empty]');
-    const previewTitleElement = archiveBrowser.querySelector('[data-full-archive-preview-title]');
-    const previewMetaElement = archiveBrowser.querySelector('[data-full-archive-preview-meta]');
-    const previewType = archiveBrowser.querySelector('[data-full-archive-preview-type]');
-    const previewDownloadLink = archiveBrowser.querySelector('[data-full-archive-preview-download]');
-    try {
-        const uuid = button.dataset.fullArchivePreview;
-        const response = await fetch(`${archiveBrowser.dataset.fileUrl}/${encodeURIComponent(uuid)}/preview`, {
-            headers: { Accept: 'application/json' },
-        });
-        if (!response.ok) throw new Error(await responseError(response));
-        const file = await response.json();
-        previewTitleElement.textContent = file.name;
-        previewMetaElement.textContent = `${file.mime.toUpperCase()} · ${formatBytes(file.size)}`;
-        previewType.textContent = file.name.split('.').pop().slice(0, 4).toUpperCase() || 'FILE';
-        previewDownloadLink.href = file.download_url;
-        previewDownloadLink.download = file.name;
-        archiveBrowserPreview.dataset.fileUuid = uuid;
-        archiveBrowserPreview.replaceChildren(...makePreviewElement(file));
-        previewEmpty.hidden = true;
-        previewView.hidden = false;
-        archiveBrowser.querySelectorAll('.archive-record.is-selected').forEach((row) => row.classList.remove('is-selected'));
-        button.closest('.archive-record')?.classList.add('is-selected');
-    } catch (error) {
-        showToast(error instanceof Error ? error.message : 'Unable to preview this file.', 'error');
-    }
-});
-document.addEventListener('keydown', (event) => {
+listenForPageEvent(document, 'keydown', (event) => {
     if (event.key === 'Escape' && archiveBrowser && !archiveBrowser.hidden) closeFullArchive();
 });
 
@@ -1187,7 +1173,7 @@ const openPortableCalculator = (savedState = null) => {
 document.querySelectorAll('[data-portable-calc-open]').forEach((button) => {
     button.addEventListener('click', () => openPortableCalculator());
 });
-document.addEventListener('keydown', (event) => {
+listenForPageEvent(document, 'keydown', (event) => {
     if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'q') {
         event.preventDefault();
         if (portableCalculator) closePortableCalculator();
@@ -1206,28 +1192,6 @@ document.querySelector('.sidebar-logout')?.addEventListener('submit', () => {
         sessionStorage.removeItem(portableCalculatorStorageKey);
     } catch {
         showToast('Temporary window state could not be cleared before sign out.', 'warning');
-    }
-});
-
-document.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-archive-preview]');
-    if (!button) return;
-    try {
-        const uuid = button.dataset.archivePreview;
-        const response = await fetch(`${archiveBrowser.dataset.fileUrl}/${encodeURIComponent(uuid)}/preview`, {
-            headers: { Accept: 'application/json' },
-        });
-        if (!response.ok) throw new Error(await responseError(response));
-        const file = await response.json();
-        previewTitle.textContent = file.name;
-        previewMeta.textContent = `${file.mime.toUpperCase()} · ${formatBytes(file.size)}`;
-        previewContent.replaceChildren(...makePreviewElement(file));
-        previewDownload.href = file.download_url;
-        previewDownload.download = file.name;
-        previewBackdrop.hidden = false;
-        document.querySelector('[data-preview-close]').focus();
-    } catch (error) {
-        showToast(error instanceof Error ? error.message : 'Unable to open this file.', 'error');
     }
 });
 
@@ -1604,7 +1568,7 @@ document.querySelectorAll('[data-shell-open]').forEach((button) => {
     });
 });
 
-document.addEventListener('keydown', (event) => {
+listenForPageEvent(document, 'keydown', (event) => {
     if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'x') {
         event.preventDefault();
         const visibleWindows = [...shellWindows].filter((windowElement) => !windowElement.classList.contains('is-hidden'));
@@ -1635,11 +1599,11 @@ document.querySelector('[data-preview-close]')?.addEventListener('click', closeP
 previewBackdrop?.addEventListener('click', (event) => {
     if (event.target === previewBackdrop) closePreview();
 });
-document.addEventListener('keydown', (event) => {
+listenForPageEvent(document, 'keydown', (event) => {
     if (event.key === 'Escape' && previewBackdrop && !previewBackdrop.hidden) closePreview();
 });
 
-window.addEventListener('resize', () => {
+listenForPageEvent(window, 'resize', () => {
     shellWindows.forEach((windowElement) => {
         if (windowElement.classList.contains('is-fullscreen')) return;
         const rect = windowElement.getBoundingClientRect();
@@ -1766,7 +1730,7 @@ document.querySelector('[data-main-image-input]')?.addEventListener('change', (e
 document.querySelector('[data-add-person-image]')?.addEventListener('click', (event) => {
     addPersonImageInput(event.currentTarget.closest('.record-form-visual').querySelector('[data-person-gallery-upload-list]'));
 });
-document.addEventListener('change', (event) => {
+listenForPageEvent(document, 'change', (event) => {
     const input = event.target.closest('[data-person-image-input]');
     if (!input || !input.files?.[0]) return;
     const list = input.closest('[data-person-gallery-upload-list]');
@@ -1787,7 +1751,7 @@ document.addEventListener('change', (event) => {
     list.append(card);
 });
 
-document.addEventListener('click', async (event) => {
+listenForPageEvent(document, 'click', async (event) => {
     const button = event.target.closest('[data-delete-person-image], [data-delete-case-image]');
     if (!button) return;
     const confirmed = await window.vaultConfirm({
@@ -1894,7 +1858,7 @@ document.querySelectorAll('[data-case-form-layout]').forEach((layout) => {
     });
 });
 
-document.addEventListener('click', (event) => {
+listenForPageEvent(document, 'click', (event) => {
     const personVideoButton = event.target.closest('[data-add-person-video]');
     if (personVideoButton) {
         personVideoButton.closest('form')?.querySelector('[data-person-video-upload] [data-video-upload-input]')?.click();
@@ -2197,7 +2161,7 @@ imageViewerStage?.addEventListener('pointercancel', () => {
     imageViewerStage.classList.remove('is-dragging');
 });
 
-document.addEventListener('click', (event) => {
+listenForPageEvent(document, 'click', (event) => {
     const expandButton = event.target.closest('[data-expand-gallery]');
     if (expandButton) {
         event.preventDefault();
@@ -2263,7 +2227,7 @@ imageViewerDialog?.addEventListener('close', () => {
     resetImageViewer();
 });
 
-window.addEventListener('pageshow', (event) => {
+listenForPageEvent(window, 'pageshow', (event) => {
     if (event.persisted && document.querySelector('[data-image-pin-dialog]')) window.location.reload();
 });
 
@@ -2360,7 +2324,7 @@ archiveBrowserSearch?.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     event.preventDefault();
     archiveBrowserSearch.value = '';
-    loadFullArchive(true);
+    archiveBrowserSearch.dispatchEvent(new Event('input', { bubbles: true }));
 });
 
 const calculator = document.querySelector('[data-calculator]');
@@ -2730,3 +2694,21 @@ if (calculator) {
 
     renderHistory();
 }
+
+pageCleanup.push(() => {
+    window.clearTimeout(archiveBrowserSearchTimer);
+    archiveBrowserRequest?.abort();
+    window.clearTimeout(caseSearchTimer);
+    caseSearchRequest?.abort();
+});
+};
+
+document.addEventListener('livewire:navigating', () => {
+    navigationInProgress = true;
+});
+document.addEventListener('livewire:navigated', () => {
+    if (!navigationInProgress) return;
+    navigationInProgress = false;
+    initializeVaultPage();
+});
+initializeVaultPage();

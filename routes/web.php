@@ -38,6 +38,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/files/{file:uuid}/preview', [FileController::class, 'preview'])->name('files.preview');
     Route::get('/files/{file:uuid}/stream', [FileController::class, 'stream'])->name('files.stream');
     Route::get('/files/{file:uuid}/download', [FileController::class, 'download'])->name('files.download');
+    Route::get('/files/{file:uuid}/video', [FileController::class, 'videoRendition'])->name('files.video');
+    Route::get('/files/{file:uuid}/poster', [FileController::class, 'videoPoster'])->name('files.video-poster');
     Route::get('/files/{file:uuid}/archive-entry', [FileController::class, 'archiveEntry'])->name('files.archive-entry');
     Route::view('/calculator', 'calculator.index')->name('calculator.index');
 
@@ -49,6 +51,7 @@ Route::middleware('auth')->group(function () {
     Route::put('/people/{person}', [PersonController::class, 'update'])->name('people.update');
     Route::get('/people/{person}/images/{image}', [PersonController::class, 'image'])->name('people.image');
     Route::get('/people/{person}/images/{image}/download', [PersonController::class, 'image'])->defaults('download', true)->name('people.images.download');
+    Route::get('/people/{person}/images/{image}/poster', [PersonController::class, 'imagePoster'])->name('people.images.poster');
     Route::post('/people/{person}/images/unlock', [PersonController::class, 'authenticateImages'])->middleware('throttle:8,1')->name('people.images.unlock');
     Route::delete('/people/{person}/images/{image}', [PersonController::class, 'destroyImage'])->name('people.images.destroy');
     Route::get('/people/{person}/linkable-cases', [PersonController::class, 'linkableCases'])->name('people.cases.search');
@@ -63,6 +66,7 @@ Route::middleware('auth')->group(function () {
     Route::put('/cases/{caseFile}', [InvestigationCaseController::class, 'update'])->name('cases.update');
     Route::get('/cases/{caseFile}/images/{image}', [InvestigationCaseController::class, 'image'])->name('cases.image');
     Route::get('/cases/{caseFile}/images/{image}/download', [InvestigationCaseController::class, 'image'])->defaults('download', true)->name('cases.images.download');
+    Route::get('/cases/{caseFile}/images/{image}/poster', [InvestigationCaseController::class, 'imagePoster'])->name('cases.images.poster');
     Route::delete('/cases/{caseFile}/images/{image}', [InvestigationCaseController::class, 'destroyImage'])->name('cases.images.destroy');
 
     Route::get('/avatar-models', [AvatarModelController::class, 'index'])->name('avatar-models.index');

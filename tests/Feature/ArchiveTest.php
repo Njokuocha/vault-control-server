@@ -4,7 +4,9 @@ use App\Models\File as VaultFile;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
@@ -141,4 +143,98 @@ test('archive metric cache is invalidated when a file record is saved', function
     $this->get(route('dashboard.index'))
         ->assertSeeInOrder(['TOTAL FILES', '0'])
         ->assertDontSee('renamed-record.txt');
+});
+
+test('cached archive search results invalidate immediately after file changes', function () {
+    $this->actingAs(User::factory()->create())
+        ->getJson(route('archive.files', ['q' => 'refresh-token']))
+        ->assertOk()
+        ->assertJsonCount(0, 'records');
+
+    $file = VaultFile::query()->create([
+        'uuid' => (string) Str::uuid(),
+        'original_name' => 'refresh-token.txt',
+        'stored_path' => 'archive/refresh-token.txt',
+        'extension' => 'txt',
+        'mime_type' => 'text/plain',
+        'category' => 'text',
+        'size' => 10,
+        'checksum' => hash('sha256', 'before'),
+    ]);
+    $this->getJson(route('archive.files', ['q' => 'refresh-token']))
+        ->assertJsonPath('records.0.name', 'refresh-token.txt');
+
+    $file->update(['original_name' => 'refresh-token-renamed.txt']);
+    $this->getJson(route('archive.files', ['q' => 'refresh-token']))
+        ->assertJsonPath('records.0.name', 'refresh-token-renamed.txt');
+
+    $file->delete();
+    $this->getJson(route('archive.files', ['q' => 'refresh-token']))
+        ->assertJsonCount(0, 'records');
+});
+
+test('the full dashboard archive searches through Livewire and privately previews the selected file', function () {
+    Storage::fake('vault');
+    $user = User::factory()->create();
+    $file = VaultFile::query()->create([
+        'uuid' => (string) Str::uuid(),
+        'original_name' => 'livewire-archive-target.txt',
+        'stored_path' => 'archive/livewire-archive-target.txt',
+        'extension' => 'txt',
+        'mime_type' => 'text/plain',
+        'category' => 'text',
+        'size' => 17,
+        'checksum' => hash('sha256', 'private preview'),
+    ]);
+    Storage::disk('vault')->put($file->stored_path, 'private preview');
+
+    $this->actingAs($user);
+
+    Livewire::test(\App\Livewire\DashboardArchive::class)
+        ->assertDontSee($file->original_name)
+        ->call('open')
+        ->assertSee($file->original_name)
+        ->set('search', 'livewire-archive-target')
+        ->assertSee($file->original_name)
+        ->set('search', 'not-a-match')
+        ->assertDontSee($file->original_name)
+        ->set('search', 'livewire-archive-target')
+        ->call('preview', $file->uuid)
+        ->assertDispatched('archive-preview-ready');
+});
+
+test('dashboard archive search and category filters update through Livewire events', function () {
+    $this->actingAs(User::factory()->create());
+
+    VaultFile::query()->create([
+        'uuid' => (string) Str::uuid(),
+        'original_name' => 'dashboard-document.txt',
+        'stored_path' => 'archive/dashboard-document.txt',
+        'extension' => 'txt',
+        'mime_type' => 'text/plain',
+        'category' => 'text',
+        'size' => 10,
+        'checksum' => hash('sha256', 'dashboard-document'),
+    ]);
+    VaultFile::query()->create([
+        'uuid' => (string) Str::uuid(),
+        'original_name' => 'dashboard-image.png',
+        'stored_path' => 'archive/dashboard-image.png',
+        'extension' => 'png',
+        'mime_type' => 'image/png',
+        'category' => 'image',
+        'size' => 10,
+        'checksum' => hash('sha256', 'dashboard-image'),
+    ]);
+
+    Livewire::test(\App\Livewire\DashboardLatestFiles::class)
+        ->assertSee('dashboard-document.txt')
+        ->assertSee('dashboard-image.png')
+        ->dispatch('dashboard-archive-search', search: 'document')
+        ->assertSee('dashboard-document.txt')
+        ->assertDontSee('dashboard-image.png')
+        ->dispatch('dashboard-archive-search', search: '')
+        ->dispatch('dashboard-archive-filter', filter: 'media')
+        ->assertSee('dashboard-image.png')
+        ->assertDontSee('dashboard-document.txt');
 });

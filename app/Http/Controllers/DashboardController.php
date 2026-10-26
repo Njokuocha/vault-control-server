@@ -16,29 +16,7 @@ class DashboardController extends Controller
 {
     public function index(): View
     {
-        $monthStart = Carbon::now()->startOfMonth();
-        $files = File::query()
-            ->select(['id', 'uuid', 'original_name', 'extension', 'mime_type', 'category', 'upload_method', 'size', 'created_at'])
-            ->latest()
-            ->limit(20)
-            ->get();
-        $metrics = app(VersionedCache::class)->remember('files', 'dashboard-metrics', now()->addSeconds(30), function () use ($monthStart): array {
-            return [
-                'fileCount' => File::query()->count(),
-                'storageLabel' => FormatBytes::format((int) File::query()->sum('size')),
-                'uploadedThisMonth' => File::query()->where('created_at', '>=', $monthStart)->count(),
-                'lastActivity' => File::query()->latest()->value('created_at'),
-                'documentCount' => File::query()->whereIn('category', ['pdf', 'text', 'code'])->count(),
-                'mediaCount' => File::query()->whereIn('category', ['image', 'video', 'audio'])->count(),
-            ];
-        });
-
-        return view('welcome', [
-            'files' => $files,
-            ...$metrics,
-            'fileGroups' => $files->groupBy(fn (File $file): string => $file->created_at->format('Y-m')),
-            'groupLabels' => $this->groupLabels($files),
-        ]);
+        return view('welcome');
     }
 
     public function snapshot(): JsonResponse
@@ -54,11 +32,7 @@ class DashboardController extends Controller
                 'mediaCount' => File::query()->whereIn('category', ['image', 'video', 'audio'])->count(),
             ];
         });
-        $files = File::query()
-            ->select(['uuid', 'original_name', 'extension', 'mime_type', 'category', 'upload_method', 'size', 'created_at'])
-            ->latest()
-            ->limit(20)
-            ->get()
+        $files = $this->latestFiles('dashboard-snapshot-latest')
             ->map(fn (File $file): array => [
                 'uuid' => $file->uuid,
                 'name' => $file->original_name,
@@ -132,7 +106,22 @@ class DashboardController extends Controller
             $query->where('upload_method', $validated['upload_method']);
         }
 
-        $page = $query->orderByDesc('created_at')->orderByDesc('id')->paginate(100)->withQueryString();
+        $archiveFilters = [
+            'q' => trim((string) ($validated['q'] ?? '')),
+            'year' => (string) ($validated['year'] ?? ''),
+            'month' => (string) ($validated['month'] ?? ''),
+            'extension' => strtolower((string) ($validated['extension'] ?? '')),
+            'upload_method' => (string) ($validated['upload_method'] ?? ''),
+            'page' => (int) ($validated['page'] ?? 1),
+        ];
+        $page = app(VersionedCache::class)->remember(
+            'files',
+            'archive-results:'.hash('sha256', json_encode($archiveFilters, JSON_THROW_ON_ERROR)),
+            now()->addSeconds(30),
+            fn () => $query->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->paginate(100, ['*'], 'page', $archiveFilters['page']),
+        );
         $driver = DB::connection()->getDriverName();
         $yearExpression = match ($driver) {
             'sqlite' => "strftime('%Y', created_at)",
@@ -195,14 +184,19 @@ class DashboardController extends Controller
     }
 
     /**
-     * @return array<string, string>
+     * @return Collection<int, File>
      */
-    private function groupLabels(Collection $files): array
+    private function latestFiles(string $key): Collection
     {
-        return $files
-            ->mapWithKeys(fn (File $file): array => [
-                $file->created_at->format('Y-m') => $file->created_at->format('F Y'),
-            ])
-            ->all();
+        return app(VersionedCache::class)->remember(
+            'files',
+            $key,
+            now()->addSeconds(30),
+            fn (): Collection => File::query()
+                ->select(['id', 'uuid', 'original_name', 'extension', 'mime_type', 'category', 'upload_method', 'size', 'created_at'])
+                ->latest()
+                ->limit(20)
+                ->get(),
+        );
     }
 }

@@ -12,14 +12,7 @@ class SettingsController extends Controller
 {
     public function index(SettingService $settings): View
     {
-        return view('settings.index', [
-            'uploadKey' => $settings->get('upload_key'),
-            'uploadEndpoint' => url('/api/upload'),
-            'maxUploadMb' => $settings->maxUploadMegabytes(),
-            'maxVideoUploadMb' => $settings->maxVideoUploadMegabytes(),
-            'apiUploadsEnabled' => $settings->apiUploadsEnabled(),
-            'imagePinConfigured' => $settings->get('person_image_pin_hash') !== null,
-        ]);
+        return view('settings.index');
     }
 
     public function updateUploadKey(Request $request, SettingService $settings): RedirectResponse

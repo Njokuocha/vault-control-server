@@ -10,7 +10,7 @@
             <h1>Manual <span>upload</span></h1>
             <p class="page-description">Securely add one or more files to your private archive.</p>
         </div>
-        <a class="back-link" href="{{ route('dashboard.index') }}"><span aria-hidden="true">←</span> RETURN TO ARCHIVE</a>
+        <a class="back-link" href="{{ route('dashboard.index') }}" wire:navigate><span aria-hidden="true">←</span> RETURN TO ARCHIVE</a>
     </section>
 
     <section class="settings-card manual-upload-card" aria-labelledby="manual-upload-title">

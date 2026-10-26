@@ -25,26 +25,7 @@ class InvestigationCaseController extends Controller
 {
     public function index(): View
     {
-        $page = request()->integer('page', 1);
-        $cache = app(VersionedCache::class);
-
-        return view('cases.index', [
-            'cases' => $cache->remember(
-                'cases',
-                "index:page:{$page}",
-                now()->addSeconds(30),
-                fn () => InvestigationCase::query()->withCount(['people', 'categories'])->latest()->paginate(24),
-            ),
-            'classificationCounts' => $cache->remember(
-                'cases',
-                'classification-counts',
-                now()->addSeconds(30),
-                fn () => InvestigationCase::query()
-                    ->select('classification', DB::raw('count(*) as aggregate'))
-                    ->groupBy('classification')
-                    ->pluck('aggregate', 'classification'),
-            ),
-        ]);
+        return view('cases.index');
     }
 
     public function create(SettingService $settings): View
@@ -92,7 +73,10 @@ class InvestigationCaseController extends Controller
             fn (): InvestigationCase => $caseFile->load(['categories.images', 'people']),
         );
 
-        return view('cases.show', ['caseFile' => $caseFile]);
+        return view('cases.show', [
+            'caseFile' => $caseFile,
+            'galleryMediaCount' => $caseFile->categories->sum(fn ($category) => $category->images->count()),
+        ]);
     }
 
     public function edit(InvestigationCase $caseFile, SettingService $settings): View
@@ -162,7 +146,9 @@ class InvestigationCaseController extends Controller
 
             return $download
                 ? app(FileController::class)->download($file)
-                : app(FileController::class)->stream(request(), $file);
+                : ($image->playable_path
+                    ? app(FileController::class)->videoRendition($file)
+                    : app(FileController::class)->stream(request(), $file));
         }
         abort_unless(Storage::disk(config('vault.upload_disk'))->exists($image->path), 404);
 
@@ -171,6 +157,16 @@ class InvestigationCaseController extends Controller
             'X-Content-Type-Options' => 'nosniff',
             'Content-Security-Policy' => "default-src 'none'; sandbox",
         ]);
+    }
+
+    public function imagePoster(InvestigationCase $caseFile, CaseImage $image): mixed
+    {
+        abort_unless($image->category()->where('case_file_id', $caseFile->id)->exists(), 404);
+        abort_unless($image->type === 'video', 404);
+        $file = $image->file;
+        abort_unless($file instanceof File, 404);
+
+        return app(FileController::class)->videoPoster($file);
     }
 
     public function destroyImage(InvestigationCase $caseFile, CaseImage $image): JsonResponse
@@ -276,6 +272,9 @@ class InvestigationCaseController extends Controller
                 'original_name' => $upload->file->original_name,
                 'type' => 'video',
                 'file_id' => $upload->file_id,
+                'poster_path' => $upload->file->video_poster_path,
+                'playable_path' => $upload->file->video_playable_path,
+                'duration' => $upload->file->video_duration,
             ]);
             $upload->forceFill(['attached_at' => now()])->save();
         }

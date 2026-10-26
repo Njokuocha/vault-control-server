@@ -38,12 +38,10 @@ class PersonController extends Controller
         return view('people.index');
     }
 
-    public function create(SettingService $settings): View
+    public function create(): View
     {
         return view('people.form', [
             'person' => new Person,
-            'maxUploadMb' => $settings->maxUploadMegabytes(),
-            'maxVideoUploadMb' => $settings->maxVideoUploadMegabytes(),
         ]);
     }
 
@@ -109,14 +107,10 @@ class PersonController extends Controller
         ])->header('Cache-Control', 'no-store, private');
     }
 
-    public function edit(Person $person, SettingService $settings): View
+    public function edit(Person $person): View
     {
-        $person->load('images');
-
         return view('people.form', [
             'person' => $person,
-            'maxUploadMb' => $settings->maxUploadMegabytes(),
-            'maxVideoUploadMb' => $settings->maxVideoUploadMegabytes(),
         ]);
     }
 
@@ -192,7 +186,9 @@ class PersonController extends Controller
 
                 return $download
                     ? app(FileController::class)->download($file)
-                    : app(FileController::class)->stream(request(), $file);
+                    : ($media->playable_path
+                        ? app(FileController::class)->videoRendition($file)
+                        : app(FileController::class)->stream(request(), $file));
             }
             $path = $media->path;
         } else {
@@ -207,6 +203,16 @@ class PersonController extends Controller
             'Content-Security-Policy' => "default-src 'none'; sandbox",
             'Cache-Control' => 'no-store, private',
         ]);
+    }
+
+    public function imagePoster(Person $person, PersonImage $image): mixed
+    {
+        abort_unless(request()->session()->get('unlocked_person_images') === $person->getKey(), 403);
+        abort_unless($image->person_id === $person->id && $image->type === 'video', 404);
+        $file = $image->file;
+        abort_unless($file instanceof File, 404);
+
+        return app(FileController::class)->videoPoster($file);
     }
 
     public function destroyImage(Person $person, PersonImage $image): JsonResponse
@@ -317,6 +323,9 @@ class PersonController extends Controller
                 'original_name' => $upload->file->original_name,
                 'type' => 'video',
                 'file_id' => $upload->file_id,
+                'poster_path' => $upload->file->video_poster_path,
+                'playable_path' => $upload->file->video_playable_path,
+                'duration' => $upload->file->video_duration,
             ]);
             $upload->forceFill(['attached_at' => now()])->save();
         }

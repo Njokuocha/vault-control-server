@@ -6,6 +6,7 @@ use App\Events\FileDeleted;
 use App\Events\FileEdited;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 use App\Support\VersionedCache;
 
 class File extends Model
@@ -27,6 +28,9 @@ class File extends Model
         'archive_index',
         'archive_status',
         'archive_entry_count',
+        'video_playable_path',
+        'video_poster_path',
+        'video_duration',
     ];
 
     protected function casts(): array
@@ -38,11 +42,18 @@ class File extends Model
             'edited_at' => 'datetime',
             'archive_index' => 'array',
             'archive_entry_count' => 'integer',
+            'video_duration' => 'integer',
         ];
     }
 
     protected static function booted(): void
     {
+        static::deleting(function (File $file): void {
+            $paths = array_filter([$file->video_playable_path, $file->video_poster_path]);
+            if ($paths !== [] && ! Storage::disk(config('vault.upload_disk', 'vault'))->delete($paths)) {
+                throw new \RuntimeException('Unable to remove generated private video previews.');
+            }
+        });
         static::saved(function (): void {
             app(VersionedCache::class)->bump('files');
             Cache::forget('dashboard.archive-metrics');
