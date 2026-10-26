@@ -66,7 +66,7 @@
         </div>
 
         <div class="archive-table-head" aria-hidden="true">
-            <span>RECORD</span><span>CLASSIFICATION</span><span>DATE ADDED</span><span>SIZE</span><span></span>
+            <span>RECORD</span><span>CLASSIFICATION</span><span>UPLOAD METHOD</span><span>DATE ADDED</span><span>SIZE</span><span></span>
         </div>
 
         @if ($files->isEmpty())
@@ -109,6 +109,7 @@
                                     <span><strong>{{ $file->original_name }}</strong><small>{{ $file->mime_type }}</small></span>
                                 </div>
                                 <span class="archive-record-category">{{ strtoupper($file->category) }}</span>
+                                <span class="upload-method-badge upload-method-{{ $file->upload_method ?? 'unknown' }}">{{ strtoupper($file->upload_method ?? 'UNKNOWN') }}</span>
                                 <time class="archive-record-date" datetime="{{ $file->created_at->toIso8601String() }}">{{ $file->created_at->format('M j, Y · H:i') }}</time>
                                 <span class="archive-record-size">{{ \App\Support\FormatBytes::format($file->size) }}</span>
                                 <div class="archive-record-actions">

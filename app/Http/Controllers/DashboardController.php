@@ -57,6 +57,7 @@ class DashboardController extends Controller
             'extension',
             'mime_type',
             'category',
+            'upload_method',
             'size',
             'created_at',
         ]);
@@ -130,6 +131,7 @@ class DashboardController extends Controller
                 'extension' => $file->extension,
                 'mime' => $file->mime_type,
                 'category' => $file->category,
+                'upload_method' => $file->upload_method,
                 'size' => $file->size,
                 'created_at' => $file->created_at?->toIso8601String(),
                 'date_label' => $file->created_at?->format('M j, Y · H:i'),

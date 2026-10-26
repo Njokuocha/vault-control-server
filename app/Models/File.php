@@ -14,6 +14,7 @@ class File extends Model
         'extension',
         'mime_type',
         'category',
+        'upload_method',
         'size',
         'checksum',
         'is_editable',

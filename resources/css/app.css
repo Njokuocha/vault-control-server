@@ -220,10 +220,10 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
 .filter-button:disabled { opacity: .58; cursor: not-allowed; }
 .filter-more { width: 35px; justify-content: center; padding: 0; border: 1px solid var(--line); }
 .filter-more svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
-.archive-table-head { display: grid; grid-template-columns: minmax(200px, 2fr) minmax(110px, 1fr) minmax(130px, 1fr) 90px 35px; align-items: center; min-height: 40px; padding: 0 21px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--text-muted); background: rgb(6 11 17 / 28%); font-size: 13px; letter-spacing: .1em; }
+.archive-table-head { display: grid; grid-template-columns: minmax(200px, 2fr) minmax(95px, .8fr) minmax(90px, .75fr) minmax(130px, 1fr) 90px 35px; align-items: center; min-height: 40px; padding: 0 21px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--text-muted); background: rgb(6 11 17 / 28%); font-size: 13px; letter-spacing: .1em; }
 .archive-month-heading { display: flex; min-height: 37px; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 0 21px; border-bottom: 1px solid var(--line); color: var(--text-secondary); background: rgb(6 11 17 / 20%); font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: .07em; }
 .archive-month-heading span { color: var(--text-muted); font-family: var(--font-ui); font-size: 13px; letter-spacing: .08em; }
-.archive-record { display: grid; min-height: 62px; grid-template-columns: minmax(200px, 2fr) minmax(110px, 1fr) minmax(130px, 1fr) 90px 35px; align-items: center; gap: 10px; padding: 8px 21px; border-bottom: 1px solid rgb(44 64 85 / 47%); color: var(--text-secondary); transition: background .18s; }
+.archive-record { display: grid; min-height: 62px; grid-template-columns: minmax(200px, 2fr) minmax(95px, .8fr) minmax(90px, .75fr) minmax(130px, 1fr) 90px 35px; align-items: center; gap: 10px; padding: 8px 21px; border-bottom: 1px solid rgb(44 64 85 / 47%); color: var(--text-secondary); transition: background .18s; }
 .archive-record:hover { background: rgb(112 167 215 / 4%); }
 .archive-record[hidden], .archive-month[hidden], .archive-filter-empty[hidden] { display: none; }
 .archive-record-name { display: flex; min-width: 0; align-items: center; gap: 11px; }
@@ -232,6 +232,9 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
 .archive-record-name strong { overflow: hidden; color: var(--text-primary); font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .archive-record-name small { overflow: hidden; color: var(--text-muted); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .archive-record-category, .archive-record-date, .archive-record-size { overflow: hidden; color: var(--text-muted); font-family: var(--font-mono); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.upload-method-badge { display: inline-flex; width: fit-content; min-height: 21px; align-items: center; justify-content: center; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--text-muted); background: rgb(255 255 255 / 3%); font-family: var(--font-mono); font-size: 9px; letter-spacing: .07em; line-height: 1; white-space: nowrap; }
+.upload-method-api { border-color: rgb(112 167 215 / 35%); color: #a9c9e5; background: rgb(112 167 215 / 8%); }
+.upload-method-manual { border-color: rgb(201 162 74 / 34%); color: #e3cc96; background: rgb(201 162 74 / 7%); }
 .archive-record-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .archive-record-actions button, .archive-record-actions a { display: grid; min-width: 27px; height: 27px; place-items: center; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--steel); background: rgb(112 167 215 / 4%); font-size: 13px; text-decoration: none; cursor: pointer; }
 .archive-record-actions button:hover, .archive-record-actions a:hover { border-color: rgb(112 167 215 / 42%); color: var(--text-primary); background: rgb(112 167 215 / 10%); }
@@ -401,14 +404,15 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
 .archive-select-field span { color: var(--text-muted); font-size: 10px; letter-spacing: .09em; }
 .archive-select-field select { max-width: 100px; border: 0; outline: 0; color: var(--text-primary); background: transparent; font-size: 13px; }
 .archive-select-field option { color: var(--text-primary); background: var(--bg-panel); }
-.archive-browser-table-head { display: grid; min-height: 37px; flex: 0 0 37px; grid-template-columns: minmax(140px, 2fr) minmax(90px, .9fr) minmax(110px, 1.1fr) 65px 65px; align-items: center; gap: 9px; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--text-muted); font-size: 10px; letter-spacing: .1em; }
+.archive-browser-table-head { display: grid; min-height: 37px; flex: 0 0 37px; grid-template-columns: minmax(125px, 2fr) minmax(80px, .85fr) minmax(75px, .75fr) minmax(95px, 1.1fr) 55px 55px; align-items: center; gap: 7px; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--text-muted); font-size: 10px; letter-spacing: .1em; }
 .archive-browser-records { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; scrollbar-color: #314358 transparent; scrollbar-width: thin; }
 .archive-browser-records .archive-month-heading { position: sticky; z-index: 1; top: 0; min-height: 32px; padding: 0 14px; font-size: 11px; backdrop-filter: blur(8px); }
-.archive-browser-records .archive-record { min-height: 55px; grid-template-columns: minmax(140px, 2fr) minmax(90px, .9fr) minmax(110px, 1.1fr) 65px 65px; gap: 9px; padding: 7px 14px; }
+.archive-browser-records .archive-record { min-height: 55px; grid-template-columns: minmax(125px, 2fr) minmax(80px, .85fr) minmax(75px, .75fr) minmax(95px, 1.1fr) 55px 55px; gap: 7px; padding: 7px 14px; }
 .archive-browser-records .archive-file-icon { width: 30px; height: 32px; flex-basis: 30px; font-size: 9px; }
 .archive-browser-records .archive-record-name { gap: 8px; }
 .archive-browser-records .archive-record-name strong { font-size: 12px; }
 .archive-browser-records .archive-record-name small, .archive-browser-records .archive-record-category, .archive-browser-records .archive-record-date, .archive-browser-records .archive-record-size { font-size: 11px; }
+.archive-browser-records .upload-method-badge { min-height: 19px; padding: 0 5px; font-size: 8px; }
 .archive-browser-records .archive-record-actions { gap: 5px; }
 .archive-browser-records .archive-record-actions button, .archive-browser-records .archive-record-actions a { min-width: 26px; height: 25px; font-size: 10px; }
 .archive-browser-records .archive-record.is-selected { background: rgb(201 162 74 / 8%); box-shadow: inset 2px 0 var(--brass); }
@@ -804,9 +808,10 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
     .archive-record { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; padding: 11px 13px; }
     .archive-record-name { grid-column: 1 / -1; }
     .archive-record-category { grid-column: 1; }
+    .archive-record .upload-method-badge { grid-column: 2; grid-row: 2; justify-self: end; }
     .archive-record-date { grid-column: 1; grid-row: 3; }
-    .archive-record-size { grid-column: 2; grid-row: 2; text-align: right; }
-    .archive-record-actions { grid-column: 2; grid-row: 3; }
+    .archive-record-size { grid-column: 2; grid-row: 3; text-align: right; }
+    .archive-record-actions { grid-column: 2; grid-row: 4; }
     .archive-month-heading { padding: 0 13px; }
     .archive-browser-header { min-height: 58px; flex-basis: 58px; padding: 0 13px; }
     .archive-browser-filters { min-height: 100px; flex-basis: 100px; flex-wrap: wrap; gap: 6px; padding: 8px; }
@@ -817,9 +822,10 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
     .archive-browser-records .archive-record { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; padding: 9px 10px; }
     .archive-browser-records .archive-record-name { grid-column: 1 / -1; }
     .archive-browser-records .archive-record-category { grid-column: 1; }
+    .archive-browser-records .archive-record .upload-method-badge { grid-column: 2; grid-row: 2; justify-self: end; }
     .archive-browser-records .archive-record-date { grid-column: 1; grid-row: 3; }
-    .archive-browser-records .archive-record-size { grid-column: 2; grid-row: 2; text-align: right; }
-    .archive-browser-records .archive-record-actions { grid-column: 2; grid-row: 3; }
+    .archive-browser-records .archive-record-size { grid-column: 2; grid-row: 3; text-align: right; }
+    .archive-browser-records .archive-record-actions { grid-column: 2; grid-row: 4; }
     .archive-browser-body { grid-template-rows: minmax(0, 55fr) minmax(190px, 45fr); }
     .archive-browser-preview-content { padding: 8px; }
     .archive-browser-preview-footer { padding: 0 9px; font-size: 9px; }

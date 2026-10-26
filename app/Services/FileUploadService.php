@@ -43,8 +43,12 @@ class FileUploadService
         }
     }
 
-    public function store(UploadedFile $upload, ?string $sourceIp): File
+    public function store(UploadedFile $upload, ?string $sourceIp, string $uploadMethod): File
     {
+        if (! in_array($uploadMethod, ['api', 'manual'], true)) {
+            throw new \InvalidArgumentException('The upload method must be api or manual.');
+        }
+
         $this->assertWithinLimit($upload);
 
         $realPath = $upload->getRealPath();
@@ -77,6 +81,7 @@ class FileUploadService
                 'extension' => $extension,
                 'mime_type' => $mimeType,
                 'category' => $this->category($mimeType, $extension),
+                'upload_method' => $uploadMethod,
                 'size' => $upload->getSize(),
                 'checksum' => $checksum,
                 'is_editable' => false,

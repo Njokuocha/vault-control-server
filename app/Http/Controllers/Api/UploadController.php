@@ -41,7 +41,7 @@ class UploadController extends Controller
 
         $files->each(fn ($file) => $uploads->assertWithinLimit($file));
 
-        $stored = $files->map(fn ($file): File => $uploads->store($file, $request->ip()));
+        $stored = $files->map(fn ($file): File => $uploads->store($file, $request->ip(), 'api'));
 
         return response()->json([
             'status' => 'success',
@@ -50,6 +50,7 @@ class UploadController extends Controller
                 'name' => $file->original_name,
                 'size' => $file->size,
                 'mime' => $file->mime_type,
+                'upload_method' => $file->upload_method,
                 'uploaded_at' => $file->created_at?->toIso8601String(),
             ])->values(),
         ], 201);

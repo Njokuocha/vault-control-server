@@ -27,10 +27,12 @@ test('the API stores an uploaded file privately and returns its metadata', funct
     $response->assertCreated()
         ->assertJsonPath('status', 'success')
         ->assertJsonPath('data.0.name', 'private note.txt')
-        ->assertJsonPath('data.0.mime', 'text/plain');
+        ->assertJsonPath('data.0.mime', 'text/plain')
+        ->assertJsonPath('data.0.upload_method', 'api');
 
     $file = VaultFile::query()->firstOrFail();
     expect(Storage::disk('vault')->exists($file->stored_path))->toBeTrue()
+        ->and($file->upload_method)->toBe('api')
         ->and($file->source_ip)->not->toBeNull()
         ->and($file->checksum)->toMatch('/^[a-f0-9]{64}$/');
 
@@ -83,14 +85,21 @@ test('manual uploads store files on the private disk for authenticated administr
 
     $file = VaultFile::query()->firstOrFail();
     expect($file->original_name)->toBe('manual record.txt')
+        ->and($file->upload_method)->toBe('manual')
         ->and(Storage::disk('vault')->exists($file->stored_path))->toBeTrue();
 
     $this->get(route('dashboard.index'))
         ->assertOk()
         ->assertSee('manual record.txt')
+        ->assertSee('UPLOAD METHOD')
+        ->assertSee('>MANUAL</span>', false)
         ->assertSee('TOTAL FILES')
         ->assertSee('INDEXED RECORDS')
         ->assertSee('data-archive-preview', false);
+
+    $this->get(route('archive.files'))
+        ->assertOk()
+        ->assertJsonPath('records.0.upload_method', 'manual');
 });
 
 test('uploads exceeding the configured per-file limit are rejected', function () {

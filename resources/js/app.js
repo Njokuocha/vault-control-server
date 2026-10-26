@@ -553,6 +553,9 @@ const renderFullArchive = () => {
             const category = document.createElement('span');
             category.className = 'archive-record-category';
             category.textContent = record.category.toUpperCase();
+            const uploadMethod = document.createElement('span');
+            uploadMethod.className = `upload-method-badge upload-method-${record.upload_method || 'unknown'}`;
+            uploadMethod.textContent = (record.upload_method || 'unknown').toUpperCase();
             const date = document.createElement('time');
             date.className = 'archive-record-date';
             date.dateTime = record.created_at;
@@ -572,7 +575,7 @@ const renderFullArchive = () => {
             download.textContent = '↓';
             download.setAttribute('aria-label', `Download ${record.name}`);
             actions.append(open, download);
-            row.append(name, category, date, size, actions);
+            row.append(name, category, uploadMethod, date, size, actions);
             group.append(row);
         });
         archiveBrowserRecords.append(group);

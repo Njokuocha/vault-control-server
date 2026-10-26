@@ -37,7 +37,7 @@
                     </label>
                 </div>
                 <div class="archive-browser-table-head" aria-hidden="true">
-                    <span>RECORD</span><span>CLASSIFICATION</span><span>DATE ADDED</span><span>SIZE</span><span></span>
+                    <span>RECORD</span><span>CLASSIFICATION</span><span>UPLOAD METHOD</span><span>DATE ADDED</span><span>SIZE</span><span></span>
                 </div>
                 <div class="archive-browser-records" data-full-archive-records tabindex="0">
                     <div class="archive-browser-state" data-full-archive-state>Open the archive to load records.</div>

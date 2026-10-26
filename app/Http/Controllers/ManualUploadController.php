@@ -29,7 +29,7 @@ class ManualUploadController extends Controller
         collect($validated['files'])->each(fn ($file) => $uploads->assertWithinLimit($file));
 
         $stored = collect($validated['files'])
-            ->map(fn ($file) => $uploads->store($file, $request->ip()));
+            ->map(fn ($file) => $uploads->store($file, $request->ip(), 'manual'));
 
         return back()->with(
             'status',
