@@ -5,15 +5,19 @@ namespace App\Jobs;
 use App\Models\File;
 use App\Models\UploadTransfer;
 use App\Services\FileUploadService;
+use App\Services\RecordUploadAttachmentService;
 use App\Services\UploadTransferStatus;
 use App\Services\VideoProcessingService;
+use App\Support\RecordAttachmentTypes;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class FinalizeUploadTransferJob implements ShouldQueue
@@ -38,8 +42,13 @@ class FinalizeUploadTransferJob implements ShouldQueue
         FileUploadService $uploads,
         VideoProcessingService $videoProcessor,
         UploadTransferStatus $statusUpdates,
+        RecordAttachmentTypes $attachmentTypes,
+        RecordUploadAttachmentService $attachments,
     ): void {
         $upload = UploadTransfer::query()->findOrFail($this->uploadTransferId);
+        if ($upload->attachment_purpose !== null && $upload->committed_at === null) {
+            return;
+        }
         if ($upload->status === 'cancelled') {
             Storage::disk('local')->deleteDirectory($this->chunkDirectory($upload));
 
@@ -105,13 +114,29 @@ class FinalizeUploadTransferJob implements ShouldQueue
             $mimeType = 'application/octet-stream';
         }
 
+        $assembledUpload = new UploadedFile($assembledAbsolutePath, $upload->original_name, $mimeType, UPLOAD_ERR_OK, true);
+        try {
+            if ($upload->attachment_purpose !== null) {
+                $attachmentTypes->assertAllowedFile(
+                    $upload->original_name,
+                    $mimeType,
+                    $upload->attachment_purpose,
+                );
+            }
+            $uploads->assertWithinLimit($assembledUpload);
+        } catch (ValidationException $exception) {
+            $this->rejectUpload($upload, $exception, $directory, $statusUpdates);
+
+            return;
+        }
+
         $videoPreview = str_starts_with($mimeType, 'video/')
             ? $videoProcessor->process($assembledAbsolutePath, $upload->token)
             : null;
 
         try {
             $file = $uploads->store(
-                new UploadedFile($assembledAbsolutePath, $upload->original_name, $mimeType, UPLOAD_ERR_OK, true),
+                $assembledUpload,
                 null,
                 'manual',
             );
@@ -136,16 +161,24 @@ class FinalizeUploadTransferJob implements ShouldQueue
                 ])->save();
             }
 
-            $updated = UploadTransfer::query()
-                ->whereKey($upload->id)
-                ->where('status', 'processing')
-                ->update([
+            $updated = DB::transaction(function () use ($upload, $file, $attachments): bool {
+                $current = UploadTransfer::query()->whereKey($upload->id)->lockForUpdate()->first();
+                if (! $current || $current->status !== 'processing') {
+                    return false;
+                }
+
+                $current->forceFill([
                     'status' => 'done',
                     'file_id' => $file->id,
                     'error_message' => null,
-                    'updated_at' => now(),
-                ]);
-            if ($updated !== 1) {
+                ])->save();
+                if ($current->attachment_purpose !== null && $current->committed_at !== null) {
+                    $attachments->attach($current);
+                }
+
+                return true;
+            });
+            if (! $updated) {
                 $this->deleteStoredFile($file);
 
                 return;
@@ -195,9 +228,33 @@ class FinalizeUploadTransferJob implements ShouldQueue
         $file->delete();
     }
 
+    private function rejectUpload(
+        UploadTransfer $upload,
+        ValidationException $exception,
+        string $directory,
+        UploadTransferStatus $statusUpdates,
+    ): void {
+        $message = collect($exception->errors())->flatten()->first() ?? 'The uploaded file was rejected.';
+        $updated = UploadTransfer::query()
+            ->whereKey($upload->id)
+            ->where('status', 'processing')
+            ->update([
+                'status' => 'failed',
+                'error_message' => $message,
+                'updated_at' => now(),
+            ]);
+
+        Storage::disk('local')->deleteDirectory($directory);
+
+        if ($updated === 1) {
+            $upload->refresh();
+            $statusUpdates->broadcast($upload);
+        }
+    }
+
     private function safeErrorMessage(?Throwable $exception): string
     {
-        if ($exception instanceof \Illuminate\Validation\ValidationException) {
+        if ($exception instanceof ValidationException) {
             return collect($exception->errors())->flatten()->first() ?? 'The uploaded file was rejected.';
         }
 

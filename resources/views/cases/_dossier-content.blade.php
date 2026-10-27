@@ -41,6 +41,12 @@
                                     <span class="video-play-overlay" aria-hidden="true">▶ PLAY VIDEO</span>
                                     @if ($loop->index === 3 && $category->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>@endif
                                 </button>
+                            @elseif (in_array($image->type, ['document', 'audio'], true))
+                                <a class="evidence-gallery-tile evidence-gallery-document" href="{{ route('cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" aria-label="Download {{ $image->original_name }}" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
+                                    <strong>{{ strtoupper(pathinfo($image->original_name, PATHINFO_EXTENSION)) }}</strong>
+                                    <span>{{ $image->original_name }}</span>
+                                    @if ($loop->index === 3 && $category->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>@endif
+                                </a>
                             @else
                                 <button class="evidence-gallery-tile" type="button" data-image-viewer data-image-url="{{ route('cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-download-url="{{ route('cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-image-title="{{ $image->original_name }}" aria-label="View {{ $image->original_name }}" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
                                     <img src="{{ route('cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="{{ $image->original_name }}">

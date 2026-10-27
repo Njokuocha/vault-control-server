@@ -59,9 +59,9 @@
                 <button type="button" class="button-secondary" data-confirm-cancel @click="$store.vaultAlerts.cancelConfirmation()">CANCEL</button>
                 <button type="button" class="button-primary vault-confirm-submit"
                     :class="{ 'is-holding': $store.vaultAlerts.confirmation?.hold }"
-                    @pointerdown="$store.vaultAlerts.beginHold()"
+                    @pointerdown.prevent="$event.currentTarget.setPointerCapture($event.pointerId); $store.vaultAlerts.beginHold()"
                     @pointerup="$store.vaultAlerts.endHold()"
-                    @pointerleave="$store.vaultAlerts.endHold()"
+                    @pointercancel="$store.vaultAlerts.endHold()"
                     @keydown.enter.prevent="if ($store.vaultAlerts.confirmation?.destructive) $store.vaultAlerts.beginHold(); else $store.vaultAlerts.finishConfirmation()"
                     @keyup.enter="$store.vaultAlerts.endHold()"
                     @keydown.space.prevent="if ($store.vaultAlerts.confirmation?.destructive) $store.vaultAlerts.beginHold(); else $store.vaultAlerts.finishConfirmation()"

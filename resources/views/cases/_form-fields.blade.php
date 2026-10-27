@@ -5,7 +5,7 @@
         <div class="case-category-list" data-case-category-list>
             @if ($editing)
                 @foreach ($caseFile->categories as $index => $category)
-                    <article class="case-category-editor" data-case-category data-case-index="{{ $index }}">
+                    <article class="case-category-editor" data-case-category data-case-index="{{ $index }}" data-case-category-id="{{ $category->id }}">
                         <input type="hidden" name="categories[{{ $index }}][id]" value="{{ $category->id }}">
                         <div class="case-category-editor-head"><span>IMAGE CATEGORY {{ str_pad($index + 1, 2, '0', STR_PAD_LEFT) }}</span><button type="button" class="category-remove" data-remove-category aria-label="Remove category">×</button></div>
                         <label class="record-field"><span>ADD TITLE</span><input name="categories[{{ $index }}][title]" value="{{ $category->title === 'Unknown' ? '' : $category->title }}" maxlength="255" placeholder="e.g. Witnesses"></label>
@@ -16,6 +16,8 @@
                                     @if ($image->type === 'video')
                                         <span class="video-media-mark" aria-hidden="true">▶</span>
                                         <span>{{ $image->original_name }}</span>
+                                    @elseif (in_array($image->type, ['document', 'audio'], true))
+                                        <a class="case-evidence-document" href="{{ route('cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" aria-label="Download {{ $image->original_name }}">{{ strtoupper(pathinfo($image->original_name, PATHINFO_EXTENSION)) }}</a>
                                     @else
                                         <img src="{{ route('cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="{{ $image->original_name }}">
                                     @endif
@@ -23,16 +25,21 @@
                                 </div>
                             @endforeach
                         </div>
-                        <button type="button" class="case-add-image" data-add-case-image><span>＋</span> ADD IMAGE</button>
-                        <div class="case-video-upload-tokens" data-case-video-upload-tokens>
-                            @foreach (old("categories.$index.video_upload_tokens", []) as $token)
-                                <input type="hidden" name="categories[{{ $index }}][video_upload_tokens][]" value="{{ $token }}" data-video-upload-token>
-                            @endforeach
-                        </div>
-                        <input class="visually-hidden-file" type="file" multiple data-video-upload-input>
-                        <button type="button" class="case-add-image" data-add-case-video><span>＋</span> ADD VIDEO</button>
+                        <div data-case-upload-transfer-tokens></div>
+                        <input class="visually-hidden-file" type="file" multiple accept="{{ app(\App\Support\RecordAttachmentTypes::class)->acceptAttribute(\App\Support\RecordAttachmentTypes::CASE_EVIDENCE) }}" data-case-document-input>
+                        <button type="button" class="case-add-image" data-add-case-document><span>＋</span> ADD DOCUMENT</button>
                     </article>
                 @endforeach
+            @else
+                <article class="case-category-editor" data-case-category data-case-index="0">
+                    <div class="case-category-editor-head"><span>IMAGE CATEGORY 01</span><button type="button" class="category-remove" data-remove-category aria-label="Remove category">×</button></div>
+                    <label class="record-field"><span>ADD TITLE</span><input name="categories[0][title]" maxlength="255" placeholder="e.g. Witnesses"></label>
+                    <label class="record-field"><span>ADD DESCRIPTION</span><textarea name="categories[0][description]" rows="2" maxlength="5000" placeholder="Context for this image group"></textarea></label>
+                    <div class="case-category-images" data-case-image-list></div>
+                    <div data-case-upload-transfer-tokens></div>
+                    <input class="visually-hidden-file" type="file" multiple accept="{{ app(\App\Support\RecordAttachmentTypes::class)->acceptAttribute(\App\Support\RecordAttachmentTypes::CASE_EVIDENCE) }}" data-case-document-input>
+                    <button type="button" class="case-add-image" data-add-case-document><span>＋</span> ADD DOCUMENT</button>
+                </article>
             @endif
         </div>
         <button type="button" class="case-add-category" data-add-case-category>＋ ADD CATEGORY</button>
@@ -42,18 +49,10 @@
                 <label class="record-field"><span>ADD TITLE</span><input data-category-field="title" maxlength="255" placeholder="e.g. Witnesses"></label>
                 <label class="record-field"><span>ADD DESCRIPTION</span><textarea data-category-field="description" rows="2" maxlength="5000" placeholder="Context for this image group"></textarea></label>
                 <div class="case-category-images" data-case-image-list></div>
-                <button type="button" class="case-add-image" data-add-case-image><span>＋</span> ADD IMAGE</button>
-                <div class="case-video-upload-tokens" data-case-video-upload-tokens></div>
-                <input class="visually-hidden-file" type="file" multiple data-video-upload-input>
-                <button type="button" class="case-add-image" data-add-case-video><span>＋</span> ADD VIDEO</button>
+                <div data-case-upload-transfer-tokens></div>
+                <input class="visually-hidden-file" type="file" multiple accept="{{ app(\App\Support\RecordAttachmentTypes::class)->acceptAttribute(\App\Support\RecordAttachmentTypes::CASE_EVIDENCE) }}" data-case-document-input>
+                <button type="button" class="case-add-image" data-add-case-document><span>＋</span> ADD DOCUMENT</button>
             </article>
-        </template>
-        <template data-case-image-template>
-            <div class="case-image-picker" data-new-case-image>
-                <input class="visually-hidden-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" data-case-image-input>
-                <span data-case-image-name>IMAGE</span>
-                <button type="button" data-remove-case-image aria-label="Remove selected image">×</button>
-            </div>
         </template>
     </section>
     <section class="case-main-fields">

@@ -2,10 +2,11 @@
 
 namespace App\Models;
 
+use App\Support\VersionedCache;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use App\Support\VersionedCache;
 
 class Person extends Model
 {
@@ -38,12 +39,18 @@ class Person extends Model
         'identifying_marks',
         'avatar_group',
         'main_image_path',
+        'main_image_file_id',
         'statement',
     ];
 
     public function images(): HasMany
     {
         return $this->hasMany(PersonImage::class);
+    }
+
+    public function mainImageFile(): BelongsTo
+    {
+        return $this->belongsTo(File::class, 'main_image_file_id');
     }
 
     public function cases(): BelongsToMany

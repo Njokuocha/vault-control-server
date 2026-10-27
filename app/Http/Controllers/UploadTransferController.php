@@ -6,14 +6,17 @@ use App\Jobs\FinalizeUploadTransferJob;
 use App\Models\UploadTransfer;
 use App\Models\User;
 use App\Services\FileUploadService;
+use App\Services\RecordUploadAttachmentService;
 use App\Services\UploadTransferStatus;
 use App\Support\ChunkUploadSize;
+use App\Support\RecordAttachmentTypes;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class UploadTransferController extends Controller
@@ -45,13 +48,38 @@ class UploadTransferController extends Controller
         ]);
     }
 
-    public function initialize(Request $request, FileUploadService $uploads, ChunkUploadSize $chunkSize): JsonResponse
-    {
+    public function initialize(
+        Request $request,
+        FileUploadService $uploads,
+        ChunkUploadSize $chunkSize,
+        RecordUploadAttachmentService $attachments,
+        RecordAttachmentTypes $attachmentTypes,
+    ): JsonResponse {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'size' => ['required', 'integer', 'min:1'],
+            'attachment' => ['nullable', 'array'],
+            'attachment.purpose' => ['required_with:attachment', Rule::in([
+                RecordAttachmentTypes::PERSON_MAIN_IMAGE,
+                RecordAttachmentTypes::PERSON_GALLERY,
+                RecordAttachmentTypes::CASE_EVIDENCE,
+            ])],
+            'attachment.record_id' => ['nullable', 'integer', 'min:1'],
+            'attachment.draft_token' => ['nullable', 'uuid'],
+            'attachment.target_id' => ['nullable', 'integer', 'min:1'],
+            'attachment.target_key' => ['nullable', 'uuid'],
+            'attachment.commit_immediately' => ['nullable', 'boolean'],
         ]);
         $uploads->assertUploadsAllowed();
+
+        $user = $request->user();
+        abort_unless($user instanceof User, 401);
+        $attachmentIntent = isset($validated['attachment'])
+            ? $attachments->validateIntent($user, $validated['attachment'])
+            : [];
+        if ($attachmentIntent !== []) {
+            $attachmentTypes->assertAllowedExtension($validated['name'], $attachmentIntent['attachment_purpose']);
+        }
 
         $size = (int) $validated['size'];
         if ($size > $uploads->maximumBytes()) {
@@ -64,15 +92,15 @@ class UploadTransferController extends Controller
             return response()->json(['message' => 'The file requires too many upload chunks.'], 422);
         }
 
-        $user = $request->user();
-        abort_unless($user instanceof User, 401);
         $upload = $user->uploadTransfers()->create([
+            ...$attachmentIntent,
             'token' => (string) Str::uuid(),
             'original_name' => $this->safeOriginalName($validated['name']),
             'total_size' => $size,
             'chunk_size' => $effectiveChunkSize,
             'chunk_count' => $chunkCount,
             'status' => 'uploading',
+            'committed_at' => (bool) ($validated['attachment']['commit_immediately'] ?? false) ? now() : null,
             'expires_at' => now()->addDay(),
         ]);
 
@@ -266,6 +294,12 @@ class UploadTransferController extends Controller
             'file_uuid' => $upload->file?->uuid,
             'error' => $upload->error_message,
             'updated_at' => $upload->updated_at?->toIso8601String(),
+            'attachment_purpose' => $upload->attachment_purpose,
+            'draft_token' => $upload->draft_token,
+            'attachment_record_id' => $upload->record_id,
+            'attachment_target_id' => $upload->target_id,
+            'attachment_target_key' => $upload->target_key,
+            'attached_at' => $upload->attached_at?->toIso8601String(),
         ];
     }
 

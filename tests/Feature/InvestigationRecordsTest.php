@@ -1,10 +1,13 @@
 <?php
 
-use App\Models\InvestigationCase;
+use App\Livewire\CaseDossier;
+use App\Livewire\CaseFormPage;
+use App\Livewire\CaseIndex;
+use App\Livewire\PeopleIndex;
 use App\Models\CaseCategory;
 use App\Models\CaseImage;
+use App\Models\InvestigationCase;
 use App\Models\Person;
-use Livewire\Livewire;
 use App\Models\PersonImage;
 use App\Models\User;
 use App\Services\SettingService;
@@ -12,6 +15,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
@@ -54,8 +59,14 @@ test('person profiles are optional, receive unique public identifiers, and store
         ->assertOk()
         ->assertSee('wire:id', false)
         ->assertSee('Identity dossier')
-        ->assertSee('class="case-add-image" data-add-person-image', false)
-        ->assertSee('class="case-add-image" data-add-person-video', false)
+        ->assertSee('data-record-form-submit', false)
+        ->assertSee('data-defer-record-uploads="true"', false)
+        ->assertSee('data-submitting-label="SAVING PROFILE…"', false)
+        ->assertSee('class="case-add-image" data-add-person-document', false)
+        ->assertSee('data-record-main-image-input', false)
+        ->assertDontSee('ADD IMAGE')
+        ->assertDontSee('ADD VIDEO')
+        ->assertDontSee('.pdf')
         ->assertSee('name="avatar_group"', false)
         ->assertSee('>Suspect</option>', false)
         ->assertSee('>Verified</option>', false);
@@ -63,8 +74,88 @@ test('person profiles are optional, receive unique public identifiers, and store
         ->assertOk()
         ->assertSee('wire:id', false)
         ->assertSee('method="POST"', false)
-        ->assertSee('data-person-image-input', false)
-        ->assertSee('data-video-upload-input', false);
+        ->assertSee('data-defer-record-uploads="true"', false)
+        ->assertSee('data-submitting-label="SAVING PROFILE…"', false)
+        ->assertSee('data-person-document-input', false)
+        ->assertSee('data-record-main-image-input', false);
+});
+
+test('case create and edit forms expose one multi-file document picker with case evidence types', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $this->get(route('cases.create'))
+        ->assertOk()
+        ->assertSee('data-record-form-submit', false)
+        ->assertSee('data-record-draft-storage-key="vault.cases.create-draft.v1"', false)
+        ->assertSee('data-defer-record-uploads="true"', false)
+        ->assertSee('data-submitting-label="SAVING CASE FILE…"', false)
+        ->assertSee('ADD DOCUMENT')
+        ->assertSee('data-case-document-input', false)
+        ->assertSee('.pdf', false)
+        ->assertSee('.xlsx', false)
+        ->assertSee('.mp3', false)
+        ->assertDontSee('ADD IMAGE')
+        ->assertDontSee('ADD VIDEO');
+
+    $caseFile = InvestigationCase::query()->create([
+        'public_id' => 'CSE-FORM-EDIT',
+        'title' => 'Editable evidence case',
+    ]);
+    $category = $caseFile->categories()->create(['title' => 'Reports']);
+    $this->get(route('cases.edit', $caseFile))
+        ->assertOk()
+        ->assertSee('data-record-form-submit', false)
+        ->assertSee('data-record-id="'.$caseFile->id.'"', false)
+        ->assertSee('data-defer-record-uploads="true"', false)
+        ->assertSee('data-submitting-label="SAVING CASE FILE…"', false)
+        ->assertSee('data-case-category-id="'.$category->id.'"', false)
+        ->assertSee('ADD DOCUMENT')
+        ->assertSee('.pdf', false)
+        ->assertDontSee('ADD IMAGE')
+        ->assertDontSee('ADD VIDEO');
+});
+
+test('case create and update return SPA destinations for JSON submissions', function () {
+    $user = User::factory()->create();
+    $targetKey = (string) Str::uuid();
+    $created = $this->actingAs($user)
+        ->postJson(route('cases.store'), [
+            'title' => 'SPA-created case',
+            'record_upload_draft_token' => (string) Str::uuid(),
+            'categories' => [
+                ['title' => 'Reports', 'upload_target_key' => $targetKey],
+            ],
+        ])
+        ->assertOk()
+        ->assertJsonPath('message', 'Case file created.')
+        ->assertJsonPath('redirect_url', route('cases.show', InvestigationCase::query()->where('title', 'SPA-created case')->firstOrFail()));
+
+    $caseFile = InvestigationCase::query()->where('title', 'SPA-created case')->firstOrFail();
+    $created->assertJsonPath('record_id', $caseFile->id)
+        ->assertJsonPath('upload_targets.'.$targetKey, $caseFile->categories()->firstOrFail()->id);
+
+    $this->putJson(route('cases.update', $caseFile), [
+        'title' => 'SPA-updated case',
+    ])
+        ->assertOk()
+        ->assertJsonPath('message', 'Case file updated.')
+        ->assertJsonPath('redirect_url', route('cases.show', $caseFile));
+});
+
+test('person edit returns an SPA destination and message for JSON submissions', function () {
+    $person = Person::query()->create([
+        'public_id' => 'USR-SPA-EDIT',
+        'name' => 'Existing SPA person',
+    ]);
+
+    $this->actingAs(User::factory()->create())
+        ->putJson(route('people.update', $person), [
+            'name' => 'Updated SPA person',
+        ])
+        ->assertOk()
+        ->assertJsonPath('message', 'Person profile updated.')
+        ->assertJsonPath('redirect_url', route('people.show', $person));
 });
 
 test('people index searches live and returns only matching profiles', function () {
@@ -72,7 +163,7 @@ test('people index searches live and returns only matching profiles', function (
     Person::query()->create(['public_id' => 'USR-LIVE01', 'name' => 'Aster Example']);
     Person::query()->create(['public_id' => 'USR-LIVE02', 'name' => 'Boreal Example']);
 
-    Livewire::test(\App\Livewire\PeopleIndex::class)
+    Livewire::test(PeopleIndex::class)
         ->set('search', 'Aster')
         ->assertSee('Aster Example')
         ->assertDontSee('Boreal Example');
@@ -93,14 +184,14 @@ test('case index cache reflects case creation, edits, and deletion immediately',
 
     $this->get(route('cases.index'))
         ->assertSee('Cache Test Case');
-    Livewire::test(\App\Livewire\CaseIndex::class)
+    Livewire::test(CaseIndex::class)
         ->assertSee('Cache Test Case');
 
     $case->update(['title' => 'Renamed Cache Test Case']);
     $this->get(route('cases.index'))
         ->assertSee('Renamed Cache Test Case')
         ->assertDontSee('>Cache Test Case</strong>', false);
-    Livewire::test(\App\Livewire\CaseIndex::class)
+    Livewire::test(CaseIndex::class)
         ->assertSee('Renamed Cache Test Case')
         ->assertDontSee('>Cache Test Case</strong>', false);
 
@@ -109,7 +200,7 @@ test('case index cache reflects case creation, edits, and deletion immediately',
         ->assertDontSee('Renamed Cache Test Case');
 });
 
-test('case dossiers and create forms render through Livewire without changing existing form posts', function () {
+test('case dossiers and forms render through Livewire with document upload controls', function () {
     $this->actingAs(User::factory()->create());
     $case = InvestigationCase::query()->create([
         'public_id' => 'CSE-LIVE001',
@@ -126,7 +217,7 @@ test('case dossiers and create forms render through Livewire without changing ex
         ->assertSee('Livewire case dossier')
         ->assertSee('data-image-viewer-dialog', false);
 
-    Livewire::test(\App\Livewire\CaseDossier::class, ['caseFile' => $case])
+    Livewire::test(CaseDossier::class, ['caseFile' => $case])
         ->assertSee('Livewire case dossier')
         ->assertSee('Dossier narrative.')
         ->assertSee('Continuity note.');
@@ -135,20 +226,29 @@ test('case dossiers and create forms render through Livewire without changing ex
         ->assertOk()
         ->assertSee('wire:id', false)
         ->assertSee('method="POST"', false)
-        ->assertSee('data-video-upload-input', false);
+        ->assertSee('data-record-form-submit', false)
+        ->assertSee('data-case-document-input', false)
+        ->assertSee('ADD DOCUMENT')
+        ->assertDontSee('ADD IMAGE')
+        ->assertDontSee('ADD VIDEO');
     $this->get(route('cases.edit', $case))
         ->assertOk()
         ->assertSee('wire:id', false)
         ->assertSee('method="POST"', false)
         ->assertSee('name="_method" value="PUT"', false)
-        ->assertSee('data-video-upload-input', false);
+        ->assertSee('data-record-form-submit', false)
+        ->assertSee('data-case-document-input', false)
+        ->assertSee('ADD DOCUMENT')
+        ->assertDontSee('ADD IMAGE')
+        ->assertDontSee('ADD VIDEO');
 
-    Livewire::test(\App\Livewire\CaseFormPage::class, [
+    Livewire::test(CaseFormPage::class, [
         'caseFile' => new InvestigationCase,
         'maxUploadMb' => 100,
         'maxVideoUploadMb' => 0,
     ])->assertSee('CREATE CASE')
-        ->assertSee('data-video-upload-input', false);
+        ->assertSee('data-case-document-input', false)
+        ->assertSee('ADD DOCUMENT');
 });
 
 test('cached profile and case galleries refresh immediately after media changes', function () {

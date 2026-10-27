@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\File;
 use App\Models\InvestigationCase;
 use App\Models\Person;
 use App\Models\PersonImage;
-use App\Models\File;
+use App\Models\User;
 use App\Models\VideoUpload;
-use App\Http\Controllers\FileController;
 use App\Services\PublicRecordId;
+use App\Services\RecordUploadAttachmentService;
 use App\Services\SettingService;
 use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
@@ -22,6 +23,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class PersonController extends Controller
@@ -45,21 +47,24 @@ class PersonController extends Controller
         ]);
     }
 
-    public function store(Request $request, PublicRecordId $ids): RedirectResponse
+    public function store(Request $request, PublicRecordId $ids, RecordUploadAttachmentService $attachments): RedirectResponse|JsonResponse
     {
         $validated = $this->validatePerson($request);
+        $user = $request->user();
+        abort_unless($user instanceof User, 401);
         $mainImage = $request->file('main_image');
         $otherImages = $request->file('other_images', []);
         $storedPaths = [];
 
         try {
-            $person = DB::transaction(function () use ($validated, $mainImage, $otherImages, $ids, &$storedPaths): Person {
+            $person = DB::transaction(function () use ($validated, $mainImage, $otherImages, $ids, $attachments, $user, &$storedPaths): Person {
                 $attributes = $this->personAttributes($validated);
                 $attributes['public_id'] = $ids->generate(Person::class, 'USR');
                 $attributes['avatar_group'] = $validated['avatar_group'] ?? $this->avatarGroup($attributes['gender']);
 
                 if ($mainImage instanceof UploadedFile) {
                     $attributes['main_image_path'] = $this->storeImage($mainImage, 'people/main', $storedPaths);
+                    $attributes['main_image_file_id'] = null;
                 }
 
                 $person = Person::query()->create($attributes);
@@ -73,6 +78,13 @@ class PersonController extends Controller
                     }
                 }
                 $this->attachVideosToPerson($person, $validated['video_upload_tokens'] ?? []);
+                $attachments->commitPersonUploads(
+                    $user,
+                    $person,
+                    $validated['record_upload_draft_token'] ?? null,
+                    $validated['main_image_upload_token'] ?? null,
+                    $validated['gallery_upload_tokens'] ?? [],
+                );
 
                 return $person;
             });
@@ -81,7 +93,16 @@ class PersonController extends Controller
             throw $exception;
         }
 
-        return redirect()->route('people.show', $person)->with('status', 'Person profile created.');
+        $redirectUrl = route('people.show', $person);
+        if ($request->expectsJson()) {
+            return response()->json([
+                'redirect_url' => $redirectUrl,
+                'message' => 'Person profile created.',
+                'record_id' => $person->getKey(),
+            ]);
+        }
+
+        return redirect()->to($redirectUrl)->with('status', 'Person profile created.');
     }
 
     public function show(Person $person, SettingService $settings): Response
@@ -114,9 +135,11 @@ class PersonController extends Controller
         ]);
     }
 
-    public function update(Request $request, Person $person): RedirectResponse
+    public function update(Request $request, Person $person, RecordUploadAttachmentService $attachments): RedirectResponse|JsonResponse
     {
         $validated = $this->validatePerson($request);
+        $user = $request->user();
+        abort_unless($user instanceof User, 401);
         $mainImage = $request->file('main_image');
         $otherImages = $request->file('other_images', []);
         $storedPaths = [];
@@ -124,14 +147,16 @@ class PersonController extends Controller
         $removeMainImage = (bool) ($validated['remove_main_image'] ?? false);
 
         try {
-            DB::transaction(function () use ($validated, $mainImage, $otherImages, $person, $removeMainImage, &$storedPaths): void {
+            DB::transaction(function () use ($validated, $mainImage, $otherImages, $person, $removeMainImage, $attachments, $user, &$storedPaths): void {
                 $attributes = $this->personAttributes($validated);
                 $attributes['avatar_group'] = $validated['avatar_group'] ?? $this->avatarGroup($attributes['gender']);
 
                 if ($mainImage instanceof UploadedFile) {
                     $attributes['main_image_path'] = $this->storeImage($mainImage, 'people/main', $storedPaths);
+                    $attributes['main_image_file_id'] = null;
                 } elseif ($removeMainImage) {
                     $attributes['main_image_path'] = null;
+                    $attributes['main_image_file_id'] = null;
                 }
 
                 $person->update($attributes);
@@ -145,6 +170,13 @@ class PersonController extends Controller
                     }
                 }
                 $this->attachVideosToPerson($person, $validated['video_upload_tokens'] ?? []);
+                $attachments->commitPersonUploads(
+                    $user,
+                    $person,
+                    $validated['record_upload_draft_token'] ?? null,
+                    $validated['main_image_upload_token'] ?? null,
+                    $validated['gallery_upload_tokens'] ?? [],
+                );
             });
         } catch (Throwable $exception) {
             Storage::disk(config('vault.upload_disk'))->delete($storedPaths);
@@ -155,7 +187,16 @@ class PersonController extends Controller
             Storage::disk(config('vault.upload_disk'))->delete($previousMainImage);
         }
 
-        return redirect()->route('people.show', $person)->with('status', 'Person profile updated.');
+        $redirectUrl = route('people.show', $person);
+        if ($request->expectsJson()) {
+            return response()->json([
+                'redirect_url' => $redirectUrl,
+                'message' => 'Person profile updated.',
+                'record_id' => $person->getKey(),
+            ]);
+        }
+
+        return redirect()->to($redirectUrl)->with('status', 'Person profile updated.');
     }
 
     public function authenticateImages(Request $request, Person $person, SettingService $settings): JsonResponse
@@ -189,6 +230,12 @@ class PersonController extends Controller
                     : ($media->playable_path
                         ? app(FileController::class)->videoRendition($file)
                         : app(FileController::class)->stream(request(), $file));
+            }
+            if (in_array($media->type, ['audio', 'document'], true)) {
+                $file = $media->file;
+                abort_unless($file instanceof File, 404);
+
+                return app(FileController::class)->download($file);
             }
             $path = $media->path;
         } else {
@@ -291,6 +338,10 @@ class PersonController extends Controller
             'other_images.*' => ['image', 'mimes:jpg,jpeg,png,webp,gif', 'max:10240'],
             'video_upload_tokens' => ['nullable', 'array', 'max:20'],
             'video_upload_tokens.*' => ['required', 'uuid', 'distinct', 'exists:video_uploads,token'],
+            'record_upload_draft_token' => ['nullable', 'uuid'],
+            'main_image_upload_token' => ['nullable', 'uuid'],
+            'gallery_upload_tokens' => ['nullable', 'array', 'max:40'],
+            'gallery_upload_tokens.*' => ['required', 'uuid', 'distinct'],
             'remove_main_image' => ['nullable', 'boolean'],
         ]);
     }
@@ -312,7 +363,7 @@ class PersonController extends Controller
         if ($uploads->count() !== count($tokens) || $uploads->contains(
             fn (VideoUpload $upload): bool => ! $upload->file || $upload->file->category !== 'video'
         )) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
+            throw ValidationException::withMessages([
                 'video_upload_tokens' => 'One or more selected videos are not available to attach.',
             ]);
         }

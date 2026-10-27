@@ -10,6 +10,14 @@ class UploadTransfer extends Model
     protected $fillable = [
         'token',
         'user_id',
+        'attachment_purpose',
+        'record_type',
+        'record_id',
+        'draft_token',
+        'target_id',
+        'target_key',
+        'committed_at',
+        'attached_at',
         'original_name',
         'total_size',
         'chunk_size',
@@ -24,11 +32,15 @@ class UploadTransfer extends Model
     {
         return [
             'user_id' => 'integer',
+            'record_id' => 'integer',
+            'target_id' => 'integer',
             'total_size' => 'integer',
             'chunk_size' => 'integer',
             'chunk_count' => 'integer',
             'file_id' => 'integer',
             'expires_at' => 'datetime',
+            'committed_at' => 'datetime',
+            'attached_at' => 'datetime',
         ];
     }
 

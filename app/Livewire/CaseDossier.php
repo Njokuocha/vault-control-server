@@ -6,6 +6,7 @@ use App\Models\InvestigationCase;
 use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 class CaseDossier extends Component
@@ -16,6 +17,14 @@ class CaseDossier extends Component
     public function mount(InvestigationCase $caseFile): void
     {
         $this->caseFile = $caseFile;
+    }
+
+    #[On('refresh-case-dossier')]
+    public function refreshForUpload(int $caseId): void
+    {
+        if ($caseId === $this->caseFile->getKey()) {
+            app(VersionedCache::class)->bump('cases');
+        }
     }
 
     public function render(): View

@@ -3,7 +3,7 @@
         <div><div class="eyebrow"><span class="eyebrow-line"></span> PERSONNEL RECORD <span class="eyebrow-index">PROFILE INTAKE</span></div><h1>{{ $editing ? 'Update' : 'Create' }} <span>profile</span></h1><p class="page-description">Fields may be completed over time. Unprovided information is recorded as Unknown.</p></div>
         <a class="back-link" href="{{ $editing ? route('people.show', $person) : route('people.index') }}" wire:navigate><span aria-hidden="true">←</span> CANCEL</a>
     </section>
-    <form class="record-form-shell" method="POST" action="{{ $editing ? route('people.update', $person) : route('people.store') }}" enctype="multipart/form-data" data-video-limit-config data-max-upload-mb="{{ $maxUploadMb }}" data-max-video-upload-mb="{{ $maxVideoUploadMb }}">
+    <form class="record-form-shell" method="POST" action="{{ $editing ? route('people.update', $person) : route('people.store') }}" enctype="multipart/form-data" data-video-limit-config data-max-upload-mb="{{ $maxUploadMb }}" data-max-video-upload-mb="{{ $maxVideoUploadMb }}" data-record-form-submit data-record-upload-form @if($editing) data-record-id="{{ $person->id }}" @else data-record-draft-storage-key="vault.people.create-draft.v1" @endif data-defer-record-uploads="true" data-submitting-label="SAVING PROFILE…">
         @csrf
         @if ($editing)@method('PUT')@endif
         <section class="record-form-visual">
@@ -16,23 +16,19 @@
                 @else
                     <div class="main-image-placeholder" data-main-image-placeholder><span>+</span><strong>MAIN IMAGE</strong><small>JPG · PNG · WEBP · GIF</small></div>
                 @endif
-                <input class="visually-hidden-file" type="file" name="main_image" accept="image/jpeg,image/png,image/webp,image/gif" data-main-image-input>
+                @if ($editing)
+                    <input class="visually-hidden-file" type="file" accept="{{ app(\App\Support\RecordAttachmentTypes::class)->acceptAttribute(\App\Support\RecordAttachmentTypes::PERSON_MAIN_IMAGE) }}" data-main-image-input data-record-main-image-input>
+                @else
+                    <input class="visually-hidden-file" type="file" accept="{{ app(\App\Support\RecordAttachmentTypes::class)->acceptAttribute(\App\Support\RecordAttachmentTypes::PERSON_MAIN_IMAGE) }}" data-main-image-input data-record-main-image-input>
+                @endif
                 <button type="button" class="image-upload-action" data-main-image-trigger>SELECT MAIN IMAGE</button>
                 @if ($editing && $person->main_image_path)
                     <label class="remove-main-image"><input type="checkbox" name="remove_main_image" value="1"> REMOVE CURRENT IMAGE</label>
                 @endif
             </div>
-            <div class="form-subsection-heading"><span>GALLERY MEDIA</span><span class="person-media-actions"><button type="button" class="case-add-image" data-add-person-image aria-label="Add gallery image"><span>＋</span> ADD IMAGE</button><button type="button" class="case-add-image" data-add-person-video aria-label="Add gallery video"><span>＋</span> ADD VIDEO</button></span></div>
+            <div class="form-subsection-heading"><span>GALLERY MEDIA</span><span class="person-media-actions"><button type="button" class="case-add-image" data-add-person-document aria-label="Add document"><span>＋</span> ADD DOCUMENT</button></span></div>
             <div class="person-gallery-upload-list" data-person-gallery-upload-list>
-                <input class="visually-hidden-file" type="file" name="other_images[]" accept="image/jpeg,image/png,image/webp,image/gif" data-person-image-input>
-                <div class="person-video-upload" data-person-video-upload>
-                    <input class="visually-hidden-file" type="file" multiple data-video-upload-input>
-                    <div data-video-upload-tokens>
-                        @foreach (old('video_upload_tokens', []) as $token)
-                            <input type="hidden" name="video_upload_tokens[]" value="{{ $token }}" data-video-upload-token>
-                        @endforeach
-                    </div>
-                </div>
+                <input class="visually-hidden-file" type="file" multiple accept="{{ app(\App\Support\RecordAttachmentTypes::class)->acceptAttribute(\App\Support\RecordAttachmentTypes::PERSON_GALLERY) }}" data-person-document-input>
                 @if ($editing)
                     @foreach ($person->images as $image)
                         <div class="existing-upload-image" data-existing-image>

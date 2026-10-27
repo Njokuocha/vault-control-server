@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CaseCategory;
 use App\Models\CaseImage;
 use App\Models\File;
 use App\Models\InvestigationCase;
+use App\Models\User;
 use App\Models\VideoUpload;
-use App\Http\Controllers\FileController;
 use App\Services\PublicRecordId;
+use App\Services\RecordUploadAttachmentService;
 use App\Services\SettingService;
 use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
@@ -19,6 +21,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class InvestigationCaseController extends Controller
@@ -37,13 +40,18 @@ class InvestigationCaseController extends Controller
         ]);
     }
 
-    public function store(Request $request, PublicRecordId $ids): RedirectResponse
-    {
+    public function store(
+        Request $request,
+        PublicRecordId $ids,
+        RecordUploadAttachmentService $attachments,
+    ): RedirectResponse|JsonResponse {
         $validated = $this->validateCase($request);
+        $user = $request->user();
+        abort_unless($user instanceof User, 401);
         $storedPaths = [];
 
         try {
-            $caseFile = DB::transaction(function () use ($validated, $ids, &$storedPaths): InvestigationCase {
+            $caseFile = DB::transaction(function () use ($validated, $ids, $attachments, $user, &$storedPaths): InvestigationCase {
                 $caseFile = InvestigationCase::query()->create([
                     'public_id' => $ids->generate(InvestigationCase::class, 'CSE'),
                     'title' => $this->unknown($validated['title'] ?? null),
@@ -52,7 +60,14 @@ class InvestigationCaseController extends Controller
                     'narrative' => $this->unknown($validated['narrative'] ?? null),
                     'comment' => $this->unknown($validated['comment'] ?? null),
                 ]);
-                $this->saveCategories($caseFile, $validated['categories'] ?? [], $storedPaths);
+                $this->saveCategories(
+                    $caseFile,
+                    $validated['categories'] ?? [],
+                    $storedPaths,
+                    $attachments,
+                    $user,
+                    $validated['record_upload_draft_token'] ?? null,
+                );
 
                 return $caseFile;
             });
@@ -61,7 +76,17 @@ class InvestigationCaseController extends Controller
             throw $exception;
         }
 
-        return redirect()->route('cases.show', $caseFile)->with('status', 'Case file created.');
+        $redirectUrl = route('cases.show', $caseFile);
+        if ($request->expectsJson()) {
+            return response()->json([
+                'redirect_url' => $redirectUrl,
+                'message' => 'Case file created.',
+                'record_id' => $caseFile->getKey(),
+                'upload_targets' => $this->uploadTargetIds($caseFile, $validated['categories'] ?? []),
+            ]);
+        }
+
+        return redirect()->to($redirectUrl)->with('status', 'Case file created.');
     }
 
     public function show(InvestigationCase $caseFile): View
@@ -90,15 +115,20 @@ class InvestigationCaseController extends Controller
         ]);
     }
 
-    public function update(Request $request, InvestigationCase $caseFile): RedirectResponse
-    {
+    public function update(
+        Request $request,
+        InvestigationCase $caseFile,
+        RecordUploadAttachmentService $attachments,
+    ): RedirectResponse|JsonResponse {
         $validated = $this->validateCase($request);
+        $user = $request->user();
+        abort_unless($user instanceof User, 401);
         $storedPaths = [];
         $deletedPaths = [];
         $deletedFileIds = [];
         $deletedUploadIds = [];
         try {
-            DB::transaction(function () use ($validated, $caseFile, &$storedPaths, &$deletedPaths, &$deletedFileIds, &$deletedUploadIds): void {
+            DB::transaction(function () use ($validated, $caseFile, $attachments, $user, &$storedPaths, &$deletedPaths, &$deletedFileIds, &$deletedUploadIds): void {
                 $caseFile->update([
                     'title' => $this->unknown($validated['title'] ?? null),
                     'classification' => $validated['classification'] ?? 'CLASSIFIED',
@@ -118,7 +148,14 @@ class InvestigationCaseController extends Controller
                 if ($deletedFileIds !== []) {
                     $deletedUploadIds = VideoUpload::query()->whereIn('file_id', $deletedFileIds)->pluck('id')->all();
                 }
-                $this->saveCategories($caseFile, $validated['categories'] ?? [], $storedPaths);
+                $this->saveCategories(
+                    $caseFile,
+                    $validated['categories'] ?? [],
+                    $storedPaths,
+                    $attachments,
+                    $user,
+                    $validated['record_upload_draft_token'] ?? null,
+                );
             });
         } catch (Throwable $exception) {
             Storage::disk(config('vault.upload_disk'))->delete($storedPaths);
@@ -134,7 +171,17 @@ class InvestigationCaseController extends Controller
             VideoUpload::query()->whereIn('id', $deletedUploadIds)->delete();
         }
 
-        return redirect()->route('cases.show', $caseFile)->with('status', 'Case file updated.');
+        $redirectUrl = route('cases.show', $caseFile);
+        if ($request->expectsJson()) {
+            return response()->json([
+                'redirect_url' => $redirectUrl,
+                'message' => 'Case file updated.',
+                'record_id' => $caseFile->getKey(),
+                'upload_targets' => $this->uploadTargetIds($caseFile, $validated['categories'] ?? []),
+            ]);
+        }
+
+        return redirect()->to($redirectUrl)->with('status', 'Case file updated.');
     }
 
     public function image(InvestigationCase $caseFile, CaseImage $image, bool $download = false): mixed
@@ -149,6 +196,12 @@ class InvestigationCaseController extends Controller
                 : ($image->playable_path
                     ? app(FileController::class)->videoRendition($file)
                     : app(FileController::class)->stream(request(), $file));
+        }
+        if (in_array($image->type, ['audio', 'document'], true)) {
+            $file = $image->file;
+            abort_unless($file instanceof File, 404);
+
+            return app(FileController::class)->download($file);
         }
         abort_unless(Storage::disk(config('vault.upload_disk'))->exists($image->path), 404);
 
@@ -196,6 +249,7 @@ class InvestigationCaseController extends Controller
             'case_status' => ['nullable', Rule::in(['OPEN', 'UNDER REVIEW', 'CLOSED'])],
             'narrative' => ['nullable', 'string', 'max:50000'],
             'comment' => ['nullable', 'string', 'max:20000'],
+            'record_upload_draft_token' => ['nullable', 'uuid'],
             'categories' => ['nullable', 'array', 'max:30'],
             'categories.*.id' => ['nullable', 'integer', 'exists:case_categories,id'],
             'categories.*.title' => ['nullable', 'string', 'max:255'],
@@ -204,13 +258,22 @@ class InvestigationCaseController extends Controller
             'categories.*.images.*' => ['image', 'mimes:jpg,jpeg,png,webp,gif', 'max:10240'],
             'categories.*.video_upload_tokens' => ['nullable', 'array', 'max:20'],
             'categories.*.video_upload_tokens.*' => ['required', 'uuid', 'distinct', 'exists:video_uploads,token'],
+            'categories.*.upload_target_key' => ['nullable', 'uuid'],
+            'categories.*.upload_transfer_tokens' => ['nullable', 'array', 'max:40'],
+            'categories.*.upload_transfer_tokens.*' => ['required', 'uuid', 'distinct'],
             'delete_categories' => ['nullable', 'array'],
             'delete_categories.*' => ['integer', 'exists:case_categories,id'],
         ]);
     }
 
-    private function saveCategories(InvestigationCase $caseFile, array $categories, array &$storedPaths): void
-    {
+    private function saveCategories(
+        InvestigationCase $caseFile,
+        array $categories,
+        array &$storedPaths,
+        RecordUploadAttachmentService $attachments,
+        User $user,
+        ?string $draftToken,
+    ): void {
         foreach ($categories as $index => $categoryData) {
             $attributes = [
                 'title' => $this->unknown($categoryData['title'] ?? null),
@@ -241,10 +304,26 @@ class InvestigationCaseController extends Controller
             }
 
             $this->attachVideosToCategory($category, $categoryData['video_upload_tokens'] ?? []);
+            $transferTokens = $categoryData['upload_transfer_tokens'] ?? [];
+            if ($transferTokens !== []) {
+                $attachments->commitCaseUploads(
+                    $user,
+                    $caseFile,
+                    $draftToken,
+                    array_map(
+                        fn (string $token): array => [
+                            'token' => $token,
+                            'category_id' => $category->getKey(),
+                            'target_key' => $categoryData['upload_target_key'] ?? null,
+                        ],
+                        $transferTokens,
+                    ),
+                );
+            }
         }
     }
 
-    private function attachVideosToCategory(\App\Models\CaseCategory $category, array $tokens): void
+    private function attachVideosToCategory(CaseCategory $category, array $tokens): void
     {
         if ($tokens === []) {
             return;
@@ -261,7 +340,7 @@ class InvestigationCaseController extends Controller
         if ($uploads->count() !== count($tokens) || $uploads->contains(
             fn (VideoUpload $upload): bool => ! $upload->file || $upload->file->category !== 'video'
         )) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
+            throw ValidationException::withMessages([
                 'categories' => 'One or more selected videos are not available to attach.',
             ]);
         }
@@ -278,6 +357,21 @@ class InvestigationCaseController extends Controller
             ]);
             $upload->forceFill(['attached_at' => now()])->save();
         }
+    }
+
+    private function uploadTargetIds(InvestigationCase $caseFile, array $categories): array
+    {
+        $categoryIds = $caseFile->categories()->pluck('id', 'sort_order');
+        $targets = [];
+        foreach ($categories as $index => $category) {
+            $targetKey = $category['upload_target_key'] ?? null;
+            $categoryId = $categoryIds->get($index);
+            if (is_string($targetKey) && $categoryId !== null) {
+                $targets[$targetKey] = $categoryId;
+            }
+        }
+
+        return $targets;
     }
 
     private function unknown(?string $value): string

@@ -18,18 +18,19 @@ class PruneExpiredUploadTransfers extends Command
         $count = 0;
         UploadTransfer::query()
             ->where('expires_at', '<=', now())
-            ->whereIn('status', ['uploading', 'pending', 'failed', 'cancelled'])
+            ->whereIn('status', ['uploading', 'pending', 'processing', 'failed', 'cancelled'])
             ->chunkById(100, function ($uploads) use (&$count, $statusUpdates): void {
                 foreach ($uploads as $upload) {
                     if (in_array($upload->status, ['failed', 'cancelled'], true)) {
                         Storage::disk('local')->deleteDirectory('upload-transfer-chunks/'.$upload->token);
                         $count++;
+
                         continue;
                     }
 
                     $updated = UploadTransfer::query()
                         ->whereKey($upload->id)
-                        ->whereIn('status', ['uploading', 'pending'])
+                        ->whereIn('status', ['uploading', 'pending', 'processing'])
                         ->update([
                             'status' => 'failed',
                             'error_message' => 'This upload session expired. Start a new upload to retry.',

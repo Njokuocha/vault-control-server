@@ -2,6 +2,7 @@ import './bootstrap';
 import './alerts';
 import './upload-tracker';
 import './upload-transfer-uploader';
+import './record-form-submitter';
 import './video-uploader';
 import { evaluateTriggerExpression } from './shell-math.mjs';
 import Echo from 'laravel-echo';
@@ -1646,54 +1647,42 @@ apiUploadSwitch?.addEventListener('change', () => {
 
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
 
-const addPersonImageInput = (list) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.name = 'other_images[]';
-    input.accept = 'image/jpeg,image/png,image/webp,image/gif';
-    input.className = 'visually-hidden-file';
-    input.dataset.personImageInput = '';
-    list.append(input);
-    input.click();
-};
+listenForPageEvent(document, 'click', (event) => {
+    const mainImageTrigger = event.target.closest('[data-main-image-trigger]');
+    if (mainImageTrigger) {
+        mainImageTrigger.closest('[data-main-image-uploader]')
+            ?.querySelector('[data-record-main-image-input], [data-main-image-input]')
+            ?.click();
+        return;
+    }
 
-document.querySelector('[data-main-image-trigger]')?.addEventListener('click', () => {
-    document.querySelector('[data-main-image-input]')?.click();
+    const addDocument = event.target.closest('[data-add-person-document]');
+    if (addDocument) {
+        addDocument.closest('.record-form-visual')
+            ?.querySelector('[data-person-document-input]')
+            ?.click();
+        return;
+    }
+
 });
-document.querySelector('[data-main-image-input]')?.addEventListener('change', (event) => {
-    const input = event.currentTarget;
-    const file = input.files?.[0];
-    if (!file) return;
+
+listenForPageEvent(document, 'change', (event) => {
+    const input = event.target.closest('[data-main-image-input]');
+    if (!(input instanceof HTMLInputElement) || !input.files?.[0]) return;
+    if (input.closest('[data-record-upload-form]')?.dataset.deferRecordUploads === 'true') return;
+
+    const uploader = input.closest('[data-main-image-uploader]');
+    const currentPreview = uploader?.querySelector('[data-main-image-preview]');
+    if (currentPreview?.dataset.previewUrl) URL.revokeObjectURL(currentPreview.dataset.previewUrl);
+    const previewUrl = URL.createObjectURL(input.files[0]);
     const image = document.createElement('img');
-    image.src = URL.createObjectURL(file);
+    image.src = previewUrl;
     image.alt = 'Selected main image';
     image.dataset.mainImagePreview = '';
-    const placeholder = document.querySelector('[data-main-image-placeholder]');
+    image.dataset.previewUrl = previewUrl;
+    const placeholder = uploader?.querySelector('[data-main-image-placeholder]');
     if (placeholder) placeholder.replaceWith(image);
-    else document.querySelector('[data-main-image-preview]')?.replaceWith(image);
-});
-document.querySelector('[data-add-person-image]')?.addEventListener('click', (event) => {
-    addPersonImageInput(event.currentTarget.closest('.record-form-visual').querySelector('[data-person-gallery-upload-list]'));
-});
-listenForPageEvent(document, 'change', (event) => {
-    const input = event.target.closest('[data-person-image-input]');
-    if (!input || !input.files?.[0]) return;
-    const list = input.closest('[data-person-gallery-upload-list]');
-    const file = input.files[0];
-    const card = document.createElement('div');
-    card.className = 'new-upload-image';
-    const preview = document.createElement('img');
-    preview.src = URL.createObjectURL(file);
-    preview.alt = file.name;
-    const name = document.createElement('span');
-    name.textContent = file.name;
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.textContent = '×';
-    remove.setAttribute('aria-label', `Remove ${file.name}`);
-    remove.addEventListener('click', () => card.remove());
-    card.append(input, preview, name, remove);
-    list.append(card);
+    else currentPreview?.replaceWith(image);
 });
 
 listenForPageEvent(document, 'click', async (event) => {
@@ -1743,76 +1732,50 @@ const createCategoryEditor = (container, template) => {
     container.append(category);
 };
 
-document.querySelectorAll('[data-case-form-layout]').forEach((layout) => {
-    const categoryList = layout.querySelector('[data-case-category-list]');
-    const categoryTemplate = layout.querySelector('[data-case-category-template]');
-    const imageTemplate = layout.querySelector('[data-case-image-template]');
-    layout.querySelector('[data-add-case-category]')?.addEventListener('click', () => createCategoryEditor(categoryList, categoryTemplate));
-    layout.addEventListener('click', async (event) => {
-        const removeCategory = event.target.closest('[data-remove-category]');
-        if (removeCategory) {
-            const category = removeCategory.closest('[data-case-category]');
-            const idInput = category.querySelector('input[name$="[id]"]');
-            if (idInput) {
-                const confirmed = await window.vaultConfirm({
-                    title: 'Delete evidence category',
-                    message: 'Saving this change permanently removes the category and its attached media.',
-                    confirmLabel: 'DELETE CATEGORY',
-                    destructive: true,
-                });
-                if (!confirmed) return;
-                const deleted = document.createElement('input');
-                deleted.type = 'hidden';
-                deleted.name = 'delete_categories[]';
-                deleted.value = idInput.value;
-                layout.closest('form').append(deleted);
-            }
-            category.remove();
-            return;
-        }
+listenForPageEvent(document, 'click', async (event) => {
+    if (!(event.target instanceof Element)) return;
+    const layout = event.target.closest('[data-case-form-layout]');
+    if (!layout) return;
 
-        const addImage = event.target.closest('[data-add-case-image]');
-        if (addImage) {
-            const category = addImage.closest('[data-case-category]');
-            const index = category.dataset.caseIndex;
-            if (index === undefined) return;
-            const input = imageTemplate.content.querySelector('input').cloneNode(true);
-            input.name = `categories[${index}][images][]`;
-            category.querySelector('[data-case-image-list]').append(input);
-            input.click();
-        }
-
-        const removeImage = event.target.closest('[data-remove-case-image]');
-        if (removeImage) removeImage.closest('[data-new-case-image]')?.remove();
-    });
-    layout.addEventListener('change', (event) => {
-        const input = event.target.closest('[data-case-image-input]');
-        if (!input || !input.files?.[0]) return;
-        const list = input.closest('[data-case-image-list]');
-        const file = input.files[0];
-        const wrapper = imageTemplate.content.firstElementChild.cloneNode(true);
-        const preview = document.createElement('img');
-        preview.src = URL.createObjectURL(file);
-        preview.alt = file.name;
-        wrapper.querySelector('input')?.remove();
-        wrapper.querySelector('[data-case-image-name]').textContent = file.name;
-        wrapper.insertBefore(input, wrapper.querySelector('[data-case-image-name]'));
-        wrapper.insertBefore(preview, wrapper.querySelector('[data-case-image-name]'));
-        wrapper.dataset.newCaseImage = '';
-        list?.append(wrapper);
-    });
-});
-
-listenForPageEvent(document, 'click', (event) => {
-    const personVideoButton = event.target.closest('[data-add-person-video]');
-    if (personVideoButton) {
-        personVideoButton.closest('form')?.querySelector('[data-person-video-upload] [data-video-upload-input]')?.click();
+    const addCategory = event.target.closest('[data-add-case-category]');
+    if (addCategory) {
+        if (layout.closest('form')?.dataset.submitting === 'true') return;
+        createCategoryEditor(
+            layout.querySelector('[data-case-category-list]'),
+            layout.querySelector('[data-case-category-template]'),
+        );
         return;
     }
 
-    const caseVideoButton = event.target.closest('[data-add-case-video]');
-    if (caseVideoButton) {
-        caseVideoButton.closest('[data-case-category]')?.querySelector('[data-video-upload-input]')?.click();
+    const removeCategory = event.target.closest('[data-remove-category]');
+    if (removeCategory) {
+        if (layout.closest('form')?.dataset.submitting === 'true') return;
+        const category = removeCategory.closest('[data-case-category]');
+        const idInput = category.querySelector('input[name$="[id]"]');
+        if (idInput) {
+            const confirmed = await window.vaultConfirm({
+                title: 'Delete evidence category',
+                message: 'Saving this change permanently removes the category and its attached media.',
+                confirmLabel: 'DELETE CATEGORY',
+                destructive: true,
+            });
+            if (!confirmed) return;
+            const deleted = document.createElement('input');
+            deleted.type = 'hidden';
+            deleted.name = 'delete_categories[]';
+            deleted.value = idInput.value;
+            layout.closest('form').append(deleted);
+        }
+        window.dispatchEvent(new CustomEvent('vault:case-category-removed', { detail: { category } }));
+        category.remove();
+        return;
+    }
+
+    const addDocument = event.target.closest('[data-add-case-document]');
+    if (addDocument) {
+        if (layout.closest('form')?.dataset.submitting === 'true') return;
+        const input = addDocument.closest('[data-case-category]')?.querySelector('[data-case-document-input]');
+        if (input instanceof HTMLInputElement) input.click();
     }
 });
 

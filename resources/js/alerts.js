@@ -117,14 +117,19 @@ function initializeAlertStore() {
         },
 
         beginHold() {
-            if (!this.confirmation?.destructive) return;
+            if (!this.confirmation?.destructive || this.confirmation.hold) return;
             this.confirmation.hold = true;
-            this.confirmation.holdTimer = window.setTimeout(() => this.finishConfirmation(), 1000);
+            this.confirmation.holdTimer = window.setTimeout(() => {
+                if (!this.confirmation) return;
+                this.confirmation.holdTimer = null;
+                this.finishConfirmation();
+            }, 1000);
         },
 
         endHold() {
             if (!this.confirmation?.destructive || !this.confirmation.hold) return;
             window.clearTimeout(this.confirmation.holdTimer);
+            this.confirmation.holdTimer = null;
             this.confirmation.hold = false;
         },
 
