@@ -6,6 +6,7 @@ use App\Events\VideoUploadStatusChanged;
 use App\Jobs\FinalizeVideoUploadJob;
 use App\Models\VideoUpload;
 use App\Services\FileUploadService;
+use App\Support\ChunkUploadSize;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -16,7 +17,7 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class VideoUploadController extends Controller
 {
-    public function initialize(Request $request, FileUploadService $uploads): JsonResponse
+    public function initialize(Request $request, FileUploadService $uploads, ChunkUploadSize $chunkSize): JsonResponse
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -29,8 +30,8 @@ class VideoUploadController extends Controller
             return response()->json(['message' => 'The video exceeds the configured maximum upload size.'], 413);
         }
 
-        $chunkSize = $this->effectiveChunkSize();
-        $chunkCount = (int) ceil($size / $chunkSize);
+        $effectiveChunkSize = $chunkSize->bytes();
+        $chunkCount = (int) ceil($size / $effectiveChunkSize);
         if ($chunkCount > 10000) {
             return response()->json(['message' => 'The video requires too many upload chunks.'], 422);
         }
@@ -40,7 +41,7 @@ class VideoUploadController extends Controller
             'token' => (string) Str::uuid(),
             'original_name' => $originalName,
             'total_size' => $size,
-            'chunk_size' => $chunkSize,
+            'chunk_size' => $effectiveChunkSize,
             'chunk_count' => $chunkCount,
             'status' => 'uploading',
             'expires_at' => now()->addDay(),
@@ -221,35 +222,6 @@ class VideoUploadController extends Controller
             'chunk_size' => $videoUpload->chunk_size,
             'chunk_count' => $videoUpload->chunk_count,
         ]);
-    }
-
-    private function effectiveChunkSize(): int
-    {
-        $configured = max(1, (int) config('vault.chunk_size_mb', 5)) * 1024 * 1024;
-        $uploadLimit = $this->phpLimitBytes('upload_max_filesize');
-        $postLimit = $this->phpLimitBytes('post_max_size');
-        if ($postLimit > 0 && $postLimit <= 262144) {
-            throw new \RuntimeException('PHP post_max_size is too small to accept a video upload chunk.');
-        }
-        $limits = array_filter([
-            $configured,
-            $uploadLimit > 0 ? $uploadLimit : null,
-            $postLimit > 0 ? $postLimit - 262144 : null,
-        ]);
-        $chunkSize = (int) min($limits);
-
-        if ($chunkSize < 1) {
-            throw new \RuntimeException('The PHP request limits do not allow a video upload chunk.');
-        }
-
-        return $chunkSize;
-    }
-
-    private function phpLimitBytes(string $setting): int
-    {
-        $value = (string) ini_get($setting);
-
-        return function_exists('ini_parse_quantity') ? max(0, (int) ini_parse_quantity($value)) : 0;
     }
 
     private function safeOriginalName(string $name): string

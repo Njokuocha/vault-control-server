@@ -607,12 +607,10 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
 .upload-disabled-notice > span { display: grid; width: 18px; height: 18px; flex: 0 0 18px; place-items: center; border: 1px solid rgb(217 164 65 / 45%); border-radius: 50%; font-size: 13px; }
 .manual-upload-card { max-width: 900px; }
 .manual-upload-card .settings-description strong { color: var(--text-primary); font-weight: 500; }
-.video-background-upload { display: grid; max-width: 900px; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 22px; padding: 18px; border: 1px solid var(--glass-border); border-radius: var(--radius-md); background: rgb(9 15 23 / 62%); }
-.video-background-upload .field-hint { margin: 0; }
-.video-upload-toggle { position: relative; display: grid; width: 36px; height: 36px; place-items: center; padding: 0; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--brass); background: var(--bg-panel); font-size: 20px; cursor: pointer; }
-.video-upload-toggle__count { position: absolute; top: -5px; right: -6px; display: grid; min-width: 17px; height: 17px; place-items: center; padding: 0 4px; border-radius: 10px; color: var(--bg-void); background: var(--brass); font: 500 12px var(--font-mono); }
-.video-upload-toggle__count[hidden] { display: none; }
-.video-upload-widget { position: fixed; z-index: 80; right: 22px; bottom: 22px; display: flex; width: min(410px, calc(100vw - 32px)); max-height: min(70vh, 580px); flex-direction: column; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius-md); color: var(--text-primary); background: var(--glass-bg); box-shadow: var(--shadow-panel); backdrop-filter: blur(18px); }
+.upload-tracker-toggle { position: relative; display: grid; width: 36px; height: 36px; place-items: center; padding: 0; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--brass); background: var(--bg-panel); font-size: 20px; cursor: pointer; }
+.upload-tracker-toggle__count { position: absolute; top: -5px; right: -6px; display: grid; min-width: 17px; height: 17px; place-items: center; padding: 0 4px; border-radius: 10px; color: var(--bg-void); background: var(--brass); font: 500 12px var(--font-mono); }
+.upload-tracker-toggle__count[hidden] { display: none; }
+.video-upload-widget { position: fixed; z-index: 160; right: 22px; bottom: 22px; display: flex; width: min(410px, calc(100vw - 32px)); max-height: min(70vh, 580px); flex-direction: column; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius-md); color: var(--text-primary); background: var(--glass-bg); box-shadow: var(--shadow-panel); backdrop-filter: blur(18px); }
 .video-upload-widget[hidden] { display: none; }
 .video-upload-widget.is-expanded { right: 18px; top: 18px; bottom: 18px; width: min(520px, calc(100vw - 36px)); max-height: none; }
 .video-upload-widget__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }
@@ -628,6 +626,8 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
 .video-upload-item__heading span, .video-upload-item__metadata { color: var(--text-muted); font: 13px var(--font-mono); }
 .video-upload-item progress { width: 100%; height: 6px; accent-color: var(--brass); }
 .video-upload-item__action { justify-self: end; }
+.video-upload-item__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.video-upload-item__error { margin: 0; color: #e58b83; font-size: 12px; line-height: 1.45; }
 .video-gallery-tile { position: relative; display: grid; min-height: 110px; overflow: hidden; place-items: center; border: 1px solid var(--line-strong); color: var(--text-secondary); background: radial-gradient(circle at 50% 45%, rgb(112 167 215 / 15%), rgb(8 13 20 / 88%)); }
 .video-gallery-tile > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .video-play-overlay { z-index: 1; display: grid; min-height: 32px; place-items: center; color: var(--brass); font: 500 13px var(--font-mono); letter-spacing: .08em; text-shadow: 0 1px 3px #000; }

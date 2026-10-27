@@ -10,14 +10,30 @@ const dispatchAlert = (detail) => {
 };
 
 window.vaultAlert = (alert) => dispatchAlert(alert);
-window.vaultConfirm = (options) => alertStore?.confirm(options) ?? Promise.resolve(false);
+window.vaultConfirm = (options) => {
+    if (!alertStore && window.Alpine) initializeAlertStore();
+    if (alertStore) return alertStore.confirm(options);
+
+    return new Promise((resolve, reject) => {
+        document.addEventListener('alpine:init', () => {
+            initializeAlertStore();
+            if (!alertStore) {
+                reject(new Error('The confirmation dialog is not available.'));
+                return;
+            }
+            alertStore.confirm(options).then(resolve, reject);
+        }, { once: true });
+    });
+};
 window.addEventListener('alert', (event) => dispatchAlert(event.detail ?? {}));
 window.addEventListener('vault:alert', (event) => dispatchAlert(event.detail ?? {}));
 
-document.addEventListener('alpine:init', () => {
+function initializeAlertStore() {
+    if (alertStore || !window.Alpine) return;
+
     const durations = { success: 4000, info: 4000, warning: 6000, error: 8000, critical: 0 };
 
-    alertStore = {
+    const store = {
         items: [],
         confirmation: null,
 
@@ -89,7 +105,7 @@ document.addEventListener('alpine:init', () => {
                     holdTimer: null,
                     resolve,
                 };
-                Alpine.nextTick(() => document.querySelector('[data-confirm-cancel]')?.focus());
+                window.Alpine.nextTick(() => document.querySelector('[data-confirm-cancel]')?.focus());
             });
         },
 
@@ -120,9 +136,13 @@ document.addEventListener('alpine:init', () => {
         },
     };
 
-    Alpine.store('vaultAlerts', alertStore);
+    window.Alpine.store('vaultAlerts', store);
+    alertStore = window.Alpine.store('vaultAlerts');
     alertStore.seed(queuedAlerts.splice(0));
-});
+}
+
+document.addEventListener('alpine:init', initializeAlertStore, { once: true });
+if (window.Alpine) initializeAlertStore();
 
 window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && alertStore?.confirmation) alertStore.cancelConfirmation();

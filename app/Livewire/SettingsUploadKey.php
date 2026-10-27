@@ -14,6 +14,7 @@ class SettingsUploadKey extends Component
     public function generate(): void
     {
         $this->customKey = Str::random(64);
+        $this->dispatch('alert', type: 'success', message: 'A secure key was generated. Save it to rotate the active key.');
     }
 
     public function rotate(SettingService $settings): void

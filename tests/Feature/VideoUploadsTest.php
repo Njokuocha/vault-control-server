@@ -11,6 +11,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\Process\ExecutableFinder;
+use Symfony\Component\Process\Process;
 
 uses(RefreshDatabase::class);
 
@@ -125,7 +127,48 @@ test('failed uploads can be retried and their previous chunks are discarded', fu
 });
 
 test('finalization stores video bytes as a private vault file and completes its upload record', function () {
+    $finder = new ExecutableFinder;
+    $ffmpeg = $finder->find('ffmpeg', config('vault.ffmpeg_path'));
+    $ffprobe = $finder->find('ffprobe', config('vault.ffprobe_path'));
+    if (($ffmpeg === null) !== ($ffprobe === null)) {
+        $this->markTestSkipped('Configure both FFmpeg tools, or neither, for this fixture.');
+    }
+
     $video = pack('N', 24).'ftypmp42'.pack('N', 0).pack('N', 0).'mp42'.str_repeat("\0", 1100);
+    if ($ffmpeg !== null && $ffprobe !== null) {
+        $directory = storage_path('framework/testing/video-upload-'.\Illuminate\Support\Str::uuid());
+        if (! mkdir($directory, 0700, true) && ! is_dir($directory)) {
+            throw new RuntimeException('Unable to create the video upload test directory.');
+        }
+        $inputPath = $directory.DIRECTORY_SEPARATOR.'sample.mp4';
+
+        try {
+            $generator = new Process([
+                $ffmpeg,
+                '-nostdin', '-v', 'error', '-y',
+                '-f', 'lavfi',
+                '-i', 'color=c=black:s=160x90:d=2',
+                '-an',
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-pix_fmt', 'yuv420p',
+                '-movflags', '+faststart',
+                $inputPath,
+            ]);
+            $generator->setTimeout(120);
+            $generator->mustRun();
+            $video = file_get_contents($inputPath);
+            if ($video === false) {
+                throw new RuntimeException('Unable to read the generated video upload test fixture.');
+            }
+        } finally {
+            if (is_file($inputPath)) {
+                unlink($inputPath);
+            }
+            rmdir($directory);
+        }
+    }
+
     $mimeType = (new finfo(FILEINFO_MIME_TYPE))->buffer($video);
     expect($mimeType)->toBe('video/mp4');
 
@@ -146,10 +189,18 @@ test('finalization stores video bytes as a private vault file and completes its 
     $file = VaultFile::query()->findOrFail($upload->file_id);
     expect($upload->status)->toBe('completed')
         ->and($file->category)->toBe('video')
-        ->and($file->mime_type)->toBe('video/mp4')
-        ->and($file->video_playable_path)->toBeNull()
-        ->and($file->video_poster_path)->toBeNull();
+        ->and($file->mime_type)->toBe('video/mp4');
     Storage::disk('vault')->assertExists($file->stored_path);
+    if ($ffmpeg !== null && $ffprobe !== null) {
+        expect($file->video_playable_path)->toBeString()
+            ->and($file->video_poster_path)->toBeString()
+            ->and($file->video_duration)->toBe(2);
+        Storage::disk('vault')->assertExists($file->video_playable_path);
+        Storage::disk('vault')->assertExists($file->video_poster_path);
+    } else {
+        expect($file->video_playable_path)->toBeNull()
+            ->and($file->video_poster_path)->toBeNull();
+    }
     Storage::disk('local')->assertMissing('vault-chunks/'.$upload->token.'/0.part');
 });
 

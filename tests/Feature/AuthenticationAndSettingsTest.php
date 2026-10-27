@@ -1,7 +1,15 @@
 <?php
 
+use App\Livewire\LoginForm;
+use App\Livewire\SettingsImagePin;
+use App\Livewire\SettingsPassword;
+use App\Livewire\SettingsUploadKey;
+use App\Livewire\SettingsUploadPolicy;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\SettingService;
+use Database\Seeders\AdminSeeder;
+use Illuminate\Broadcasting\BroadcastManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
@@ -21,7 +29,7 @@ test('the login page uses the configured application name', function () {
         ->assertOk()
         ->assertSee('Secure Records')
         ->assertSee('OPERATOR AUTHENTICATION')
-        ->assertSeeLivewire(\App\Livewire\LoginForm::class)
+        ->assertSeeLivewire(LoginForm::class)
         ->assertSee('x-on:submit.prevent', false);
 });
 
@@ -49,6 +57,8 @@ test('authenticated users can access the upload and calculator workspaces', func
 
     $this->get(route('settings.index'))
         ->assertOk()
+        ->assertSee('vault-confirm-backdrop', false)
+        ->assertSee('data-settings-key-rotate', false)
         ->assertSee('data-shell-layer', false);
 });
 
@@ -102,7 +112,7 @@ test('an administrator can authenticate through the Livewire login form', functi
         'password' => 'a-secure-password',
     ]);
 
-    Livewire::test(\App\Livewire\LoginForm::class)
+    Livewire::test(LoginForm::class)
         ->call('authenticate', 'ADMIN@example.test', 'a-secure-password', true)
         ->assertRedirect(route('dashboard.index'));
 
@@ -116,7 +126,7 @@ test('the Livewire login form reports invalid credentials without authenticating
         'password' => 'a-secure-password',
     ]);
 
-    Livewire::test(\App\Livewire\LoginForm::class)
+    Livewire::test(LoginForm::class)
         ->call('authenticate', 'admin@example.test', 'incorrect-password', false)
         ->assertHasErrors('email')
         ->assertSee('ACCESS DENIED:')
@@ -126,7 +136,7 @@ test('the Livewire login form reports invalid credentials without authenticating
 });
 
 test('the Livewire login form validates the submitted credentials', function () {
-    Livewire::test(\App\Livewire\LoginForm::class)
+    Livewire::test(LoginForm::class)
         ->call('authenticate', 'not-an-email', '', false)
         ->assertHasErrors(['email' => 'email', 'password' => 'required']);
 
@@ -190,13 +200,13 @@ test('the administrator can update the upload size and API access policy', funct
 test('upload policy settings save through Livewire and are encrypted immediately', function () {
     $this->actingAs(User::factory()->create());
 
-    Livewire::test(\App\Livewire\SettingsUploadPolicy::class)
+    Livewire::test(SettingsUploadPolicy::class)
         ->set('maxUploadMb', 34)
         ->set('maxVideoUploadMb', 18)
         ->set('apiUploadsEnabled', false)
         ->call('save')
         ->assertHasNoErrors()
-        ->assertDispatched('alert');
+        ->assertDispatched('alert', type: 'success', message: 'Upload policy updated.');
 
     expect(Crypt::decryptString(Setting::query()->findOrFail('max_upload_mb')->value))->toBe('34')
         ->and(Crypt::decryptString(Setting::query()->findOrFail('max_video_upload_mb')->value))->toBe('18')
@@ -206,13 +216,13 @@ test('upload policy settings save through Livewire and are encrypted immediately
 test('upload key rotation is connected to Livewire and persists only encrypted data', function () {
     $this->actingAs(User::factory()->create());
 
-    Livewire::test(\App\Livewire\SettingsUploadKey::class)
-        ->assertSee('wire:click="rotate"', false)
-        ->assertSee('wire:confirm=', false)
+    Livewire::test(SettingsUploadKey::class)
+        ->assertSee('data-settings-key-rotate', false)
+        ->assertDontSee('wire:confirm=', false)
         ->set('customKey', 'livewire-custom-upload-key')
         ->call('rotate')
         ->assertHasNoErrors()
-        ->assertDispatched('alert')
+        ->assertDispatched('alert', type: 'success', message: 'Upload key updated. The previous key is no longer valid.')
         ->assertSet('customKey', '');
 
     $setting = Setting::query()->findOrFail('upload_key');
@@ -223,9 +233,10 @@ test('upload key rotation is connected to Livewire and persists only encrypted d
 test('the Generate action creates and rotates to a secure upload key', function () {
     $this->actingAs(User::factory()->create());
 
-    Livewire::test(\App\Livewire\SettingsUploadKey::class)
+    Livewire::test(SettingsUploadKey::class)
         ->call('generate')
         ->assertSet('customKey', fn (string $key): bool => strlen($key) === 64)
+        ->assertDispatched('alert', type: 'success', message: 'A secure key was generated. Save it to rotate the active key.')
         ->call('rotate')
         ->assertHasNoErrors()
         ->assertDispatched('alert');
@@ -236,9 +247,9 @@ test('the Generate action creates and rotates to a secure upload key', function 
 
 test('rotating the upload key without a custom value automatically generates a replacement', function () {
     $this->actingAs(User::factory()->create());
-    app(\App\Services\SettingService::class)->set('upload_key', 'previous-upload-key');
+    app(SettingService::class)->set('upload_key', 'previous-upload-key');
 
-    Livewire::test(\App\Livewire\SettingsUploadKey::class)
+    Livewire::test(SettingsUploadKey::class)
         ->assertSee('Leave blank to generate a secure key')
         ->call('rotate')
         ->assertHasNoErrors()
@@ -255,23 +266,23 @@ test('image PIN and administrator password update through Livewire', function ()
     $user = User::factory()->create(['password' => 'old-secure-password']);
     $this->actingAs($user);
 
-    Livewire::test(\App\Livewire\SettingsImagePin::class)
+    Livewire::test(SettingsImagePin::class)
         ->set('imagePin', '0427')
         ->set('imagePinConfirmation', '0427')
         ->call('save')
         ->assertHasNoErrors()
-        ->assertDispatched('alert');
+        ->assertDispatched('alert', type: 'success', message: 'Person image access PIN updated.');
 
     $pinHash = Crypt::decryptString(Setting::query()->findOrFail('person_image_pin_hash')->value);
     expect(Hash::check('0427', $pinHash))->toBeTrue();
 
-    Livewire::test(\App\Livewire\SettingsPassword::class)
+    Livewire::test(SettingsPassword::class)
         ->set('currentPassword', 'old-secure-password')
         ->set('newPassword', 'new-secure-password')
         ->set('newPasswordConfirmation', 'new-secure-password')
         ->call('save')
         ->assertHasNoErrors()
-        ->assertDispatched('alert');
+        ->assertDispatched('alert', type: 'success', message: 'Administrator password updated.');
 
     expect(Hash::check('new-secure-password', $user->fresh()->password))->toBeTrue();
 });
@@ -280,7 +291,7 @@ test('private broadcast authorization is restricted to the configured administra
     config(['vault.admin.email' => 'admin@example.test']);
     $admin = User::factory()->create(['email' => 'admin@example.test']);
     $otherUser = User::factory()->create(['email' => 'other@example.test']);
-    $channels = app(\Illuminate\Broadcasting\BroadcastManager::class)
+    $channels = app(BroadcastManager::class)
         ->connection()
         ->getChannels();
 
@@ -330,7 +341,7 @@ test('seeding creates the configured administrator and an encrypted upload key',
         'vault.initial_upload_key' => 'a-configured-initial-upload-key',
     ]);
 
-    $this->seed(\Database\Seeders\AdminSeeder::class);
+    $this->seed(AdminSeeder::class);
 
     $admin = User::query()->where('email', 'vault-admin@example.test')->firstOrFail();
     $setting = Setting::query()->findOrFail('upload_key');

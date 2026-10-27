@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('vault:prune-video-uploads')->hourly()->withoutOverlapping();
+Schedule::command('vault:prune-upload-transfers')->hourly()->withoutOverlapping();

@@ -10,6 +10,7 @@ use App\Http\Controllers\PersonController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\VaultShellController;
 use App\Http\Controllers\VideoUploadController;
+use App\Http\Controllers\UploadTransferController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function () {
@@ -30,6 +31,18 @@ Route::middleware('auth')->group(function () {
         Route::get('/{videoUpload}', [VideoUploadController::class, 'status'])->name('status');
         Route::delete('/{videoUpload}', [VideoUploadController::class, 'cancel'])->name('cancel');
         Route::post('/{videoUpload}/retry', [VideoUploadController::class, 'retry'])->name('retry');
+    });
+
+    Route::prefix('/upload-transfers')->name('upload-transfers.')->middleware('throttle:2000,1')->group(function () {
+        Route::get('/', [UploadTransferController::class, 'index'])->name('index');
+        Route::post('/', [UploadTransferController::class, 'initialize'])->name('initialize');
+        Route::post('/{token}/chunks/{index}', [UploadTransferController::class, 'storeChunk'])
+            ->whereNumber('index')
+            ->name('chunk');
+        Route::get('/{token}', [UploadTransferController::class, 'status'])->name('status');
+        Route::delete('/{token}', [UploadTransferController::class, 'cancel'])->name('cancel');
+        Route::post('/{token}/retry', [UploadTransferController::class, 'retry'])->name('retry');
+        Route::delete('/{token}/remove', [UploadTransferController::class, 'remove'])->name('remove');
     });
 
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard.index');
@@ -74,9 +87,6 @@ Route::middleware('auth')->group(function () {
     Route::get('/avatar-models/{group}/file', [AvatarModelController::class, 'stream'])->name('avatar-models.stream');
 
     Route::get('/uploads', [ManualUploadController::class, 'create'])->name('uploads.create');
-    Route::post('/uploads', [ManualUploadController::class, 'store'])
-        ->middleware('throttle:20,1')
-        ->name('uploads.store');
 
     Route::prefix('/shell')->name('shell.')->group(function () {
         Route::get('/directory', [VaultShellController::class, 'index'])->name('directory');

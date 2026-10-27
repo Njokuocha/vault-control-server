@@ -7,6 +7,7 @@
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <meta name="description" content="{{ config('app.name') }} secure file archive command center.">
         <meta name="dashboard-snapshot-url" content="{{ route('dashboard.snapshot') }}">
+        <meta name="upload-user-id" content="{{ auth()->id() }}">
         <title>@yield('page_title', config('app.name'))</title>
         @livewireStyles
         <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -65,8 +66,8 @@
                     <div class="breadcrumb"><span>{{ strtoupper(config('app.acronym')) }}</span><span class="breadcrumb-slash">/</span><strong>@yield('page_label', 'ARCHIVE')</strong></div>
                     <div class="topbar-tools">
                         @yield('topbar_tools')
-                        <button class="video-upload-toggle" type="button" data-video-upload-toggle aria-label="Open background video uploads">
-                            <span aria-hidden="true">⇧</span><span class="video-upload-toggle__count" data-video-upload-badge>0</span>
+                        <button class="upload-tracker-toggle" type="button" data-upload-tracker-toggle aria-label="Open upload tracker" aria-controls="upload-tracker-panel" aria-expanded="false">
+                            <span aria-hidden="true">⇧</span><span class="upload-tracker-toggle__count" data-upload-tracker-badge hidden>0</span>
                         </button>
                         <div class="session-status"><span class="status-dot"></span><span>SECURE SESSION</span></div>
                         <div class="clock" data-clock>--:--:--</div>
@@ -84,7 +85,9 @@
         <livewire:dashboard-archive />
         @include('components.portable-calculator')
         @include('components.video-upload-widget')
-        <x-alert-host />
+        @persist('alert-host')
+            <x-alert-host />
+        @endpersist
         @livewireScripts
     </body>
 </html>

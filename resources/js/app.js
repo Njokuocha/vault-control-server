@@ -1,5 +1,7 @@
 import './bootstrap';
 import './alerts';
+import './upload-tracker';
+import './upload-transfer-uploader';
 import './video-uploader';
 import { evaluateTriggerExpression } from './shell-math.mjs';
 import Echo from 'laravel-echo';
@@ -43,14 +45,85 @@ if (pusherKey && pusherCluster) {
             window.dispatchEvent(new CustomEvent('vault:video-upload-status', { detail: event }));
         });
 
+    const uploadUserId = document.querySelector('meta[name="upload-user-id"]')?.content;
+    if (uploadUserId) {
+        window.Echo.private(`uploads.${uploadUserId}`)
+            .listen('.upload.transfer.status-changed', (event) => {
+                window.dispatchEvent(new CustomEvent('vault:upload-transfer-status', { detail: event }));
+            });
+    }
+
     window.Echo.connector.pusher.connection.bind('state_change', ({ current, previous }) => {
         if (previous === 'connected' && current !== 'connected') {
             window.vaultAlert({ type: 'warning', message: 'Realtime connection lost. The archive remains available; updates may be delayed.' });
         } else if (previous !== 'connected' && current === 'connected') {
             window.vaultAlert({ type: 'success', message: 'Realtime connection restored.' });
         }
+        if (current === 'connected') window.dispatchEvent(new CustomEvent('vault:realtime-connected'));
     });
 }
+
+document.addEventListener('click', async (event) => {
+    if (!(event.target instanceof Element)) return;
+
+    const rotateButton = event.target.closest('[data-settings-key-rotate]');
+    if (rotateButton instanceof HTMLButtonElement) {
+        event.preventDefault();
+        if (rotateButton.disabled || rotateButton.dataset.confirming === 'true') return;
+        rotateButton.dataset.confirming = 'true';
+
+        try {
+            const confirmed = await window.vaultConfirm({
+                title: 'Rotate upload key',
+                message: 'The current API key will stop working immediately. Continue with key rotation?',
+                confirmLabel: 'ROTATE KEY',
+            });
+            if (!confirmed) return;
+
+            const componentRoot = rotateButton.closest('[wire\\:id]');
+            const componentId = componentRoot?.getAttribute('wire:id');
+            const component = componentId ? window.Livewire?.find(componentId) : null;
+            if (!component) throw new Error('The upload-key settings component is unavailable. Reload the page and try again.');
+
+            rotateButton.disabled = true;
+            await component.call('rotate');
+        } catch (error) {
+            console.error('Unable to rotate the upload key.', error);
+            window.vaultAlert({
+                type: 'error',
+                message: error instanceof Error ? error.message : 'Unable to rotate the upload key.',
+            });
+        } finally {
+            rotateButton.disabled = false;
+            delete rotateButton.dataset.confirming;
+
+            const currentRotateButton = document.querySelector('[data-settings-key-rotate]');
+            if (currentRotateButton instanceof HTMLButtonElement) {
+                currentRotateButton.disabled = false;
+                delete currentRotateButton.dataset.confirming;
+            }
+        }
+
+        return;
+    }
+
+    const copyButton = event.target.closest('[data-copy-target]');
+    if (!(copyButton instanceof HTMLButtonElement)) return;
+
+    const targetId = copyButton.getAttribute('data-copy-target');
+    const target = targetId ? document.getElementById(targetId) : null;
+    if (!target) {
+        window.vaultAlert({ type: 'error', message: 'Could not find the text to copy.' });
+        return;
+    }
+
+    try {
+        await navigator.clipboard.writeText(target.textContent?.trim() ?? '');
+        window.vaultAlert({ type: 'success', message: 'Copied to clipboard.' });
+    } catch {
+        window.vaultAlert({ type: 'error', message: 'Clipboard access was denied. Select and copy the text manually.' });
+    }
+});
 
 let pageCleanup = [];
 let clockInterval = null;
@@ -78,24 +151,6 @@ const appAcronym = document.querySelector('meta[name="application-acronym"]')?.c
 const showToast = (message, type = 'info') => {
     window.vaultAlert({ type, message });
 };
-
-document.querySelector('[data-confirm-key-rotation]')?.addEventListener('submit', async (event) => {
-    const form = event.currentTarget;
-    if (!(form instanceof HTMLFormElement) || form.dataset.confirmed === 'true') {
-        if (form instanceof HTMLFormElement) delete form.dataset.confirmed;
-        return;
-    }
-    event.preventDefault();
-    const confirmed = await window.vaultConfirm({
-        title: 'Rotate upload key',
-        message: 'The current API key will stop working immediately. Continue with key rotation?',
-        confirmLabel: 'ROTATE KEY',
-        destructive: true,
-    });
-    if (!confirmed) return;
-    form.dataset.confirmed = 'true';
-    form.requestSubmit();
-});
 
 if (document.querySelector('model-viewer')) {
     import('@google/model-viewer').catch((error) => {
@@ -220,46 +275,6 @@ document.querySelectorAll('[data-password-toggle]').forEach((button) => {
         input.type = showPassword ? 'text' : 'password';
         button.setAttribute('aria-pressed', String(showPassword));
         button.setAttribute('aria-label', showPassword ? 'Hide access code' : 'Show access code');
-    });
-});
-
-document.querySelector('[data-generate-key]')?.addEventListener('click', () => {
-    const input = document.querySelector('#upload-key');
-
-    if (!(input instanceof HTMLInputElement)) return;
-
-    if (!window.crypto?.getRandomValues) {
-        showToast('Secure key generation is unavailable in this browser.', 'warning');
-        return;
-    }
-
-    const bytes = window.crypto.getRandomValues(new Uint8Array(48));
-    const encoded = window.btoa(String.fromCharCode(...bytes))
-        .replaceAll('+', '-')
-        .replaceAll('/', '_')
-        .replace(/=+$/, '');
-
-    input.value = encoded;
-    input.focus();
-    showToast('A secure key was generated. Save it to rotate the active key.');
-});
-
-document.querySelectorAll('[data-copy-target]').forEach((button) => {
-    button.addEventListener('click', async () => {
-        const targetId = button.getAttribute('data-copy-target');
-        const target = targetId ? document.getElementById(targetId) : null;
-
-        if (!target) {
-            showToast('Could not find the text to copy.', 'error');
-            return;
-        }
-
-        try {
-            await navigator.clipboard.writeText(target.textContent?.trim() ?? '');
-            showToast('Copied to clipboard.', 'success');
-        } catch {
-            showToast('Clipboard access was denied. Select and copy the text manually.', 'error');
-        }
     });
 });
 
@@ -951,6 +966,10 @@ const refreshDashboardSnapshot = async () => {
 listenForPageEvent(window, 'vault:file-deleted', (event) => {
     if (previewBackdrop?.dataset.fileUuid === event.detail.uuid) closePreview();
 });
+listenForPageEvent(window, 'vault:file-uploaded', () => {
+    refreshDashboardSnapshot();
+    window.Livewire?.dispatch('refresh-archive');
+});
 listenForPageEvent(window, 'vault:archive-index-updated', (event) => {
     window.Livewire?.dispatch('refresh-archive');
     window.Livewire?.dispatch('refresh-private-preview', event.detail.uuid);
@@ -1616,80 +1635,6 @@ listenForPageEvent(window, 'resize', () => {
         portableCalculator.style.left = `${Math.min(Math.max(8, rect.left), maxLeft)}px`;
         portableCalculator.style.top = `${Math.min(Math.max(8, rect.top), maxTop)}px`;
         savePortableCalculator();
-    }
-});
-
-const uploadInput = document.querySelector('[data-upload-input]');
-const uploadSelection = document.querySelector('[data-upload-selection]');
-const uploadSubmit = document.querySelector('[data-upload-submit]');
-const uploadDropzone = document.querySelector('[data-upload-dropzone]');
-const manualUploadForm = document.querySelector('[data-manual-upload]');
-const uploadMaxMb = Number(manualUploadForm?.dataset.maxUploadMb ?? 0);
-const videoMaxMb = Number(manualUploadForm?.dataset.maxVideoUploadMb ?? 0);
-const phpUploadMaxBytes = Number(manualUploadForm?.dataset.phpUploadMaxBytes ?? 0);
-const phpPostMaxBytes = Number(manualUploadForm?.dataset.phpPostMaxBytes ?? 0);
-const probableVideoExtensions = new Set(['mp4', 'mov', 'mkv', 'avi', 'wmv', 'flv', 'webm', 'mpeg', 'mpg', '3gp', 'm4v', 'ts', 'ogv']);
-
-const displaySelectedFiles = () => {
-    if (!(uploadInput instanceof HTMLInputElement) || !uploadSelection) return;
-
-    const files = [...(uploadInput.files ?? [])];
-    const allowedFileBytes = phpUploadMaxBytes > 0
-        ? Math.min(uploadMaxMb * 1024 * 1024, phpUploadMaxBytes)
-        : uploadMaxMb * 1024 * 1024;
-    const tooLargeFile = files.find((file) => file.size > allowedFileBytes);
-    const tooLargeVideo = files.find((file) => {
-        const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
-        const isVideo = file.type.startsWith('video/') || probableVideoExtensions.has(extension);
-        const videoLimit = videoMaxMb > 0 ? Math.min(videoMaxMb * 1024 * 1024, allowedFileBytes) : allowedFileBytes;
-        return isVideo && file.size > videoLimit;
-    });
-    const videosRequireChunking = files.some((file) => (
-        file.type.startsWith('video/')
-        || probableVideoExtensions.has(file.name.split('.').pop()?.toLowerCase() ?? '')
-    ));
-    const requestTooLarge = phpPostMaxBytes > 0 && files.reduce((total, file) => total + file.size, 0) + 512 * 1024 > phpPostMaxBytes;
-    if (videosRequireChunking) {
-        uploadSelection.textContent = 'Use the background video upload control for video files.';
-        window.vaultAlert({ type: 'info', message: 'Video files must use the chunked background uploader.' });
-    } else if (tooLargeFile || tooLargeVideo || requestTooLarge) {
-        const effectiveBytes = tooLargeVideo
-            ? (videoMaxMb > 0 ? Math.min(videoMaxMb * 1024 * 1024, allowedFileBytes) : allowedFileBytes)
-            : allowedFileBytes;
-        const limit = Math.floor(effectiveBytes / (1024 * 1024));
-        const label = requestTooLarge && !tooLargeFile && !tooLargeVideo ? 'The selected files exceed the server request limit.' : (tooLargeVideo ? 'Video exceeds' : 'File exceeds');
-        uploadSelection.textContent = requestTooLarge && !tooLargeFile && !tooLargeVideo
-            ? `${label} Remove files before continuing.`
-            : `${label} the ${limit} MB upload limit. Remove the oversized file before continuing.`;
-        window.vaultAlert({ type: 'error', message: requestTooLarge && !tooLargeFile && !tooLargeVideo ? label : `${label} the maximum allowed size of ${limit} MB.` });
-    } else {
-        uploadSelection.textContent = files.length
-            ? `${files.length} file${files.length === 1 ? '' : 's'} selected: ${files.map((file) => file.name).join(', ')}`
-            : 'No files selected.';
-    }
-    if (uploadSubmit instanceof HTMLButtonElement) uploadSubmit.disabled = files.length === 0 || files.length > 20 || videosRequireChunking || Boolean(tooLargeFile || tooLargeVideo || requestTooLarge);
-};
-
-uploadInput?.addEventListener('change', displaySelectedFiles);
-uploadDropzone?.addEventListener('dragover', (event) => {
-    event.preventDefault();
-    uploadDropzone.classList.add('is-dragging');
-});
-uploadDropzone?.addEventListener('dragleave', (event) => {
-    if (!uploadDropzone.contains(event.relatedTarget)) uploadDropzone.classList.remove('is-dragging');
-});
-uploadDropzone?.addEventListener('drop', (event) => {
-    event.preventDefault();
-    uploadDropzone.classList.remove('is-dragging');
-    if (!(event.dataTransfer instanceof DataTransfer) || !(uploadInput instanceof HTMLInputElement)) return;
-
-    uploadInput.files = event.dataTransfer.files;
-    uploadInput.dispatchEvent(new Event('change', { bubbles: true }));
-});
-manualUploadForm?.addEventListener('submit', () => {
-    if (uploadSubmit instanceof HTMLButtonElement) {
-        uploadSubmit.disabled = true;
-        uploadSubmit.textContent = 'UPLOADING…';
     }
 });
 

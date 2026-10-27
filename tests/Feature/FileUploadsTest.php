@@ -108,10 +108,6 @@ test('a zero-megabyte limit blocks manual and API uploads', function () {
         ->assertOk()
         ->assertSee('Uploads are disabled');
 
-    $this->post(route('uploads.store'), [
-        'files' => [UploadedFile::fake()->create('private.txt', 1, 'text/plain')],
-    ], ['Accept' => 'application/json'])->assertUnprocessable();
-
     $this->post(route('api.upload', ['auth' => 'test-upload-key']), [
         'file' => UploadedFile::fake()->create('private.txt', 1, 'text/plain'),
     ], ['Accept' => 'application/json'])->assertForbidden();
@@ -119,31 +115,24 @@ test('a zero-megabyte limit blocks manual and API uploads', function () {
     expect(VaultFile::query()->count())->toBe(0);
 });
 
-test('manual uploads store files on the private disk for authenticated administrators', function () {
+test('manual multipart uploads are no longer accepted outside the chunked transfer flow', function () {
     $this->actingAs(User::factory()->create())
-        ->post(route('uploads.store'), [
+        ->post(route('uploads.create'), [
             'files' => [UploadedFile::fake()->create('manual record.txt', 1, 'text/plain')],
         ])
-        ->assertRedirect()
-        ->assertSessionHas('status', '1 file uploaded successfully.');
+        ->assertStatus(405);
 
-    $file = VaultFile::query()->firstOrFail();
-    expect($file->original_name)->toBe('manual record.txt')
-        ->and($file->upload_method)->toBe('manual')
-        ->and(Storage::disk('vault')->exists($file->stored_path))->toBeTrue();
+    expect(VaultFile::query()->count())->toBe(0);
+});
 
-    $this->get(route('dashboard.index'))
+test('the manual upload page uses the unified uploader without the legacy video section', function () {
+    $this->actingAs(User::factory()->create())
+        ->get(route('uploads.create'))
         ->assertOk()
-        ->assertSee('manual record.txt')
-        ->assertSee('UPLOAD METHOD')
-        ->assertSee('>MANUAL</span>', false)
-        ->assertSee('TOTAL FILES')
-        ->assertSee('INDEXED RECORDS')
-        ->assertSee('data-archive-preview', false);
-
-    $this->get(route('archive.files'))
-        ->assertOk()
-        ->assertJsonPath('records.0.upload_method', 'manual');
+        ->assertSee('Add files to the vault')
+        ->assertSee('data-upload-input', false)
+        ->assertSee('data-transfer-initialize-url', false)
+        ->assertDontSee('BACKGROUND VIDEO UPLOAD');
 });
 
 test('uploads exceeding the configured per-file limit are rejected', function () {

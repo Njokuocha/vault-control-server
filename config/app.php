@@ -13,9 +13,9 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'Vault Control Server'),
+    'name' => env('APP_NAME', 'Vault Intelligence Agency'),
     'short_name' => env('APP_SHORT_NAME', 'Vault'),
-    'acronym' => env('APP_ACRONYM', 'VCS'),
+    'acronym' => env('APP_ACRONYM', 'VIA'),
     'symbol' => env('APP_SYMBOL', 'V'),
 
     /*

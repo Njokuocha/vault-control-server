@@ -1,18 +1,10 @@
+import { openUploadTracker, removeUploadTrackerItem, updateUploadTrackerItem } from './upload-tracker';
+
 const widget = document.querySelector('[data-video-upload-widget]');
 if (widget) {
-    const list = widget.querySelector('[data-video-upload-list]');
-    const empty = widget.querySelector('[data-video-upload-empty]');
-    const countLabel = widget.querySelector('[data-video-upload-count]');
-    const badge = document.querySelector('[data-video-upload-badge]');
     const tasks = new Map();
-    let expanded = false;
 
     const activeStatuses = new Set(['queued', 'uploading', 'processing', 'finalizing']);
-    const escapeStatus = (status) => status.replaceAll('-', ' ');
-    const formatBytes = (bytes) => {
-        if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    };
 
     const attachToRecord = (task) => {
         if (!task.associationElement || !task.token || task.attachedToken === task.token) return;
@@ -51,6 +43,7 @@ if (widget) {
     const setStatus = (task, status, message = null) => {
         const changed = task.status !== status;
         task.status = status;
+        task.error = message;
         if (!changed) return;
         if (status === 'completed') {
             attachToRecord(task);
@@ -65,65 +58,29 @@ if (widget) {
     };
 
     const render = () => {
-        const allTasks = [...tasks.values()];
-        const active = allTasks.filter((task) => activeStatuses.has(task.status));
-        const visible = expanded ? allTasks : [...active.slice(0, 2), ...allTasks.filter((task) => !activeStatuses.has(task.status)).slice(-2)];
-        const moreCount = Math.max(0, active.length - 2);
-        countLabel.textContent = String(active.length);
-        badge.textContent = String(active.length);
-        badge.hidden = active.length === 0;
-        empty.hidden = allTasks.length > 0;
-        list.replaceChildren();
-
-        for (const task of visible) {
-            const item = document.createElement('article');
-            item.className = 'video-upload-item';
-            const heading = document.createElement('div');
-            heading.className = 'video-upload-item__heading';
-            const name = document.createElement('strong');
-            name.textContent = task.file.name;
-            const status = document.createElement('span');
-            status.textContent = escapeStatus(task.status);
-            heading.append(name, status);
-
-            const metadata = document.createElement('div');
-            metadata.className = 'video-upload-item__metadata';
-            const size = document.createElement('span');
-            size.textContent = formatBytes(task.file.size);
-            const percent = document.createElement('span');
-            percent.textContent = `${Math.round(task.progress)}%`;
-            metadata.append(size, percent);
-
-            const progress = document.createElement('progress');
-            progress.max = 100;
-            progress.value = task.progress;
-            progress.setAttribute('aria-label', `Upload progress for ${task.file.name}`);
-            item.append(heading, metadata, progress);
-
-            if (activeStatuses.has(task.status) && task.status !== 'finalizing') {
-                const cancel = document.createElement('button');
-                cancel.type = 'button';
-                cancel.className = 'video-upload-item__action';
-                cancel.textContent = 'Cancel';
-                cancel.disabled = !task.cancelUrl;
-                cancel.addEventListener('click', () => cancelTask(task));
-                item.append(cancel);
-            } else if (task.status === 'failed' && task.retryUrl) {
-                const retry = document.createElement('button');
-                retry.type = 'button';
-                retry.className = 'video-upload-item__action';
-                retry.textContent = 'Retry';
-                retry.addEventListener('click', () => retryTask(task));
-                item.append(retry);
+        for (const task of tasks.values()) {
+            const status = task.status === 'completed' ? 'done' : task.status;
+            const actions = {};
+            if (activeStatuses.has(task.status) && task.status !== 'finalizing' && task.cancelUrl) {
+                actions.cancel = () => cancelTask(task);
             }
-            list.append(item);
-        }
-
-        if (!expanded && moreCount > 0) {
-            const more = document.createElement('p');
-            more.className = 'video-upload-widget__more';
-            more.textContent = `+${moreCount} more active upload${moreCount === 1 ? '' : 's'}`;
-            list.append(more);
+            if (task.status === 'failed' && task.retryUrl) actions.retry = () => retryTask(task);
+            if (['completed', 'cancelled', 'failed'].includes(task.status)) {
+                actions.remove = () => {
+                    tasks.delete(task.id);
+                    removeUploadTrackerItem(`video:${task.id}`);
+                };
+            }
+            updateUploadTrackerItem({
+                id: `video:${task.id}`,
+                kind: 'legacy-video',
+                name: task.file.name,
+                size: task.file.size,
+                status,
+                progress: task.progress,
+                error: task.error,
+                actions,
+            });
         }
     };
 
@@ -215,6 +172,7 @@ if (widget) {
 
     const startTask = async (file, input) => {
         const task = {
+            id: crypto.randomUUID(),
             file,
             status: 'queued',
             progress: 0,
@@ -222,8 +180,9 @@ if (widget) {
             cancelRequested: false,
             associationElement: input.closest('[data-case-category], [data-person-video-upload]'),
         };
-        tasks.set(crypto.randomUUID(), task);
+        tasks.set(task.id, task);
         render();
+        openUploadTracker();
         try {
             const response = await fetch(widget.dataset.initializeUrl, {
                 method: 'POST',
@@ -339,30 +298,7 @@ if (widget) {
         if (!pendingRecordVideo) return;
         event.preventDefault();
         window.vaultAlert({ type: 'warning', message: 'Wait for the selected videos to finish uploading before saving this record.' });
-        widget.hidden = false;
-    });
-
-    document.addEventListener('click', (event) => {
-        if (event.target.closest('[data-video-upload-toggle]')) {
-            widget.hidden = !widget.hidden;
-            return;
-        }
-        if (event.target.closest('[data-video-upload-close]')) {
-            widget.hidden = true;
-            return;
-        }
-        if (event.target.closest('[data-video-upload-expand]')) {
-            expanded = !expanded;
-            widget.classList.toggle('is-expanded', expanded);
-            render();
-            return;
-        }
-        if (event.target.closest('[data-video-upload-clear]')) {
-            for (const [key, task] of tasks) {
-                if (['completed', 'cancelled'].includes(task.status)) tasks.delete(key);
-            }
-            render();
-        }
+        openUploadTracker();
     });
 
     window.addEventListener('beforeunload', (event) => {

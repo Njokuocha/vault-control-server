@@ -16,8 +16,8 @@
         <label class="setting-field-label" for="upload-key">SET A CUSTOM KEY</label>
         <div class="key-input-row">
             <input id="upload-key" type="text" wire:model="customKey" placeholder="Leave blank to generate a secure key" autocomplete="off" maxlength="255">
-            <button class="button-secondary" type="button" wire:click="generate">GENERATE</button>
-            <button class="button-primary" type="button" wire:click="rotate" wire:confirm="The current API key will stop working immediately. Continue with key rotation?" wire:loading.attr="disabled" wire:target="rotate">ROTATE KEY</button>
+            <button class="button-secondary" type="button" wire:click="generate" data-settings-key-generate>GENERATE</button>
+            <button class="button-primary" type="button" data-settings-key-rotate wire:loading.attr="disabled" wire:target="rotate">ROTATE KEY</button>
         </div>
         @error('customKey')<p class="field-error">{{ $message }}</p>@enderror
         <p class="field-hint">Enter a custom value, or leave the field blank to generate a secure key. Anyone who obtains this key can upload files.</p>

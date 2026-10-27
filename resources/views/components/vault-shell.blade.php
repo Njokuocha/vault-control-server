@@ -22,12 +22,12 @@
         </header>
         <div class="shell-statusbar"><span><i></i> SESSION ENCRYPTED</span><span class="shell-window-id">VS / INSTANCE 01</span></div>
         <div class="shell-output" data-shell-output role="log" aria-live="polite" aria-relevant="additions text">
-            <div class="shell-welcome-art"><span class="shell-welcome-seal">V</span><span><b>VAULT SHELL</b><small>VCS INTERACTIVE CONSOLE · RESTRICTED</small></span></div>
+            <div class="shell-welcome-art"><span class="shell-welcome-seal">{{ config('app.symbol') }}</span><span><b>{{ config('app.short_name') }} SHELL</b><small>{{ config('app.acronym') }} INTERACTIVE CONSOLE · RESTRICTED</small></span></div>
             <div class="shell-welcome-copy">Virtual archive console. Use <b>?help</b> to inspect available commands.</div>
             <div class="shell-welcome-copy shell-welcome-muted">Filesystem access is limited to the private vault root. System commands are not executed.</div>
         </div>
         <form class="shell-prompt" data-shell-form autocomplete="off">
-            <label class="shell-prompt-label" data-shell-prompt for="shell-command">{{ config('app.acronym') }} vcs:/root&gt;</label>
+            <label class="shell-prompt-label" data-shell-prompt for="shell-command">{{ config('app.acronym') }} {{ config('app.acronym') }}:/root&gt;</label>
             <input id="shell-command" type="text" data-shell-input spellcheck="false" autocapitalize="off" aria-label="Vault Shell command">
             <span class="shell-cursor" aria-hidden="true"></span>
             <button type="submit" class="shell-submit" aria-label="Run command" title="Run command">↵</button>
