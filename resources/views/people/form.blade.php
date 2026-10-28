@@ -5,5 +5,5 @@
 @section('page_label', $editing ? 'UPDATE PROFILE' : 'NEW PROFILE')
 
 @section('content')
-    <livewire:person-form-page :person="$person" />
+    <livewire:person-form-page :person="$person" route-prefix="people" />
 @endsection

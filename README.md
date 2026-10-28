@@ -5,7 +5,7 @@
 **Application name:** `Vault Intelligence Agency` · **Short name:** `Vault` · **Acronym:** `VIA` · **Symbol:** `V`
 **Stack:** Laravel 12 · Blade + Livewire 3 · Alpine.js (provided by Livewire) · Echo/Pusher · configured database driver · Remix Icon
 **Design language:** Federal-intelligence-style command console: dark, authoritative, restrained, animated, glass-morphism overlays.
-**Departmental rollout:** The public department selector, separate login entry points, Admin identity, and admin-controlled staff lifecycle are implemented. The Case File Management workspace now supports case creation, viewing, editing, evidence uploads, and owner-scoped background-transfer tracking. PM and FM feature workspaces remain in the next approved stages.
+**Departmental rollout:** The public department selector, separate login entry points, Admin identity, and admin-controlled staff lifecycle are implemented. The Case File Management workspace supports case creation, viewing, editing, evidence uploads, and owner-scoped background-transfer tracking. Profile Management now provides an isolated person-profile workspace with protected media handling. File Management remains in the next approved stage.
 
 ---
 
@@ -74,7 +74,7 @@ Vault Intelligence Agency is a private intelligence and security system. Adminis
 | 13 | Avatar models | Authenticated configuration of private Male, Female, Group, Unknown, Suspect, and Verified GLB models |
 | 14 | Agency staff management | Admin-created department accounts, username login, password reset, suspend/disable, and removal |
 
-Department roles and account management are part of the staged agency rollout. CFM case management is implemented; PM and FM feature workspaces remain in progress. Sharing links, folders, tags, versions UI, and bulk operations remain outside the current scope.
+Department roles and account management are part of the staged agency rollout. CFM case management and PM person-profile management are implemented; FM remains in progress. Sharing links, folders, tags, versions UI, and bulk operations remain outside the current scope.
 
 ---
 
@@ -357,8 +357,10 @@ Rules:
 - `AdminSeeder` creates the administrator in `admins` and does not create an administrator row in `users`.
 - All management routes under `/admin/` require the Admin guard. A narrowly restricted configured legacy `User` session remains accepted temporarily for compatibility with existing user-owned admin operations; it is not used by the Admin login flow and is not recreated by the seeder. `/admin/staff` provides the central account controls.
 - Staff sign in by username at their assigned department route. `cfm`, `pm`, and `fm` are stored as department codes. Only active accounts authenticate; suspended and disabled accounts are refused, and department middleware blocks cross-department route access.
-- Admins create and edit staff identity/department and private profile pictures, set initial passwords, reset passwords, change status, and delete accounts. Staff can view a read-only profile at `/{department}/profile`; profile photos are served only through authenticated private-storage routes.
-- CFM staff can create, view, and edit case files and their evidence, with uploads tracked privately per staff owner. They cannot access person-management routes or delete case files; only Admin can delete cases. PM and FM feature workspaces remain pending.
+- Admins create and edit staff identity/department and private profile pictures, set initial passwords, reset passwords, change status, and delete accounts. Staff can view a read-only profile at `/{department}/profile`; CFM and PM staff can change their own login password. Profile photos are served only through authenticated private-storage routes.
+- CFM staff can create, view, and edit case files and their evidence, with uploads tracked privately per staff owner. They cannot access person-management routes or delete case files; only Admin can delete cases.
+- PM staff can create, view, and edit person profiles and their protected media through `/pm/people`. They can use the existing profile image PIN and private avatar previews but cannot access case-management routes or case-linking features. The PM workspace uses the department shell and owner-scoped upload tracker; only Admin can manage settings and avatar models.
+- FM feature workspace and file-management permissions remain pending.
 - Login throttling: 5 attempts/minute per IP and identity; sessions regenerate on login and invalidate on logout.
 - Admin password changes through Settings update the Admin identity only.
 - Settings are at `/admin/settings`; API upload keys remain encrypted in the `settings` table.

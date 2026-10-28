@@ -17,11 +17,15 @@ class PersonFormPage extends Component
 
     public int $maxVideoUploadMb;
 
-    public function mount(Person $person, SettingService $settings): void
+    #[Locked]
+    public string $routePrefix = 'people';
+
+    public function mount(Person $person, SettingService $settings, string $routePrefix = 'people'): void
     {
         $this->personId = $person->exists ? $person->getKey() : null;
         $this->maxUploadMb = $settings->maxUploadMegabytes();
         $this->maxVideoUploadMb = $settings->maxVideoUploadMegabytes();
+        $this->routePrefix = $routePrefix;
     }
 
     public function render(): View
@@ -32,6 +36,7 @@ class PersonFormPage extends Component
 
         return view('livewire.person-form-page', [
             'person' => $person,
+            'routePrefix' => $this->routePrefix,
         ]);
     }
 }

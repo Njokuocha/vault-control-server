@@ -8,6 +8,7 @@ use App\Http\Controllers\InvestigationCaseController;
 use App\Http\Controllers\CaseManagerDashboardController;
 use App\Http\Controllers\ManualUploadController;
 use App\Http\Controllers\PersonController;
+use App\Http\Controllers\ProfileManagerDashboardController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StaffProfilePhotoController;
 use App\Http\Controllers\VaultShellController;
@@ -52,6 +53,20 @@ foreach ($departments as $department => $departmentName) {
             Route::get('/cases/{caseFile}/images/{image}/download', [InvestigationCaseController::class, 'image'])->defaults('download', true)->name('cases.images.download');
             Route::get('/cases/{caseFile}/images/{image}/poster', [InvestigationCaseController::class, 'imagePoster'])->name('cases.images.poster');
             Route::delete('/cases/{caseFile}/images/{image}', [InvestigationCaseController::class, 'destroyImage'])->name('cases.images.destroy');
+        } elseif ($department === 'pm') {
+            Route::get('/', [ProfileManagerDashboardController::class, 'index'])->name('dashboard');
+            Route::get('/people', [PersonController::class, 'index'])->name('people.index');
+            Route::get('/people/create', [PersonController::class, 'create'])->name('people.create');
+            Route::post('/people', [PersonController::class, 'store'])->name('people.store');
+            Route::get('/people/{person}', [PersonController::class, 'show'])->name('people.show');
+            Route::get('/people/{person}/edit', [PersonController::class, 'edit'])->name('people.edit');
+            Route::put('/people/{person}', [PersonController::class, 'update'])->name('people.update');
+            Route::get('/people/{person}/images/{image}', [PersonController::class, 'image'])->name('people.image');
+            Route::get('/people/{person}/images/{image}/download', [PersonController::class, 'image'])->defaults('download', true)->name('people.images.download');
+            Route::get('/people/{person}/images/{image}/poster', [PersonController::class, 'imagePoster'])->name('people.images.poster');
+            Route::post('/people/{person}/images/unlock', [PersonController::class, 'authenticateImages'])->middleware('throttle:8,1')->name('people.images.unlock');
+            Route::delete('/people/{person}/images/{image}', [PersonController::class, 'destroyImage'])->name('people.images.destroy');
+            Route::get('/avatar-models/{group}/file', [AvatarModelController::class, 'stream'])->name('avatar-models.stream');
         } else {
             Route::view('/', 'departments.dashboard', [
                 'department' => $department,

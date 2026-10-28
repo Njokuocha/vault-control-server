@@ -4,6 +4,8 @@ use App\Livewire\Admin\StaffManagement;
 use App\Livewire\DepartmentPassword;
 use App\Livewire\DepartmentLoginForm;
 use App\Models\Admin;
+use App\Models\InvestigationCase;
+use App\Models\Person;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -144,11 +146,11 @@ test('the profile page reveals only public staff identity fields', function () {
         'name' => 'Profile Officer',
         'username' => 'profile.officer',
         'email' => 'profile.officer@example.test',
-        'department' => 'pm',
+        'department' => 'fm',
         'account_status' => 'active',
     ]);
 
-    $this->actingAs($staff)->get('/pm/profile')
+    $this->actingAs($staff)->get('/fm/profile')
         ->assertOk()
         ->assertSee('Profile Officer')
         ->assertSee('profile.officer')
@@ -220,9 +222,115 @@ test('case managers can change their password through the profile Livewire form'
     expect(Hash::check('updated-case-password', $staff->fresh()->password))->toBeTrue();
 });
 
-test('staff outside case file management cannot use the case manager password action', function () {
+test('profile management gets an isolated profile workspace with complete person CRUD', function () {
     $staff = User::factory()->create([
         'department' => 'pm',
+        'account_status' => 'active',
+    ]);
+    $person = Person::query()->create([
+        'public_id' => 'USR-PM00001',
+        'name' => 'Profile Subject',
+    ]);
+    $case = InvestigationCase::query()->create([
+        'public_id' => 'CSE-PM00001',
+        'title' => 'Restricted Case Title',
+    ]);
+    $person->cases()->attach($case);
+    $this->actingAs($staff, 'web');
+
+    $this->get('/pm')
+        ->assertOk()
+        ->assertSee('PROFILE MANAGEMENT WORKSPACE')
+        ->assertSee('ALL PROFILES')
+        ->assertSee('x-on:submit.prevent', false)
+        ->assertSee('destructive: true', false)
+        ->assertSee('Sign out of your Profile Management session?', false);
+    $this->get(route('pm.people.index'))
+        ->assertOk()
+        ->assertSee($person->public_id)
+        ->assertSee('GALLERY ITEM')
+        ->assertDontSee('LINKED CASE');
+    $this->get(route('pm.people.show', $person))
+        ->assertOk()
+        ->assertSee('Profile Subject')
+        ->assertDontSee('Linked case files')
+        ->assertDontSee('Restricted Case Title');
+    $this->get(route('pm.people.edit', $person))
+        ->assertOk()
+        ->assertSee('SAVING PROFILE…')
+        ->assertSee(route('pm.people.update', $person), false);
+
+    $this->put(route('pm.people.update', $person), ['name' => 'Updated Profile Subject'])
+        ->assertRedirect(route('pm.people.show', $person));
+    expect($person->fresh()->name)->toBe('Updated Profile Subject');
+
+    $response = $this->post(route('pm.people.store'), ['name' => 'New Profile Subject']);
+    $created = Person::query()->where('name', 'New Profile Subject')->firstOrFail();
+    $response->assertRedirect(route('pm.people.show', $created));
+    $this->assertAuthenticatedAs($staff, 'web');
+
+    $this->get('/pm/cases')->assertNotFound();
+    $this->get(route('cases.index'))->assertForbidden();
+    $this->get(route('people.index'))->assertForbidden();
+    $this->get('/cfm')->assertForbidden();
+});
+
+test('profile management dashboard distinguishes creations from later profile edits', function () {
+    $staff = User::factory()->create([
+        'department' => 'pm',
+        'account_status' => 'active',
+    ]);
+    $existing = Person::query()->create([
+        'public_id' => 'USR-PM00002',
+        'name' => 'Existing Profile',
+    ]);
+    $existing->forceFill([
+        'created_at' => now()->subMonth(),
+        'updated_at' => now()->subMonth(),
+    ])->saveQuietly();
+    Person::query()->create([
+        'public_id' => 'USR-PM00003',
+        'name' => 'New Profile',
+    ]);
+    $this->actingAs($staff, 'web');
+
+    $this->get('/pm')->assertViewHas('summary', fn (array $summary): bool => $summary['created_this_month'] === 1
+        && $summary['updated_this_month'] === 0);
+
+    $this->put(route('pm.people.update', $existing), ['name' => 'Edited Existing Profile'])
+        ->assertRedirect(route('pm.people.show', $existing));
+
+    $this->get('/pm')->assertViewHas('summary', fn (array $summary): bool => $summary['created_this_month'] === 1
+        && $summary['updated_this_month'] === 1);
+});
+
+test('profile managers can change their password through the Livewire profile form', function () {
+    $staff = User::factory()->create([
+        'department' => 'pm',
+        'account_status' => 'active',
+        'password' => 'current-profile-password',
+    ]);
+
+    $this->actingAs($staff, 'web')->get('/pm/profile')
+        ->assertOk()
+        ->assertSee('PROFILE OFFICER')
+        ->assertSee('Change password')
+        ->assertSee('wire:submit="save"', false);
+
+    Livewire::test(DepartmentPassword::class)
+        ->set('currentPassword', 'current-profile-password')
+        ->set('newPassword', 'updated-profile-password')
+        ->set('newPasswordConfirmation', 'updated-profile-password')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertDispatched('alert', type: 'success');
+
+    expect(Hash::check('updated-profile-password', $staff->fresh()->password))->toBeTrue();
+});
+
+test('staff outside case file management cannot use the case manager password action', function () {
+    $staff = User::factory()->create([
+        'department' => 'fm',
         'account_status' => 'active',
     ]);
 

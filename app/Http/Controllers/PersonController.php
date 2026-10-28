@@ -37,11 +37,21 @@ class PersonController extends Controller
 
     public function index(): View
     {
+        if (request()->routeIs('pm.*')) {
+            return view('departments.pm.people-index');
+        }
+
         return view('people.index');
     }
 
     public function create(): View
     {
+        if (request()->routeIs('pm.*')) {
+            return view('departments.pm.form', [
+                'person' => new Person,
+            ]);
+        }
+
         return view('people.form', [
             'person' => new Person,
         ]);
@@ -93,7 +103,7 @@ class PersonController extends Controller
             throw $exception;
         }
 
-        $redirectUrl = route('people.show', $person);
+        $redirectUrl = route($this->routePrefix().'.show', $person);
         if ($request->expectsJson()) {
             return response()->json([
                 'redirect_url' => $redirectUrl,
@@ -108,11 +118,14 @@ class PersonController extends Controller
     public function show(Person $person, SettingService $settings): Response
     {
         request()->session()->forget('unlocked_person_images');
+        $profileManagement = request()->routeIs('pm.*');
         $person = app(VersionedCache::class)->remember(
             'people',
-            'profile:'.$person->getKey(),
+            ($profileManagement ? 'pm:' : '').'profile:'.$person->getKey(),
             now()->addSeconds(30),
-            fn (): Person => $person->load(['images', 'cases' => fn ($query) => $query->latest()]),
+            fn (): Person => $profileManagement
+                ? $person->load('images')
+                : $person->load(['images', 'cases' => fn ($query) => $query->latest()]),
         );
         $avatarGroup = strtolower($person->avatar_group);
         $avatarPath = in_array($avatarGroup, ['male', 'female', 'group', 'unknown', 'suspect', 'verified'], true)
@@ -121,15 +134,23 @@ class PersonController extends Controller
 
         return response()->view('people.show', [
             'person' => $person,
+            'profileManagement' => $profileManagement,
+            'routePrefix' => $this->routePrefix(),
             'imagePinConfigured' => $settings->get('person_image_pin_hash') !== null,
             'avatarModelUrl' => is_string($avatarPath) && Storage::disk(config('vault.upload_disk'))->exists($avatarPath)
-                ? route('avatar-models.stream', $avatarGroup)
+                ? route($profileManagement ? 'pm.avatar-models.stream' : 'avatar-models.stream', $avatarGroup)
                 : null,
         ])->header('Cache-Control', 'no-store, private');
     }
 
     public function edit(Person $person): View
     {
+        if (request()->routeIs('pm.*')) {
+            return view('departments.pm.form', [
+                'person' => $person,
+            ]);
+        }
+
         return view('people.form', [
             'person' => $person,
         ]);
@@ -187,7 +208,7 @@ class PersonController extends Controller
             Storage::disk(config('vault.upload_disk'))->delete($previousMainImage);
         }
 
-        $redirectUrl = route('people.show', $person);
+        $redirectUrl = route($this->routePrefix().'.show', $person);
         if ($request->expectsJson()) {
             return response()->json([
                 'redirect_url' => $redirectUrl,
@@ -344,6 +365,11 @@ class PersonController extends Controller
             'gallery_upload_tokens.*' => ['required', 'uuid', 'distinct'],
             'remove_main_image' => ['nullable', 'boolean'],
         ]);
+    }
+
+    private function routePrefix(): string
+    {
+        return request()->routeIs('pm.*') ? 'pm.people' : 'people';
     }
 
     private function attachVideosToPerson(Person $person, array $tokens): void

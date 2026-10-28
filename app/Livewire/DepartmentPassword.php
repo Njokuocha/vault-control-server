@@ -16,7 +16,7 @@ class DepartmentPassword extends Component
 
     public function save(): void
     {
-        abort_unless(Auth::guard('web')->user()?->department === 'cfm', 403);
+        abort_unless(in_array(Auth::guard('web')->user()?->department, ['cfm', 'pm'], true), 403);
 
         $validated = $this->validate([
             'currentPassword' => ['required', 'current_password:web'],
