@@ -113,8 +113,11 @@ test('transfer snapshot reports owner totals and received chunk indexes for resu
         ->assertOk()
         ->assertJsonPath('total_uploads', 1)
         ->assertJsonPath('pending_uploads', 1)
+        ->assertJsonPath('uploads.0.file_type', 'txt')
         ->assertJsonPath('uploads.0.received_chunks.0', 0)
         ->assertJsonPath('uploads.0.progress', 99);
+    expect($snapshot->json('uploads.0.uploaded_at'))->toBeString()
+        ->and($snapshot->json('uploads.0.duration_seconds'))->toBeNull();
 
     $otherTransfer = $otherUser->uploadTransfers()->create([
         'token' => (string) Str::uuid(),
@@ -161,6 +164,12 @@ test('queued finalization stores arbitrary files privately and publishes final s
         ->and($file->original_name)->toBe('private-record.txt')
         ->and($file->category)->toBe('text')
         ->and($file->upload_method)->toBe('manual');
+    $this->actingAs($user)->getJson(route('upload-transfers.status', $transfer->token))
+        ->assertOk()
+        ->assertJsonPath('file_type', 'txt')
+        ->assertJsonPath('file_mime_type', 'text/plain')
+        ->assertJsonPath('preview_url', route('files.preview', ['file' => $file->uuid]))
+        ->assertJsonPath('status', 'done');
     Storage::disk('vault')->assertExists($file->stored_path);
     Storage::disk('local')->assertMissing('upload-transfer-chunks/'.$transfer->token.'/0.part');
     Event::assertDispatched(UploadTransferStatusChanged::class, fn (UploadTransferStatusChanged $event): bool => $event->status === 'pending'

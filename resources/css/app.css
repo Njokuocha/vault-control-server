@@ -618,15 +618,31 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
 .video-upload-widget__header strong { font: 500 13px var(--font-mono); letter-spacing: .07em; }
 .video-upload-widget__actions { display: flex; align-items: center; gap: 6px; }
 .video-upload-widget__actions button, .video-upload-item__action { min-height: 30px; padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--text-secondary); background: var(--bg-panel); font: 500 13px var(--font-ui); cursor: pointer; }
-.video-upload-widget__list { display: grid; gap: 8px; overflow: auto; padding: 12px; }
+.video-upload-widget__list { display: grid; align-content: start; overflow: auto; padding: 8px 14px 14px 19px; }
 .video-upload-widget__empty, .video-upload-widget__more { margin: 0; padding: 12px; color: var(--text-muted); font-size: 13px; }
-.video-upload-item { display: grid; gap: 8px; padding: 11px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgb(8 13 20 / 54%); }
+.video-upload-item { position: relative; display: grid; gap: 8px; padding: 13px 3px 14px 21px; border-bottom: 1px solid var(--line); background: transparent; }
+.video-upload-item::before { position: absolute; top: 23px; bottom: -23px; left: 5px; width: 1px; background: var(--line-strong); content: ""; }
+.video-upload-item:last-child::before { display: none; }
+.video-upload-item::after { position: absolute; top: 17px; left: 1px; width: 9px; height: 9px; border: 2px solid var(--brass); border-radius: 50%; background: var(--bg-panel); box-shadow: 0 0 0 3px rgb(201 162 74 / 8%); content: ""; }
+.video-upload-item[data-status="done"]::after { border-color: var(--steel); }
+.video-upload-item[data-status="failed"]::after { border-color: #e58b83; }
 .video-upload-item__heading, .video-upload-item__metadata { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
 .video-upload-item__heading strong { overflow: hidden; color: var(--text-primary); font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.video-upload-item__heading span, .video-upload-item__metadata { color: var(--text-muted); font: 13px var(--font-mono); }
-.video-upload-item progress { width: 100%; height: 6px; accent-color: var(--brass); }
+.video-upload-item__status { flex: 0 0 auto; padding: 3px 6px; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--text-secondary); font: 11px var(--font-mono); text-transform: uppercase; }
+.video-upload-item[data-status="done"] .video-upload-item__status { border-color: rgb(112 167 215 / 35%); color: var(--steel); }
+.video-upload-item[data-status="failed"] .video-upload-item__status { border-color: rgb(229 139 131 / 42%); color: #e58b83; }
+.video-upload-item__metadata { justify-content: flex-start; color: var(--text-muted); font: 12px var(--font-mono); }
+.video-upload-item__metadata span + span::before { margin: 0 8px 0 1px; color: var(--line-strong); content: "·"; }
+.video-upload-item__details { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--text-secondary); font-size: 12px; }
+.video-upload-item__detail { display: flex; align-items: baseline; gap: 6px; }
+.video-upload-item__detail small { color: var(--text-muted); font: 10px var(--font-mono); letter-spacing: .06em; }
+.video-upload-item__detail time, .video-upload-item__detail > span { font-family: var(--font-mono); }
+.video-upload-item__progress-row { display: flex; align-items: center; gap: 9px; }
+.video-upload-item progress { width: 100%; height: 5px; accent-color: var(--brass); }
+.video-upload-item__progress-label { flex: 0 0 34px; color: var(--text-muted); font: 11px var(--font-mono); text-align: right; }
 .video-upload-item__action { justify-self: end; }
 .video-upload-item__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.video-upload-item__action:disabled { color: var(--text-muted); cursor: wait; opacity: .7; }
 .video-upload-item__error { margin: 0; color: #e58b83; font-size: 12px; line-height: 1.45; }
 .video-gallery-tile { position: relative; display: grid; min-height: 110px; overflow: hidden; place-items: center; border: 1px solid var(--line-strong); color: var(--text-secondary); background: radial-gradient(circle at 50% 45%, rgb(112 167 215 / 15%), rgb(8 13 20 / 88%)); }
 .video-gallery-tile > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }

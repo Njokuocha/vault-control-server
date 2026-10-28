@@ -32,13 +32,13 @@ class UploadTransferController extends Controller
         $active = (clone $transfers)
             ->whereIn('status', ['uploading', 'pending', 'processing'])
             ->latest('id')
-            ->with('file:id,uuid')
+            ->with('file:id,uuid,extension,mime_type')
             ->get();
         $recent = (clone $transfers)
             ->whereNotIn('status', ['uploading', 'pending', 'processing'])
             ->latest('id')
             ->limit(100)
-            ->with('file:id,uuid')
+            ->with('file:id,uuid,extension,mime_type')
             ->get();
 
         return response()->json([
@@ -265,6 +265,7 @@ class UploadTransferController extends Controller
 
     private function serialize(UploadTransfer $upload): array
     {
+        $file = $upload->file;
         $receivedChunks = $upload->status === 'uploading' ? $this->receivedChunks($upload) : [];
         $receivedBytes = array_sum(array_map(
             fn (int $index): int => min($upload->chunk_size, $upload->total_size - ($index * $upload->chunk_size)),
@@ -275,12 +276,20 @@ class UploadTransferController extends Controller
             : ($upload->status === 'uploading' && $upload->total_size > 0
                 ? (int) floor(($receivedBytes / $upload->total_size) * 100)
                 : 0);
+        $finished = in_array($upload->status, ['done', 'failed', 'cancelled'], true);
 
         return [
             'id' => $upload->getKey(),
             'token' => $upload->token,
             'name' => $upload->original_name,
             'size' => $upload->total_size,
+            'file_type' => $file?->extension ?? pathinfo($upload->original_name, PATHINFO_EXTENSION),
+            'file_mime_type' => $file?->mime_type,
+            'preview_url' => $file?->uuid ? route('files.preview', ['file' => $file->uuid]) : null,
+            'uploaded_at' => $upload->created_at?->toIso8601String(),
+            'duration_seconds' => $finished && $upload->created_at && $upload->updated_at
+                ? max(0, $upload->updated_at->getTimestamp() - $upload->created_at->getTimestamp())
+                : null,
             'status' => $upload->status,
             'progress' => $progress,
             'chunk_size' => $upload->chunk_size,
@@ -312,6 +321,7 @@ class UploadTransferController extends Controller
             'chunk_count' => $upload->chunk_count,
             'received_chunks' => [],
             'status' => $upload->status,
+            'uploaded_at' => $upload->created_at?->toIso8601String(),
             'status_url' => route('upload-transfers.status', $upload->token),
             'chunk_url' => route('upload-transfers.chunk', ['token' => $upload->token, 'index' => '__INDEX__']),
             'cancel_url' => route('upload-transfers.cancel', $upload->token),

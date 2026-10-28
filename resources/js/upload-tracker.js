@@ -16,6 +16,83 @@ const formatBytes = (bytes) => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const formatDuration = (seconds) => {
+    if (!Number.isFinite(seconds)) return 'In progress';
+    const elapsed = Math.max(0, Math.round(seconds));
+    if (elapsed < 60) return `${elapsed} sec`;
+    return `${Math.floor(elapsed / 60)} min ${String(elapsed % 60).padStart(2, '0')} sec`;
+};
+
+const formatUploadedAt = (value) => {
+    const uploadedAt = new Date(value);
+    if (Number.isNaN(uploadedAt.getTime())) return { label: 'Time unavailable', dateTime: '' };
+
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - uploadedAt.getTime()) / 1000));
+    const label = elapsedSeconds < 60
+        ? 'Just now'
+        : elapsedSeconds < 60 * 60
+            ? `${Math.floor(elapsedSeconds / 60)} min ago`
+            : elapsedSeconds < 24 * 60 * 60
+                ? uploadedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                : uploadedAt.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+    return { label, dateTime: uploadedAt.toISOString(), title: uploadedAt.toLocaleString() };
+};
+
+const isPreviewable = (mimeType, fileType) => {
+    if (typeof mimeType === 'string' && (
+        mimeType.startsWith('image/')
+        || mimeType.startsWith('video/')
+        || mimeType.startsWith('audio/')
+        || mimeType.startsWith('text/')
+        || ['application/pdf', 'application/json', 'application/xml', 'application/javascript', 'application/zip'].includes(mimeType)
+    )) return true;
+
+    return String(fileType ?? '').toLowerCase() === 'zip';
+};
+
+const previewUpload = async (upload) => {
+    const response = await fetch(upload.preview_url, {
+        headers: { Accept: 'application/json' },
+        credentials: 'same-origin',
+    });
+    let file;
+    try {
+        file = await response.json();
+    } catch {
+        throw new Error('The preview server returned an unreadable response.');
+    }
+    if (!response.ok) throw new Error(file.message ?? `Unable to preview this file (${response.status}).`);
+
+    window.dispatchEvent(new CustomEvent('vault-file-preview-ready', {
+        detail: { uuid: upload.file_uuid, file },
+    }));
+};
+
+const runAction = async (upload, action) => {
+    const current = items.get(upload.id);
+    if (!current || current.removing) return;
+    if (action === 'remove') {
+        current.removing = true;
+        render();
+    }
+
+    try {
+        await upload.actions[action]();
+    } catch (error) {
+        window.vaultAlert({
+            type: 'error',
+            message: error instanceof Error ? error.message : `Unable to ${action} ${upload.name}.`,
+        });
+    } finally {
+        const latest = items.get(upload.id);
+        if (latest?.removing) {
+            latest.removing = false;
+            render();
+        }
+    }
+};
+
 const render = () => {
     if (!widget || !list || !empty) return;
 
@@ -40,11 +117,13 @@ const render = () => {
     for (const upload of visible) {
         const item = document.createElement('article');
         item.className = 'video-upload-item';
+        item.dataset.status = String(upload.status);
         const heading = document.createElement('div');
         heading.className = 'video-upload-item__heading';
         const name = document.createElement('strong');
         name.textContent = upload.name;
         const status = document.createElement('span');
+        status.className = 'video-upload-item__status';
         status.textContent = String(upload.status).replaceAll('-', ' ');
         heading.append(name, status);
 
@@ -52,15 +131,51 @@ const render = () => {
         metadata.className = 'video-upload-item__metadata';
         const size = document.createElement('span');
         size.textContent = formatBytes(upload.size);
+        const fileType = document.createElement('span');
+        const nameParts = String(upload.name).split('.');
+        const extension = String(upload.file_type ?? (nameParts.length > 1 ? nameParts.pop() : '')).trim();
+        fileType.textContent = extension ? extension.toUpperCase() : 'FILE';
+        metadata.append(size, fileType);
+
+        const details = document.createElement('div');
+        details.className = 'video-upload-item__details';
+        const uploadedAt = formatUploadedAt(upload.uploaded_at ?? upload.tracked_at);
+        const uploadedTime = document.createElement('time');
+        uploadedTime.dateTime = uploadedAt.dateTime;
+        uploadedTime.textContent = uploadedAt.label;
+        if (uploadedAt.title) uploadedTime.title = uploadedAt.title;
+        const timestamp = document.createElement('span');
+        timestamp.className = 'video-upload-item__detail';
+        timestamp.append(Object.assign(document.createElement('small'), { textContent: 'UPLOADED' }), uploadedTime);
+        const timeLabel = document.createElement('span');
+        timeLabel.className = 'video-upload-item__detail';
+        const timeValue = document.createElement('span');
+        const duration = typeof upload.duration_seconds === 'number' && Number.isFinite(upload.duration_seconds)
+            ? Number(upload.duration_seconds)
+            : (Date.now() - new Date(upload.uploaded_at ?? upload.tracked_at).getTime()) / 1000;
+        timeLabel.append(
+            Object.assign(document.createElement('small'), {
+                textContent: terminalStatuses.has(upload.status) ? 'DURATION' : 'ELAPSED',
+            }),
+        );
+        timeValue.textContent = formatDuration(duration);
+        timeLabel.append(timeValue);
+        details.append(timestamp, timeLabel);
+
         const percent = document.createElement('span');
         percent.textContent = `${Math.round(upload.progress ?? 0)}%`;
-        metadata.append(size, percent);
 
         const progress = document.createElement('progress');
         progress.max = 100;
         progress.value = Math.max(0, Math.min(100, upload.progress ?? 0));
         progress.setAttribute('aria-label', `Upload progress for ${upload.name}`);
-        item.append(heading, metadata, progress);
+        const progressLabel = document.createElement('span');
+        progressLabel.className = 'video-upload-item__progress-label';
+        progressLabel.textContent = `${Math.round(upload.progress ?? 0)}%`;
+        const progressRow = document.createElement('div');
+        progressRow.className = 'video-upload-item__progress-row';
+        progressRow.append(progress, progressLabel);
+        item.append(heading, metadata, details, progressRow);
 
         if (upload.error) {
             const error = document.createElement('p');
@@ -71,25 +186,19 @@ const render = () => {
 
         const actions = document.createElement('div');
         actions.className = 'video-upload-item__actions';
-        for (const action of ['cancel', 'resume', 'retry', 'remove']) {
+        if (upload.status === 'done' && upload.preview_url && upload.file_uuid && isPreviewable(upload.file_mime_type, upload.file_type)) {
+            upload.actions = { ...upload.actions, view: () => previewUpload(upload) };
+        }
+        for (const action of ['view', 'cancel', 'resume', 'retry', 'remove']) {
             if (typeof upload.actions?.[action] !== 'function') continue;
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'video-upload-item__action';
-            button.textContent = action[0].toUpperCase() + action.slice(1);
-            button.addEventListener('click', async () => {
-                button.disabled = true;
-                try {
-                    await upload.actions[action]();
-                } catch (error) {
-                    window.vaultAlert({
-                        type: 'error',
-                        message: error instanceof Error ? error.message : `Unable to ${action} ${upload.name}.`,
-                    });
-                } finally {
-                    button.disabled = false;
-                }
-            });
+            button.textContent = action === 'remove' && upload.removing
+                ? 'Removing...'
+                : action[0].toUpperCase() + action.slice(1);
+            button.disabled = upload.removing === true;
+            button.addEventListener('click', () => runAction(upload, action));
             actions.append(button);
         }
         if (actions.childElementCount > 0) item.append(actions);
@@ -99,7 +208,11 @@ const render = () => {
 
 export const updateUploadTrackerItem = (upload) => {
     const existing = items.get(upload.id) ?? {};
-    items.set(upload.id, { ...existing, ...upload });
+    items.set(upload.id, {
+        ...existing,
+        ...upload,
+        tracked_at: upload.uploaded_at ?? existing.uploaded_at ?? existing.tracked_at ?? new Date().toISOString(),
+    });
     render();
 };
 
@@ -141,12 +254,7 @@ document.addEventListener('click', (event) => {
     } else if (event.target.closest('[data-upload-tracker-clear]')) {
         for (const upload of items.values()) {
             if (terminalStatuses.has(upload.status) && typeof upload.actions?.remove === 'function') {
-                Promise.resolve(upload.actions.remove()).catch((error) => {
-                    window.vaultAlert({
-                        type: 'error',
-                        message: error instanceof Error ? error.message : `Unable to remove ${upload.name}.`,
-                    });
-                });
+                runAction(upload, 'remove');
             }
         }
     }

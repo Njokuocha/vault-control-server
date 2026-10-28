@@ -531,6 +531,12 @@ const publishTransfer = (task) => {
         kind: 'server-transfer',
         name: task.name,
         size: task.size,
+        file_type: task.file_type,
+        file_mime_type: task.file_mime_type,
+        preview_url: task.preview_url,
+        file_uuid: task.file_uuid,
+        uploaded_at: task.uploaded_at,
+        duration_seconds: task.duration_seconds,
         status: task.status,
         progress: task.progress ?? 0,
         error: task.error,
@@ -624,6 +630,12 @@ const fetchStatus = async (task) => {
         progress: result.progress,
         receivedChunks: new Set(result.received_chunks ?? []),
         error: result.error,
+        file_type: result.file_type,
+        file_mime_type: result.file_mime_type,
+        preview_url: result.preview_url,
+        file_uuid: result.file_uuid,
+        uploaded_at: result.uploaded_at,
+        duration_seconds: result.duration_seconds,
     });
     return result;
 };
@@ -1288,6 +1300,11 @@ if (transferWidget) {
         if (event.status === 'failed') {
             fetchStatus(task).catch((error) => {
                 console.error('Unable to load upload failure details.', error);
+            });
+        }
+        if (event.status === 'done') {
+            fetchStatus(task).catch((error) => {
+                console.error('Unable to load completed upload details.', error);
             });
         }
         if (event.status === 'done' || event.status === 'failed' || event.status === 'cancelled') {
