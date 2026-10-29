@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Events\FileUploaded;
 use App\Jobs\BuildArchiveIndexJob;
 use App\Models\File;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -56,7 +57,7 @@ class FileUploadService
         }
     }
 
-    public function store(UploadedFile $upload, ?string $sourceIp, string $uploadMethod): File
+    public function store(UploadedFile $upload, ?string $sourceIp, string $uploadMethod, ?Authenticatable $actor = null): File
     {
         if (! in_array($uploadMethod, ['api', 'manual'], true)) {
             throw new \InvalidArgumentException('The upload method must be api or manual.');
@@ -115,6 +116,22 @@ class FileUploadService
             $file->category,
             $file->created_at?->format('Y-m') ?? now()->format('Y-m'),
         ));
+        app(ActivityLogger::class)->record(
+            'uploads',
+            'file.uploaded',
+            "Uploaded one {$file->category} file.",
+            [
+                'file_uuid' => $file->uuid,
+                'file_type' => $file->category,
+                'extension' => $file->extension,
+                'mime_type' => $file->mime_type,
+                'size_bytes' => $file->size,
+                'upload_method' => $uploadMethod,
+                'item_count' => 1,
+                'source_ip' => $sourceIp,
+            ],
+            $actor,
+        );
 
         if ($extension === 'zip' && $file->category === 'archive') {
             BuildArchiveIndexJob::dispatch($file->id)->afterCommit();

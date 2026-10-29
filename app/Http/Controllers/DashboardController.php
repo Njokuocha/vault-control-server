@@ -21,6 +21,7 @@ class DashboardController extends Controller
 
     public function snapshot(): JsonResponse
     {
+        $fileRoutePrefix = request()->routeIs('fm.*') ? 'fm.files' : 'files';
         $monthStart = Carbon::now()->startOfMonth();
         $metrics = app(VersionedCache::class)->remember('files', 'dashboard-metrics', now()->addSeconds(30), function () use ($monthStart): array {
             return [
@@ -45,7 +46,7 @@ class DashboardController extends Controller
                 'date_label' => $file->created_at?->format('M j, Y · H:i'),
                 'month_key' => $file->created_at?->format('Y-m'),
                 'month_label' => $file->created_at?->format('F Y'),
-                'download_url' => route('files.download', ['file' => $file->uuid]),
+                'download_url' => route($fileRoutePrefix.'.download', ['file' => $file->uuid]),
             ])
             ->values();
 
@@ -57,6 +58,7 @@ class DashboardController extends Controller
 
     public function archiveFiles(Request $request): JsonResponse
     {
+        $fileRoutePrefix = $request->routeIs('fm.*') ? 'fm.files' : 'files';
         $validated = $request->validate([
             'q' => ['nullable', 'string', 'max:255'],
             'year' => ['nullable', 'regex:/^\d{4}$/'],
@@ -172,8 +174,8 @@ class DashboardController extends Controller
                 'date_label' => $file->created_at?->format('M j, Y · H:i'),
                 'month_key' => $file->created_at?->format('Y-m'),
                 'month_label' => $file->created_at?->format('F Y'),
-                'preview_url' => route('files.preview', ['file' => $file->uuid]),
-                'download_url' => route('files.download', ['file' => $file->uuid]),
+                'preview_url' => route($fileRoutePrefix.'.preview', ['file' => $file->uuid]),
+                'download_url' => route($fileRoutePrefix.'.download', ['file' => $file->uuid]),
             ])->values(),
             'years' => $years,
             'extensions' => $extensions,

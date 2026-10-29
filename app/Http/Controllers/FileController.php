@@ -14,8 +14,9 @@ use ZipArchive;
 
 class FileController extends Controller
 {
-    public function preview(File $file): JsonResponse
+    public function preview(File $file, ?string $routePrefix = null): JsonResponse
     {
+        $routePrefix ??= request()->routeIs('fm.*') ? 'fm.files' : 'files';
         $disk = Storage::disk(config('vault.upload_disk', 'vault'));
         $absolutePath = $this->privateAbsolutePath($file);
 
@@ -69,9 +70,9 @@ class FileController extends Controller
             'archive_entries_count' => $file->archive_entry_count ?? 0,
             'archive_entries_truncated' => ($file->archive_entry_count ?? 0) > 1000,
             'archive_entries' => $tree === null ? [] : $this->flattenTree($tree['children'] ?? []),
-            'archive_entry_url' => $isZip ? route('files.archive-entry', ['file' => $file->uuid]) : null,
-            'stream_url' => route('files.stream', ['file' => $file->uuid]),
-            'download_url' => route('files.download', ['file' => $file->uuid]),
+            'archive_entry_url' => $isZip ? route($routePrefix.'.archive-entry', ['file' => $file->uuid]) : null,
+            'stream_url' => route($routePrefix.'.stream', ['file' => $file->uuid]),
+            'download_url' => route($routePrefix.'.download', ['file' => $file->uuid]),
         ]);
     }
 
@@ -169,8 +170,9 @@ class FileController extends Controller
         return $response;
     }
 
-    public function archiveEntry(Request $request, File $file): JsonResponse|Response
+    public function archiveEntry(Request $request, File $file, ?string $routePrefix = null): JsonResponse|Response
     {
+        $routePrefix ??= $request->routeIs('fm.*') ? 'fm.files' : 'files';
         abort_unless($file->extension === 'zip' || $file->mime_type === 'application/zip', 404);
         $validated = $request->validate([
             'path' => ['required', 'string', 'max:1024'],
@@ -234,7 +236,7 @@ class FileController extends Controller
 
             return response()->json([
                 'message' => 'This entry is too large to preview. Download the individual entry instead.',
-                'download_url' => route('files.archive-entry', ['file' => $file, 'path' => $entryPath, 'download' => 1]),
+                'download_url' => route($routePrefix.'.archive-entry', ['file' => $file, 'path' => $entryPath, 'download' => 1]),
             ], 413);
         }
 
@@ -266,13 +268,13 @@ class FileController extends Controller
             return response()->json([
                 'preview_available' => false,
                 'message' => 'The entry may be password protected or cannot be previewed.',
-                'download_url' => route('files.archive-entry', ['file' => $file, 'path' => $entryPath, 'download' => 1]),
+                'download_url' => route($routePrefix.'.archive-entry', ['file' => $file, 'path' => $entryPath, 'download' => 1]),
             ], 200);
         }
 
         return response()->json([
             ...$preview,
-            'download_url' => route('files.archive-entry', ['file' => $file, 'path' => $entryPath, 'download' => 1]),
+            'download_url' => route($routePrefix.'.archive-entry', ['file' => $file, 'path' => $entryPath, 'download' => 1]),
         ]);
     }
 

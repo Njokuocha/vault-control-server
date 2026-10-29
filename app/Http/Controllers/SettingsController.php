@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Admin;
+use App\Services\ActivityLogger;
 use App\Services\SettingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,6 +24,11 @@ class SettingsController extends Controller
         ]);
 
         $settings->set('upload_key', $validated['upload_key']);
+        app(ActivityLogger::class)->record(
+            'configuration',
+            'settings.upload-key-updated',
+            'Administrator rotated the API upload key.',
+        );
 
         return back()->with('status', 'Upload key updated. The previous key is no longer valid.');
     }
@@ -38,6 +44,14 @@ class SettingsController extends Controller
         abort_unless($admin instanceof Admin, 401);
         $admin->password = Hash::make($validated['password']);
         $admin->save();
+        app(ActivityLogger::class)->record(
+            'configuration',
+            'settings.admin-password-updated',
+            'Administrator changed the administrator password.',
+            [],
+            $admin,
+            $request,
+        );
 
         $request->session()->regenerate();
 
@@ -57,6 +71,16 @@ class SettingsController extends Controller
             $settings->set('max_video_upload_mb', (string) $validated['max_video_upload_mb']);
         }
         $settings->set('api_upload_enabled', $request->boolean('api_upload_enabled') ? '1' : '0');
+        app(ActivityLogger::class)->record(
+            'configuration',
+            'settings.upload-policy-updated',
+            'Administrator updated the upload size and API access policy.',
+            [
+                'max_upload_mb' => $validated['max_upload_mb'],
+                'max_video_upload_mb' => $validated['max_video_upload_mb'] ?? null,
+                'api_upload_enabled' => $request->boolean('api_upload_enabled'),
+            ],
+        );
 
         return back()->with('status', 'Upload policy updated.');
     }
@@ -69,6 +93,11 @@ class SettingsController extends Controller
 
         $settings->set('person_image_pin_hash', Hash::make($validated['image_pin']));
         $request->session()->forget('unlocked_person_images');
+        app(ActivityLogger::class)->record(
+            'configuration',
+            'settings.person-image-pin-updated',
+            'Administrator updated the protected person-media access PIN.',
+        );
 
         return back()->with('status', 'Person image access PIN updated.');
     }

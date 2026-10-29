@@ -15,6 +15,7 @@
 
     <livewire:settings-image-pin />
     <livewire:settings-password />
+    <livewire:security-settings />
 
     <footer class="page-footer"><span>{{ strtoupper(config('app.name')) }}</span><span>PRIVATE BY DESIGN <i>·</i> ACCESS CONTROLLED</span></footer>
 @endsection

@@ -9,7 +9,7 @@ class ManualUploadController extends Controller
 {
     public function create(SettingService $settings): View
     {
-        return view('uploads.create', [
+        return view(request()->routeIs('fm.*') ? 'departments.fm.upload' : 'uploads.create', [
             'maxUploadMb' => $settings->maxUploadMegabytes(),
             'maxVideoUploadMb' => $settings->maxVideoUploadMegabytes(),
         ]);

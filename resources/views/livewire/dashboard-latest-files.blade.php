@@ -7,7 +7,7 @@
             <button class="filter-button {{ $filter === 'media' ? 'is-selected' : '' }}" type="button" data-archive-filter="media" wire:click="updateFilter('media')" aria-pressed="{{ $filter === 'media' ? 'true' : 'false' }}">MEDIA <span data-archive-filter-count="mediaCount">{{ number_format($mediaCount) }}</span></button>
         </div>
     </div>
-    <div class="archive-table-head" aria-hidden="true"><span>RECORD</span><span>CLASSIFICATION</span><span>UPLOAD METHOD</span><span>DATE ADDED</span><span>SIZE</span><span></span></div>
+    <div class="archive-table-head" aria-hidden="true"><span>RECORD</span><span>{{ $fileRoutePrefix === 'fm.files' ? 'FILE TYPE' : 'CLASSIFICATION' }}</span><span>UPLOAD METHOD</span><span>DATE ADDED</span><span>SIZE</span><span></span></div>
     @if ($fileCount === 0)
         <div class="archive-empty" data-empty-state>
             <div class="empty-ornament" aria-hidden="true"><span class="orbit orbit-one"></span><span class="orbit orbit-two"></span><span class="orbit-center"><svg viewBox="0 0 48 48" fill="none"><path d="M8 14.5h12l3.2 3.8H40v17H8z" stroke="currentColor" stroke-width="1.5"/><path d="M8 14.5V11h12l3.2 3.5" stroke="currentColor" stroke-width="1.5"/><path d="m19.5 25 3 3 6-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
@@ -31,7 +31,7 @@
                             <span class="upload-method-badge upload-method-{{ $file->upload_method ?? 'unknown' }}">{{ strtoupper($file->upload_method ?? 'UNKNOWN') }}</span>
                             <time class="archive-record-date" datetime="{{ $file->created_at->toIso8601String() }}">{{ $file->created_at->format('M j, Y · H:i') }}</time>
                             <span class="archive-record-size">{{ \App\Support\FormatBytes::format($file->size) }}</span>
-                            <div class="archive-record-actions"><button type="button" data-archive-preview="{{ $file->uuid }}" wire:click="preview('{{ $file->uuid }}')" wire:loading.attr="disabled" wire:target="preview" aria-label="Preview {{ $file->original_name }}">OPEN</button><a href="{{ route('files.download', ['file' => $file->uuid]) }}" aria-label="Download {{ $file->original_name }}">↓</a></div>
+                            <div class="archive-record-actions"><button type="button" data-archive-preview="{{ $file->uuid }}" wire:click="preview('{{ $file->uuid }}')" wire:loading.attr="disabled" wire:target="preview" aria-label="Preview {{ $file->original_name }}">OPEN</button><a href="{{ route($fileRoutePrefix.'.download', ['file' => $file->uuid]) }}" aria-label="Download {{ $file->original_name }}">↓</a></div>
                         </article>
                     @endforeach
                 </section>

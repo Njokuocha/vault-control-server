@@ -9,6 +9,7 @@ use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -19,6 +20,16 @@ class DashboardLatestFiles extends Component
     public string $filter = 'all';
 
     public ?string $selectedUuid = null;
+
+    #[Locked]
+    public string $fileRoutePrefix = 'files';
+
+    public function mount(): void
+    {
+        if (request()->routeIs('fm.*')) {
+            $this->fileRoutePrefix = 'fm.files';
+        }
+    }
 
     #[On('dashboard-archive-search')]
     public function updateSearch(string $search): void
@@ -34,9 +45,7 @@ class DashboardLatestFiles extends Component
         }
     }
 
-    #[On('echo-private:admin.vault,.file.uploaded')]
-    #[On('echo-private:admin.vault,.file.edited')]
-    #[On('echo-private:admin.vault,.file.deleted')]
+    #[On('refresh-file-dashboard')]
     public function refreshFromBroadcast(): void
     {
     }
@@ -44,7 +53,7 @@ class DashboardLatestFiles extends Component
     public function preview(string $uuid): void
     {
         $file = File::query()->where('uuid', $uuid)->firstOrFail();
-        $preview = app(FileController::class)->preview($file)->getData(true);
+        $preview = app(FileController::class)->preview($file, $this->fileRoutePrefix)->getData(true);
         $this->selectedUuid = $file->uuid;
         $this->dispatch('vault-file-preview-ready', file: $preview, uuid: $file->uuid);
     }
@@ -98,6 +107,7 @@ class DashboardLatestFiles extends Component
             ...$metrics,
             'visibleCount' => $files->count(),
             'groupCount' => $files->groupBy(fn (File $file): string => $file->created_at->format('Y-m'))->count(),
+            'fileRoutePrefix' => $this->fileRoutePrefix,
         ]);
     }
 }

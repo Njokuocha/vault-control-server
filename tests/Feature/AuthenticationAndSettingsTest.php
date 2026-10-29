@@ -5,7 +5,9 @@ use App\Livewire\SettingsImagePin;
 use App\Livewire\SettingsPassword;
 use App\Livewire\SettingsUploadKey;
 use App\Livewire\SettingsUploadPolicy;
+use App\Livewire\Admin\DepartmentManagement;
 use App\Models\Admin;
+use App\Models\Department;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\SettingService;
@@ -88,11 +90,14 @@ test('an administrator can authenticate and sign out', function () {
 
     $this->assertGuest('web');
     $this->assertAuthenticatedAs($admin, 'admin');
+    $this->get(route('home'))->assertRedirect('/admin');
     $this->get(route('dashboard.index'))
         ->assertOk()
         ->assertSee('SHELL')
         ->assertSee('Ctrl+Shift+X')
-        ->assertSee('data-shell-window', false);
+        ->assertSee('data-shell-window', false)
+        ->assertSee('action="'.route('auth.logout').'" x-data x-on:submit.prevent="window.vaultConfirm', false)
+        ->assertSee('Sign out of your administrator session?', false);
 
     $this->post(route('auth.logout'))->assertRedirect(route('home'));
     $this->assertGuest();
@@ -116,13 +121,19 @@ test('an admin-only session can reach staff management and create a case manager
 
     $this->get(route('admin.staff.index'))
         ->assertOk()
-        ->assertSee('Create staff account');
+        ->assertSee('Create staff account')
+        ->assertSee('MANAGE DEPARTMENTS');
+    $this->get(route('admin.departments.index'))
+        ->assertOk()
+        ->assertSee('Department Management')
+        ->assertSee('SAVE CHANGES')
+        ->assertSee('Add department row');
 
     Livewire::test(\App\Livewire\Admin\StaffManagement::class)
         ->set('name', 'Case Officer')
         ->set('email', 'case.officer@example.test')
         ->set('username', 'case_officer')
-        ->set('department', 'cfm')
+        ->set('departmentId', (string) Department::query()->where('code', 'cfm')->value('id'))
         ->set('password', 'case-officer-password')
         ->call('save')
         ->assertHasNoErrors();
@@ -131,6 +142,49 @@ test('an admin-only session can reach staff management and create a case manager
     expect($staff->department)->toBe('cfm')
         ->and($staff->account_status)->toBe('active')
         ->and(User::query()->where('email', 'admin@example.test')->exists())->toBeFalse();
+});
+
+test('authenticated staff are redirected from the public landing page to their department', function () {
+    $staff = User::factory()->create([
+        'department' => 'pm',
+        'department_id' => Department::query()->where('code', 'pm')->value('id'),
+        'account_status' => 'active',
+    ]);
+
+    $this->actingAs($staff, 'web')->get(route('home'))->assertRedirect('/pm');
+});
+
+test('admins can create departments and assign staff through their department relationship', function () {
+    $component = Livewire::test(DepartmentManagement::class)
+        ->call('addRow')
+        ->set('rows.3.name', 'Evidence Operations')
+        ->set('rows.3.rank_short', 'EVO')
+        ->set('rows.3.rank', 'Evidence Officer')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertDispatched('alert', type: 'success');
+
+    $department = Department::query()->where('code', 'evo')->firstOrFail();
+    expect($department->name)->toBe('Evidence Operations')
+        ->and($department->rank)->toBe('Evidence Officer')
+        ->and($department->rank_short)->toBe('EVO');
+    $this->get('/evo/login')
+        ->assertOk()
+        ->assertSee('Evidence Operations');
+
+    $staff = User::factory()->create([
+        'department' => $department->code,
+        'account_status' => 'active',
+    ]);
+
+    expect($staff->department_id)->toBe($department->id);
+    $this->actingAs($staff, 'web')
+        ->get(route('home'))
+        ->assertRedirect('/evo');
+    $this->get('/evo')
+        ->assertOk()
+        ->assertSee('Evidence Operations')
+        ->assertSee('This department workspace is active');
 });
 
 test('invalid login attempts are rejected', function () {

@@ -1,4 +1,4 @@
-<div class="archive-browser" data-archive-browser data-file-url="{{ url('/files') }}" @unless($isOpen) hidden @endunless wire:keydown.escape="close" wire:click.self="close">
+<div class="archive-browser" data-archive-browser data-file-url="{{ $fileRoutePrefix === 'fm.files' ? url('/fm/files') : url('/admin/files') }}" @unless($isOpen) hidden @endunless wire:keydown.escape="close" wire:click.self="close">
     @if ($isOpen)
         <section class="archive-browser-window" role="dialog" aria-modal="true" aria-labelledby="full-archive-title">
             <header class="archive-browser-header">
@@ -43,7 +43,7 @@
                         </label>
                     </div>
                     <div class="archive-browser-table-head" aria-hidden="true">
-                        <span>RECORD</span><span>CLASSIFICATION</span><span>UPLOAD METHOD</span><span>DATE ADDED</span><span>SIZE</span><span></span>
+                        <span>RECORD</span><span>{{ $fileRoutePrefix === 'fm.files' ? 'FILE TYPE' : 'CLASSIFICATION' }}</span><span>UPLOAD METHOD</span><span>DATE ADDED</span><span>SIZE</span><span></span>
                     </div>
                     <div class="archive-browser-records" data-full-archive-records tabindex="0">
                         @forelse ($files->getCollection()->groupBy(fn ($file) => $file->created_at->format('Y-m')) as $monthKey => $monthFiles)
@@ -58,7 +58,7 @@
                                         <span class="archive-record-size">{{ \App\Support\FormatBytes::format($file->size) }}</span>
                                         <div class="archive-record-actions">
                                             <button type="button" data-full-archive-preview="{{ $file->uuid }}" wire:click="preview('{{ $file->uuid }}')" wire:loading.attr="disabled" wire:target="preview">OPEN</button>
-                                            <a href="{{ route('files.download', ['file' => $file->uuid]) }}" aria-label="Download {{ $file->original_name }}">↓</a>
+                                            <a href="{{ route($fileRoutePrefix.'.download', ['file' => $file->uuid]) }}" aria-label="Download {{ $file->original_name }}">↓</a>
                                         </div>
                                     </article>
                                 @endforeach

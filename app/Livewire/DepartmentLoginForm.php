@@ -2,6 +2,7 @@
 
 namespace App\Livewire;
 
+use App\Models\Department;
 use App\Services\DepartmentLoginService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Validator;
@@ -16,8 +17,8 @@ class DepartmentLoginForm extends Component
 
     public function mount(string $department): void
     {
-        abort_unless(in_array($department, ['cfm', 'pm', 'fm'], true), 404);
-        $this->department = $department;
+        $this->department = Department::query()->where('code', $department)->value('code')
+            ?? abort(404);
     }
 
     public function authenticate(mixed $username, mixed $password, mixed $remember = false): mixed
@@ -52,14 +53,8 @@ class DepartmentLoginForm extends Component
 
     public function render(): View
     {
-        $departmentNames = [
-            'cfm' => 'Case File Management',
-            'pm' => 'Profile Management',
-            'fm' => 'File Management',
-        ];
-
         return view('livewire.department-login-form', [
-            'departmentName' => $departmentNames[$this->department],
+            'departmentName' => Department::query()->where('code', $this->department)->value('name') ?? abort(404),
         ]);
     }
 }

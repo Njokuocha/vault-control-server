@@ -61,7 +61,7 @@ test('file upload broadcasts only the approved minimal metadata', function () {
 
         return $event->name === 'arrival.txt'
             && $event->broadcastQueue() === 'broadcasts'
-            && $event->broadcastOn()[0]->name === 'private-admin.vault';
+            && array_map(fn ($channel) => $channel->name, $event->broadcastOn()) === ['private-admin.vault', 'private-fm.vault'];
     });
 });
 
@@ -84,7 +84,8 @@ test('file edit and delete broadcasts expose only minimal archive metadata', fun
             'status' => 'deleted',
         ])
         ->and($edited->broadcastQueue())->toBe('broadcasts')
-        ->and($deleted->broadcastOn()[0]->name)->toBe('private-admin.vault');
+        ->and(array_map(fn ($channel) => $channel->name, $edited->broadcastOn()))->toBe(['private-admin.vault', 'private-fm.vault'])
+        ->and(array_map(fn ($channel) => $channel->name, $deleted->broadcastOn()))->toBe(['private-admin.vault', 'private-fm.vault']);
 });
 
 test('the API rejects an invalid key and a disabled API upload setting', function () {

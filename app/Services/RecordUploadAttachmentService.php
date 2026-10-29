@@ -22,7 +22,11 @@ class RecordUploadAttachmentService
 
     public function assertStandaloneUploadAllowed(User $user): void
     {
-        abort_unless($this->isConfiguredAdministrator($user), 403);
+        abort_unless(
+            $this->isConfiguredAdministrator($user)
+                || ($user->department === 'fm' && $user->account_status === 'active'),
+            403,
+        );
     }
 
     public function validateIntent(User $user, array $intent): array

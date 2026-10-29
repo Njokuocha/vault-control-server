@@ -34,6 +34,22 @@ test('the upload tracker control is available across authenticated routes', func
     }
 });
 
+test('the file management upload page uses its own route with the shared transfer tracker', function () {
+    $staff = User::factory()->create([
+        'department' => 'fm',
+        'account_status' => 'active',
+    ]);
+
+    $this->actingAs($staff, 'web')
+        ->get(route('fm.uploads.create'))
+        ->assertOk()
+        ->assertSeeLivewire(ManualUploadForm::class)
+        ->assertSee('FILE MANAGEMENT INGESTION')
+        ->assertSee('action="'.route('fm.uploads.create').'"', false)
+        ->assertSee('data-upload-page-url="'.route('fm.uploads.create').'"', false)
+        ->assertSee('data-transfer-initialize-url', false);
+});
+
 test('the Livewire upload form updates its selected file summary', function () {
     Livewire::test(ManualUploadForm::class, [
         'maxUploadMb' => 10,

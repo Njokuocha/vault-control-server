@@ -4,18 +4,19 @@
 @section('department_content')
     @php($caseManager = auth('web')->user()->department === 'cfm')
     @php($profileManager = auth('web')->user()->department === 'pm')
-    @php($departmentStaff = $caseManager || $profileManager)
+    @php($departmentRecord = auth('web')->user()->departmentRecord)
+    @php($departmentStaff = $departmentRecord !== null)
     <div class="department-dashboard {{ $departmentStaff ? 'cfm-profile-card' : '' }}">
         <span class="section-kicker">READ-ONLY PERSONNEL RECORD</span>
         <div class="department-profile {{ $departmentStaff ? 'cfm-profile-hero' : '' }}">
             @if (auth('web')->user()->profile_photo_path)
-                <img class="department-profile__picture {{ $departmentStaff ? 'cfm-profile-picture' : '' }}" src="{{ route(auth('web')->user()->department.'.profile.photo') }}" alt="Profile picture">
+                <img class="department-profile__picture {{ $departmentStaff ? 'cfm-profile-picture' : '' }}" src="{{ url('/'.auth('web')->user()->department.'/profile/photo') }}" alt="Profile picture">
             @else
                 <div class="department-profile__picture {{ $departmentStaff ? 'cfm-profile-picture' : '' }}">{{ strtoupper(substr(auth('web')->user()->name, 0, 1)) }}</div>
             @endif
             <div class="{{ $departmentStaff ? 'cfm-profile-identity' : '' }}">
                 @if ($departmentStaff)
-                    <div class="agency-status-tag"><i></i> {{ $caseManager ? 'CASE MANAGER' : 'PROFILE OFFICER' }} · {{ strtoupper(auth('web')->user()->account_status) }}</div>
+                    <div class="agency-status-tag"><i></i> {{ strtoupper($departmentRecord->rank) }} · {{ strtoupper(auth('web')->user()->account_status) }}</div>
                 @endif
                 <h1>{{ auth('web')->user()->name }}</h1>
                 @if ($caseManager)
@@ -31,8 +32,8 @@
         @if ($departmentStaff)
             <div class="cfm-profile-details">
                 <div><span>EMAIL ADDRESS</span><strong>{{ auth('web')->user()->email }}</strong></div>
-                <div><span>DEPARTMENT</span><strong>{{ $caseManager ? 'CASE FILE MANAGEMENT' : 'PROFILE MANAGEMENT' }}</strong></div>
-                <div><span>RANK</span><strong>{{ $caseManager ? 'CASE MANAGER' : 'PROFILE OFFICER' }}</strong></div>
+                <div><span>DEPARTMENT</span><strong>{{ strtoupper($departmentRecord->name) }}</strong></div>
+                <div><span>RANK</span><strong>{{ $departmentRecord->rank }}</strong></div>
             </div>
         @endif
         <p>Identity and profile information are managed by an administrator. Contact your administrator to request a change.</p>

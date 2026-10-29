@@ -25,7 +25,7 @@ class FileDeleted implements ShouldBroadcast, ShouldDispatchAfterCommit
 
     public function broadcastOn(): array
     {
-        return [new PrivateChannel('admin.vault')];
+        return [new PrivateChannel('admin.vault'), new PrivateChannel('fm.vault')];
     }
 
     public function broadcastAs(): string

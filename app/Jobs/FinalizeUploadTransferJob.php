@@ -139,6 +139,7 @@ class FinalizeUploadTransferJob implements ShouldQueue
                 $assembledUpload,
                 null,
                 'manual',
+                $upload->user,
             );
         } catch (Throwable $exception) {
             if ($videoPreview !== null) {

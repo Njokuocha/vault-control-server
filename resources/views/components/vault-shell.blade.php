@@ -1,12 +1,13 @@
+@php($shellRoutePrefix = auth('web')->check() && auth('web')->user()->department === 'fm' ? 'fm.shell' : 'shell')
 <div class="shell-window-layer" data-shell-layer
-     data-directory-url="{{ route('shell.directory') }}"
-     data-preview-url="{{ route('shell.preview') }}"
-     data-stream-url="{{ route('shell.stream') }}"
-     data-download-url="{{ route('shell.download') }}"
-     data-delete-url="{{ route('shell.file.destroy') }}"
-     data-mkdir-url="{{ route('shell.directory.create') }}"
-     data-copy-url="{{ route('shell.copy') }}"
-     data-move-url="{{ route('shell.move') }}"
+     data-directory-url="{{ route($shellRoutePrefix.'.directory') }}"
+     data-preview-url="{{ route($shellRoutePrefix.'.preview') }}"
+     data-stream-url="{{ route($shellRoutePrefix.'.stream') }}"
+     data-download-url="{{ route($shellRoutePrefix.'.download') }}"
+     data-delete-url="{{ route($shellRoutePrefix.'.file.destroy') }}"
+     data-mkdir-url="{{ route($shellRoutePrefix.'.directory.create') }}"
+     data-copy-url="{{ route($shellRoutePrefix.'.copy') }}"
+     data-move-url="{{ route($shellRoutePrefix.'.move') }}"
      aria-live="polite"></div>
 <template id="shell-window-template">
     <section class="shell-window" role="region" aria-label="Vault Shell command console" data-shell-window>

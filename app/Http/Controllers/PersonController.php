@@ -9,6 +9,7 @@ use App\Models\PersonImage;
 use App\Models\User;
 use App\Models\VideoUpload;
 use App\Services\PublicRecordId;
+use App\Services\ActivityLogger;
 use App\Services\RecordUploadAttachmentService;
 use App\Services\SettingService;
 use App\Support\VersionedCache;
@@ -67,7 +68,7 @@ class PersonController extends Controller
         $storedPaths = [];
 
         try {
-            $person = DB::transaction(function () use ($validated, $mainImage, $otherImages, $ids, $attachments, $user, &$storedPaths): Person {
+            $person = DB::transaction(function () use ($validated, $mainImage, $otherImages, $ids, $attachments, $user, $request, &$storedPaths): Person {
                 $attributes = $this->personAttributes($validated);
                 $attributes['public_id'] = $ids->generate(Person::class, 'USR');
                 $attributes['avatar_group'] = $validated['avatar_group'] ?? $this->avatarGroup($attributes['gender']);
@@ -94,6 +95,19 @@ class PersonController extends Controller
                     $validated['record_upload_draft_token'] ?? null,
                     $validated['main_image_upload_token'] ?? null,
                     $validated['gallery_upload_tokens'] ?? [],
+                );
+                app(ActivityLogger::class)->record(
+                    'profile-management',
+                    'person.created',
+                    "Person profile {$person->public_id} was created.",
+                    [
+                        'person_id' => $person->getKey(),
+                        'public_id' => $person->public_id,
+                        'gallery_items_submitted' => count($otherImages) + count($validated['gallery_upload_tokens'] ?? []),
+                        'has_primary_image' => $mainImage instanceof UploadedFile || ! empty($validated['main_image_upload_token']),
+                    ],
+                    $user,
+                    $request,
                 );
 
                 return $person;
@@ -168,7 +182,7 @@ class PersonController extends Controller
         $removeMainImage = (bool) ($validated['remove_main_image'] ?? false);
 
         try {
-            DB::transaction(function () use ($validated, $mainImage, $otherImages, $person, $removeMainImage, $attachments, $user, &$storedPaths): void {
+            DB::transaction(function () use ($validated, $mainImage, $otherImages, $person, $removeMainImage, $attachments, $user, $request, &$storedPaths): void {
                 $attributes = $this->personAttributes($validated);
                 $attributes['avatar_group'] = $validated['avatar_group'] ?? $this->avatarGroup($attributes['gender']);
 
@@ -197,6 +211,20 @@ class PersonController extends Controller
                     $validated['record_upload_draft_token'] ?? null,
                     $validated['main_image_upload_token'] ?? null,
                     $validated['gallery_upload_tokens'] ?? [],
+                );
+                app(ActivityLogger::class)->record(
+                    'profile-management',
+                    'person.updated',
+                    "Person profile {$person->public_id} was updated.",
+                    [
+                        'person_id' => $person->getKey(),
+                        'public_id' => $person->public_id,
+                        'changed_fields' => array_keys($person->getChanges()),
+                        'gallery_items_submitted' => count($otherImages) + count($validated['gallery_upload_tokens'] ?? []),
+                        'has_primary_image' => $mainImage instanceof UploadedFile || ! empty($validated['main_image_upload_token']),
+                    ],
+                    $user,
+                    $request,
                 );
             });
         } catch (Throwable $exception) {
@@ -260,6 +288,14 @@ class PersonController extends Controller
             }
             $path = $media->path;
         } else {
+            $file = $person->mainImageFile;
+            if ($file instanceof File) {
+                abort_unless($file->category === 'image', 404);
+
+                return $download
+                    ? app(FileController::class)->download($file)
+                    : app(FileController::class)->stream(request(), $file);
+            }
             $path = $person->main_image_path;
         }
 

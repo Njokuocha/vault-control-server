@@ -53,6 +53,18 @@
                     <a class="nav-item {{ request()->routeIs('admin.staff.*') ? 'is-active' : '' }}" href="{{ route('admin.staff.index') }}" wire:navigate @if(request()->routeIs('admin.staff.*')) aria-current="page" @endif>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 20v-1.5a5.5 5.5 0 0 1 11 0V20zM16 8h5M18.5 5.5v5"/></svg><span>Staff management</span>
                     </a>
+                    @php
+                        $securityUnreadCount = 0;
+                        if (\Illuminate\Support\Facades\Schema::hasTable('activity_logs')
+                            && (auth('admin')->check() || (auth('web')->check() && auth('web')->user()->department === null))) {
+                            $securityUnreadCount = \App\Models\ActivityLog::query()
+                                ->where('id', '>', (int) session('security_activity_last_seen_id', 0))
+                                ->count();
+                        }
+                    @endphp
+                    <a class="nav-item {{ request()->routeIs('admin.security.*') ? 'is-active' : '' }}" href="{{ route('admin.security.index') }}" wire:navigate data-security-nav @if(request()->routeIs('admin.security.*')) aria-current="page" @endif>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5.5c0 4.7-3.1 7.7-8 9.5-4.9-1.8-8-4.8-8-9.5V6z"/><path d="M12 7v5M12 16h.01"/></svg><span>Auth Security</span><span class="security-unread-badge" data-security-activity-badge data-count="{{ $securityUnreadCount }}">{{ $securityUnreadCount > 99 ? '99+' : $securityUnreadCount }}</span>
+                    </a>
                 </nav>
                 <div class="sidebar-bottom">
                     <div class="storage-card">
@@ -61,7 +73,7 @@
                         <div class="storage-status"><span class="status-dot"></span> VAULT DISK <span class="status-value">READY</span></div>
                     </div>
                     <div class="sidebar-footer"><span class="footer-mark">{{ config('app.symbol') }}</span><span>{{ strtoupper(config('app.short_name')) }} SYSTEMS<br><span class="footer-muted">BUILD 01.00</span></span><span class="connection-indicator"></span></div>
-                    <form class="sidebar-logout" method="POST" action="{{ route('auth.logout') }}">@csrf<button type="submit">SIGN OUT <span aria-hidden="true">↗</span></button></form>
+                    <form class="sidebar-logout" method="POST" action="{{ route('auth.logout') }}" x-data x-on:submit.prevent="window.vaultConfirm({ title: 'Sign out', message: 'Sign out of your administrator session?', confirmLabel: 'SIGN OUT', destructive: true }).then(confirmed => confirmed && $el.submit())">@csrf<button type="submit">SIGN OUT <span aria-hidden="true">↗</span></button></form>
                 </div>
             </aside>
             <main class="main-panel">

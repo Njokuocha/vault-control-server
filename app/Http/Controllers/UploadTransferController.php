@@ -269,7 +269,8 @@ class UploadTransferController extends Controller
     private function serialize(UploadTransfer $upload): array
     {
         $file = $upload->file;
-        $previewUrl = $file?->uuid ? route('files.preview', ['file' => $file->uuid]) : null;
+        $fileRoutePrefix = $upload->user?->department === 'fm' ? 'fm.files' : 'files';
+        $previewUrl = $file?->uuid ? route($fileRoutePrefix.'.preview', ['file' => $file->uuid]) : null;
         if (
             $file?->uuid
             && $upload->attachment_purpose === RecordAttachmentTypes::CASE_EVIDENCE

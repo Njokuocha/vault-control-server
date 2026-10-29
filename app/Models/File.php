@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Events\FileDeleted;
 use App\Events\FileEdited;
+use App\Services\ActivityLogger;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
@@ -72,6 +73,18 @@ class File extends Model
                 $file->category,
                 $file->created_at?->format('Y-m') ?? '',
             ));
+            app(ActivityLogger::class)->record(
+                'file-management',
+                'file.deleted',
+                "A {$file->category} file was deleted from the archive.",
+                [
+                    'file_id' => $file->getKey(),
+                    'file_uuid' => $file->uuid,
+                    'file_type' => $file->category,
+                    'extension' => $file->extension,
+                    'size_bytes' => $file->size,
+                ],
+            );
         });
         static::updated(function (File $file): void {
             if (! $file->wasChanged(['original_name', 'category', 'size', 'extension', 'mime_type'])) {
@@ -84,6 +97,18 @@ class File extends Model
                 $file->category,
                 $file->created_at?->format('Y-m') ?? '',
             ));
+            app(ActivityLogger::class)->record(
+                'file-management',
+                'file.updated',
+                "A {$file->category} file was updated in the archive.",
+                [
+                    'file_id' => $file->getKey(),
+                    'file_uuid' => $file->uuid,
+                    'file_type' => $file->category,
+                    'changed_fields' => array_keys($file->getChanges()),
+                    'size_bytes' => $file->size,
+                ],
+            );
         });
     }
 }

@@ -10,6 +10,7 @@ use App\Models\UploadTransfer;
 use App\Models\User;
 use App\Models\VideoUpload;
 use App\Services\PublicRecordId;
+use App\Services\ActivityLogger;
 use App\Services\RecordUploadAttachmentService;
 use App\Services\SettingService;
 use App\Support\VersionedCache;
@@ -52,7 +53,7 @@ class InvestigationCaseController extends Controller
         $storedPaths = [];
 
         try {
-            $caseFile = DB::transaction(function () use ($validated, $ids, $attachments, $user, &$storedPaths): InvestigationCase {
+            $caseFile = DB::transaction(function () use ($validated, $ids, $attachments, $user, $request, &$storedPaths): InvestigationCase {
                 $caseFile = InvestigationCase::query()->create([
                     'created_by_user_id' => $user->getKey(),
                     'public_id' => $ids->generate(InvestigationCase::class, 'CSE'),
@@ -69,6 +70,20 @@ class InvestigationCaseController extends Controller
                     $attachments,
                     $user,
                     $validated['record_upload_draft_token'] ?? null,
+                );
+                app(ActivityLogger::class)->record(
+                    'case-management',
+                    'case.created',
+                    "Case file {$caseFile->public_id} was created.",
+                    [
+                        'case_id' => $caseFile->getKey(),
+                        'public_id' => $caseFile->public_id,
+                        'case_status' => $caseFile->case_status,
+                        'classification' => $caseFile->classification,
+                        'category_count' => $caseFile->categories()->count(),
+                    ],
+                    $user,
+                    $request,
                 );
 
                 return $caseFile;
@@ -138,7 +153,7 @@ class InvestigationCaseController extends Controller
         $deletedUploadIds = [];
         $deletedTransferTokens = [];
         try {
-            DB::transaction(function () use ($validated, $caseFile, $attachments, $user, &$storedPaths, &$deletedPaths, &$deletedFileIds, &$deletedUploadIds, &$deletedTransferTokens): void {
+            DB::transaction(function () use ($validated, $caseFile, $attachments, $user, $request, &$storedPaths, &$deletedPaths, &$deletedFileIds, &$deletedUploadIds, &$deletedTransferTokens): void {
                 $caseFile->update([
                     'title' => $this->unknown($validated['title'] ?? null),
                     'classification' => $validated['classification'] ?? 'CLASSIFIED',
@@ -176,6 +191,21 @@ class InvestigationCaseController extends Controller
                     $user,
                     $validated['record_upload_draft_token'] ?? null,
                 );
+                app(ActivityLogger::class)->record(
+                    'case-management',
+                    'case.updated',
+                    "Case file {$caseFile->public_id} was updated.",
+                    [
+                        'case_id' => $caseFile->getKey(),
+                        'public_id' => $caseFile->public_id,
+                        'changed_fields' => array_keys($caseFile->getChanges()),
+                        'case_status' => $caseFile->case_status,
+                        'classification' => $caseFile->classification,
+                        'category_count' => $caseFile->categories()->count(),
+                    ],
+                    $user,
+                    $request,
+                );
             });
         } catch (Throwable $exception) {
             Storage::disk(config('vault.upload_disk'))->delete($storedPaths);
@@ -210,11 +240,13 @@ class InvestigationCaseController extends Controller
 
     public function destroy(InvestigationCase $caseFile): RedirectResponse
     {
+        $caseReference = $caseFile->public_id;
+        $caseId = $caseFile->getKey();
         $fileIds = collect();
         $paths = collect();
         $chunkTokens = collect();
 
-        DB::transaction(function () use ($caseFile, &$fileIds, &$paths, &$chunkTokens): void {
+        DB::transaction(function () use ($caseFile, $caseReference, $caseId, &$fileIds, &$paths, &$chunkTokens): void {
             $caseFile->load('categories.images.file');
             $images = $caseFile->categories->flatMap(fn (CaseCategory $category) => $category->images);
             $transfers = UploadTransfer::query()
@@ -244,6 +276,16 @@ class InvestigationCaseController extends Controller
             $caseFile->delete();
             $transfers->each->delete();
             VideoUpload::query()->whereIn('file_id', $fileIds)->delete();
+            app(ActivityLogger::class)->record(
+                'case-management',
+                'case.deleted',
+                "Case file {$caseReference} was deleted by an administrator.",
+                [
+                    'case_id' => $caseId,
+                    'public_id' => $caseReference,
+                    'evidence_file_count' => $fileIds->count(),
+                ],
+            );
         });
 
         Storage::disk(config('vault.upload_disk'))->delete($paths->all());

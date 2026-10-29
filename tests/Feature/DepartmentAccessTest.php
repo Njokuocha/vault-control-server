@@ -4,14 +4,18 @@ use App\Livewire\Admin\StaffManagement;
 use App\Livewire\DepartmentPassword;
 use App\Livewire\DepartmentLoginForm;
 use App\Models\Admin;
+use App\Models\Department;
 use App\Models\InvestigationCase;
+use App\Models\File as VaultFile;
 use App\Models\Person;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Illuminate\Http\UploadedFile;
+use App\Services\SettingService;
 
 uses(RefreshDatabase::class);
 
@@ -43,7 +47,11 @@ test('a staff account can only authenticate into its assigned department', funct
         ->assertRedirect('/cfm');
 
     $this->assertAuthenticatedAs($staff, 'web');
-    $this->get('/cfm')->assertOk()->assertSee('Case File Management');
+    $this->get('/cfm')
+        ->assertOk()
+        ->assertSee('Case File Management')
+        ->assertSee('action="'.route('cfm.logout').'" x-data x-on:submit.prevent="window.vaultConfirm', false)
+        ->assertSee('Sign out of your Case File Management session?', false);
     $this->get('/cfm/profile')->assertOk()->assertSee('case_operator')->assertSee('case.operator@example.test');
     $this->get('/pm')->assertForbidden();
     $this->get(route('admin.staff.index'))->assertForbidden();
@@ -81,7 +89,7 @@ test('the central admin can create, suspend, reset, and delete department accoun
         ->set('name', 'Case Manager')
         ->set('email', 'case.manager@example.test')
         ->set('username', 'case_manager')
-        ->set('department', 'cfm')
+        ->set('departmentId', (string) Department::query()->where('code', 'cfm')->value('id'))
         ->set('password', 'initial-case-password')
         ->call('save')
         ->assertHasNoErrors()
@@ -89,8 +97,14 @@ test('the central admin can create, suspend, reset, and delete department accoun
 
     $staff = User::query()->where('username', 'case_manager')->firstOrFail();
     expect($staff->department)->toBe('cfm')
+        ->and($staff->departmentRecord->name)->toBe('Case File Management')
         ->and($staff->account_status)->toBe('active')
         ->and(Hash::check('initial-case-password', $staff->password))->toBeTrue();
+
+    $component->set('search', 'case_manager')
+        ->set('departmentFilter', (string) $staff->department_id)
+        ->assertSee('case_manager')
+        ->assertSee('RESET PASSWORD');
 
     $component->call('edit', $staff->id)
         ->set('accountStatus', 'suspended')
@@ -98,13 +112,17 @@ test('the central admin can create, suspend, reset, and delete department accoun
         ->assertHasNoErrors();
     expect($staff->fresh()->account_status)->toBe('suspended');
 
-    $component->call('togglePasswordResetConfirmation', $staff->id)
-        ->call('resetPassword', $staff->id)
+    $component->call('openPasswordReset', $staff->id)
+        ->assertSee('Set a new password')
+        ->assertSee('Confirm new password')
+        ->set('newPassword', 'replacement-staff-password')
+        ->set('newPasswordConfirmation', 'replacement-staff-password')
+        ->call('resetPassword')
         ->assertHasNoErrors();
-    $replacementPassword = $component->get('temporaryPassword');
-    expect(Hash::check($replacementPassword, $staff->fresh()->password))->toBeTrue();
+    expect(Hash::check('replacement-staff-password', $staff->fresh()->password))->toBeTrue();
 
-    $component->call('toggleDeleteConfirmation', $staff->id)
+    $component->call('openDeleteConfirmation', $staff->id)
+        ->assertSee('Delete staff account?')
         ->call('delete', $staff->id)
         ->assertHasNoErrors();
     expect(User::query()->find($staff->id))->toBeNull();
@@ -125,7 +143,7 @@ test('the admin can manage private staff profile pictures', function () {
         ->set('name', 'Case Manager')
         ->set('email', 'case.manager@example.test')
         ->set('username', 'case_manager')
-        ->set('department', 'cfm')
+        ->set('departmentId', (string) Department::query()->where('code', 'cfm')->value('id'))
         ->set('password', 'initial-case-password')
         ->set('profilePhoto', UploadedFile::fake()->createWithContent(
             'portrait.png',
@@ -155,7 +173,7 @@ test('the profile page reveals only public staff identity fields', function () {
         ->assertSee('Profile Officer')
         ->assertSee('profile.officer')
         ->assertSee('profile.officer@example.test')
-        ->assertDontSee('password')
+        ->assertSee('Change password')
         ->assertDontSee('internal notes');
 });
 
@@ -242,6 +260,7 @@ test('profile management gets an isolated profile workspace with complete person
         ->assertOk()
         ->assertSee('PROFILE MANAGEMENT WORKSPACE')
         ->assertSee('ALL PROFILES')
+        ->assertSee('action="'.route('pm.logout').'" x-data x-on:submit.prevent="window.vaultConfirm', false)
         ->assertSee('x-on:submit.prevent', false)
         ->assertSee('destructive: true', false)
         ->assertSee('Sign out of your Profile Management session?', false);
@@ -313,7 +332,7 @@ test('profile managers can change their password through the Livewire profile fo
 
     $this->actingAs($staff, 'web')->get('/pm/profile')
         ->assertOk()
-        ->assertSee('PROFILE OFFICER')
+        ->assertSee('PROFILE MANAGER')
         ->assertSee('Change password')
         ->assertSee('wire:submit="save"', false);
 
@@ -328,20 +347,137 @@ test('profile managers can change their password through the Livewire profile fo
     expect(Hash::check('updated-profile-password', $staff->fresh()->password))->toBeTrue();
 });
 
-test('staff outside case file management cannot use the case manager password action', function () {
+test('file managers can access their restricted archive, upload, media and shell tools', function () {
+    config(['vault.max_upload_mb' => 10]);
+    app(SettingService::class)->set('max_upload_mb', '10');
+    Storage::fake('local');
+    Storage::fake('vault');
+
     $staff = User::factory()->create([
         'department' => 'fm',
         'account_status' => 'active',
     ]);
 
-    $this->actingAs($staff);
+    $person = Person::query()->create([
+        'public_id' => 'USR-FM-001',
+        'name' => 'Restricted Person Name',
+        'statement' => 'Confidential dossier statement',
+        'main_image_path' => 'people/private/main.png',
+    ]);
+    Storage::disk('vault')->put('people/private/main.png', 'private image bytes');
+    $person->images()->create([
+        'path' => 'people/private/gallery.png',
+        'original_name' => 'gallery-image.png',
+        'type' => 'image',
+    ]);
+    Storage::disk('vault')->put('people/private/gallery.png', 'private gallery bytes');
+    $fileContents = 'private archive file';
+    Storage::disk('vault')->put('archive/private-note.txt', $fileContents);
+    $file = VaultFile::query()->create([
+        'uuid' => (string) Str::uuid(),
+        'original_name' => 'private-note.txt',
+        'stored_path' => 'archive/private-note.txt',
+        'extension' => 'txt',
+        'mime_type' => 'text/plain',
+        'category' => 'text',
+        'size' => strlen($fileContents),
+        'checksum' => hash('sha256', $fileContents),
+        'is_editable' => true,
+        'version' => 1,
+    ]);
+
+    $this->actingAs($staff, 'web')
+        ->getJson(route('fm.archive.files'))
+        ->assertOk()
+        ->assertJsonPath('records.0.preview_url', route('fm.files.preview', $file->uuid))
+        ->assertJsonPath('records.0.download_url', route('fm.files.download', $file->uuid));
+
+    $dashboard = $this->actingAs($staff, 'web')
+        ->get('/fm')
+        ->assertOk()
+        ->assertSee('File archive')
+        ->assertSee('TOTAL FILES')
+        ->assertSee('private-note.txt')
+        ->assertSee('Manual upload')
+        ->assertSee('action="'.route('fm.logout').'" x-data x-on:submit.prevent="window.vaultConfirm', false)
+        ->assertSee('Sign out of your File Management session?', false);
+    $dashboard->assertSee(route('fm.files.download', $file->uuid), false);
+    $this->get(route('fm.uploads.create'))
+        ->assertOk()
+        ->assertSee('data-transfer-initialize-url', false)
+        ->assertSee(route('fm.uploads.create'), false);
+    $this->get(route('fm.person-media.index'))
+        ->assertOk()
+        ->assertSee('MEDIA COLLECTION')
+        ->assertSee('2 protected item(s)')
+        ->assertDontSee('Restricted Person Name')
+        ->assertDontSee('Confidential dossier statement');
+    $this->get(route('fm.person-media.show', $person))
+        ->assertOk()
+        ->assertSee('Viewables')
+        ->assertSee('Protected image')
+        ->assertDontSee('Restricted Person Name')
+        ->assertDontSee('Confidential dossier statement');
+    $this->getJson(route('fm.files.preview', $file->uuid))
+        ->assertOk()
+        ->assertJsonPath('download_url', route('fm.files.download', $file->uuid))
+        ->assertJsonPath('stream_url', route('fm.files.stream', $file->uuid));
+    $this->get(route('fm.files.stream', $file->uuid))
+        ->assertOk()
+        ->assertHeader('Content-Type', 'text/plain; charset=utf-8');
+    $this->get(route('files.preview', $file->uuid))->assertForbidden();
+    $this->getJson(route('fm.shell.directory', ['path' => '/root']))
+        ->assertOk()
+        ->assertJsonPath('path', '/root');
+    $this->getJson(route('shell.directory', ['path' => '/root']))->assertForbidden();
+    $this->get('/fm/cases')->assertNotFound();
+    $this->get('/pm')->assertForbidden();
+    $this->get(route('cases.index'))->assertForbidden();
+    $this->get(route('people.index'))->assertForbidden();
 
     Livewire::test(DepartmentPassword::class)
         ->set('currentPassword', 'password')
-        ->set('newPassword', 'updated-case-password')
-        ->set('newPasswordConfirmation', 'updated-case-password')
+        ->set('newPassword', 'updated-file-manager-password')
+        ->set('newPasswordConfirmation', 'updated-file-manager-password')
         ->call('save')
-        ->assertForbidden();
+        ->assertHasNoErrors();
+
+    expect(Hash::check('updated-file-manager-password', $staff->fresh()->password))->toBeTrue();
+});
+
+test('file managers can unlock only protected person media without dossier details', function () {
+    Storage::fake('vault');
+    $staff = User::factory()->create([
+        'department' => 'fm',
+        'account_status' => 'active',
+    ]);
+    $person = Person::query()->create([
+        'public_id' => 'USR-FM-002',
+        'name' => 'Private Identity Subject',
+        'statement' => 'Do not expose dossier content.',
+        'main_image_path' => 'people/protected/main.png',
+    ]);
+    $document = $person->images()->create([
+        'path' => 'people/protected/private-document.pdf',
+        'original_name' => 'sensitive-dossier.pdf',
+        'type' => 'document',
+    ]);
+    Storage::disk('vault')->put('people/protected/main.png', 'protected-image');
+    app(SettingService::class)->set('person_image_pin_hash', Hash::make('4826'));
+
+    $this->actingAs($staff, 'web');
+    $imageUrl = route('fm.person-media.image', ['person' => $person->id, 'image' => 'main']);
+    $this->get($imageUrl)->assertForbidden();
+    $this->postJson(route('fm.person-media.unlock', $person), ['pin' => '4826'])
+        ->assertOk()
+        ->assertJsonPath('status', 'unlocked');
+    $this->get($imageUrl)->assertOk();
+    $this->get(route('fm.person-media.image', ['person' => $person->id, 'image' => $document->id]))->assertNotFound();
+    $this->get(route('fm.person-media.show', $person))
+        ->assertOk()
+        ->assertDontSee('Private Identity Subject')
+        ->assertDontSee('Do not expose dossier content.')
+        ->assertDontSee('sensitive-dossier.pdf');
 });
 
 test('an unassigned non-admin user cannot enter the admin workspace', function () {

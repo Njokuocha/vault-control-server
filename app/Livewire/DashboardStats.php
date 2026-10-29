@@ -12,10 +12,7 @@ use Livewire\Component;
 
 class DashboardStats extends Component
 {
-    #[On('echo-private:admin.vault,.file.uploaded')]
-    #[On('echo-private:admin.vault,.file.edited')]
-    #[On('echo-private:admin.vault,.file.deleted')]
-    #[On('echo-private:admin.vault,.video.upload.status')]
+    #[On('refresh-file-dashboard')]
     public function refreshFromBroadcast(): void
     {
     }

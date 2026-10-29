@@ -13,11 +13,13 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
-    ->withBroadcasting(__DIR__.'/../routes/channels.php', ['middleware' => ['web', 'auth']])
+    ->withBroadcasting(__DIR__.'/../routes/channels.php', ['middleware' => ['web', 'auth:web,admin']])
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'admin.workspace' => \App\Http\Middleware\EnsureAdminWorkspace::class,
             'department' => \App\Http\Middleware\EnsureDepartment::class,
+            'security.presence' => \App\Http\Middleware\TrackSecurityPresence::class,
+            'security.read' => \App\Http\Middleware\MarkSecurityActivityRead::class,
         ]);
         $middleware->redirectGuestsTo(fn (Request $request): string => match (true) {
             $request->is('cfm', 'cfm/*') => route('cfm.login'),

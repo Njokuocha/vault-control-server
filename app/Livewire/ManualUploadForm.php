@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -14,10 +15,16 @@ class ManualUploadForm extends Component
 
     public int $selectedCount = 0;
 
+    #[Locked]
+    public string $uploadRoute = 'uploads.create';
+
     public function mount(int $maxUploadMb, int $maxVideoUploadMb): void
     {
         $this->maxUploadMb = $maxUploadMb;
         $this->maxVideoUploadMb = $maxVideoUploadMb;
+        if (request()->routeIs('fm.*')) {
+            $this->uploadRoute = 'fm.uploads.create';
+        }
     }
 
     #[On('manual-upload-selection')]

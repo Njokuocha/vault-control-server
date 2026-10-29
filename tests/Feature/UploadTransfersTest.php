@@ -262,8 +262,8 @@ test('record attachment intents are limited to the assigned department', functio
     ])->assertForbidden();
 });
 
-test('department staff cannot initialize standalone archive uploads', function () {
-    foreach (['cfm', 'pm', 'fm'] as $department) {
+test('only file managers and administrators can initialize standalone archive uploads', function () {
+    foreach (['cfm', 'pm'] as $department) {
     $staff = User::factory()->create([
         'department' => $department,
         'account_status' => 'active',
@@ -274,6 +274,19 @@ test('department staff cannot initialize standalone archive uploads', function (
         'size' => 20,
     ])->assertForbidden();
     }
+
+    $fileManager = User::factory()->create([
+        'department' => 'fm',
+        'account_status' => 'active',
+    ]);
+
+    $this->actingAs($fileManager)->postJson(route('upload-transfers.initialize'), [
+        'name' => 'file-manager-upload.txt',
+        'size' => 20,
+    ])->assertCreated()
+        ->assertJsonPath('status', 'uploading');
+
+    expect(UploadTransfer::query()->where('user_id', $fileManager->id)->count())->toBe(1);
 });
 
 test('uncommitted record transfers remain pending until the form binds them', function () {

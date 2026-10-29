@@ -5,7 +5,7 @@
 **Application name:** `Vault Intelligence Agency` · **Short name:** `Vault` · **Acronym:** `VIA` · **Symbol:** `V`
 **Stack:** Laravel 12 · Blade + Livewire 3 · Alpine.js (provided by Livewire) · Echo/Pusher · configured database driver · Remix Icon
 **Design language:** Federal-intelligence-style command console: dark, authoritative, restrained, animated, glass-morphism overlays.
-**Departmental rollout:** The public department selector, separate login entry points, Admin identity, and admin-controlled staff lifecycle are implemented. The Case File Management workspace supports case creation, viewing, editing, evidence uploads, and owner-scoped background-transfer tracking. Profile Management now provides an isolated person-profile workspace with protected media handling. File Management remains in the next approved stage.
+**Departmental rollout:** The public department selector, separate login entry points, Admin identity, and admin-controlled staff lifecycle are implemented. Case File Management supports case creation, viewing, editing, evidence uploads, and owner-scoped background-transfer tracking. Profile Management provides an isolated person-profile workspace with protected media handling. File Management now provides the private archive, owner-scoped manual chunked uploads, PIN-protected person media viewing, and the restricted vault shell.
 
 ---
 
@@ -20,6 +20,7 @@
 7. [Database Design](#7-database-design)
 8. [Private Storage Strategy](#8-private-storage-strategy)
 9. [Authentication and Departmental Access](#9-authentication-and-departmental-access)
+   - [Auth Security and Activity Logging](#auth-security-and-activity-logging)
 10. [Upload API Endpoint](#10-upload-api-endpoint)
 11. [Routes Map](#11-routes-map)
 12. [Dashboard Specification](#12-dashboard-specification)
@@ -48,7 +49,7 @@ Vault Intelligence Agency is a private intelligence and security system. Adminis
 
 - **Private by default.** No file is ever reachable by a public URL.
 - **Central administration.** Admins manage agency accounts and control access to department-specific workspaces.
-- **Departmental separation.** Case File Management, Profile Management, and File Management receive distinct routes and least-privilege access; rollout is staged and not yet complete.
+- **Departmental separation.** Case File Management, Profile Management, and File Management use distinct routes and least-privilege access.
 - **Gated ingestion.** Uploads are impossible without the correct `auth` key, which the admin can reset at any time from the dashboard.
 - **Chronological organization.** Files are grouped by month and year (e.g. **October 2026**).
 - **Design that scales.** A token-driven design system so new modules slot in without touching the visual foundation.
@@ -74,7 +75,7 @@ Vault Intelligence Agency is a private intelligence and security system. Adminis
 | 13 | Avatar models | Authenticated configuration of private Male, Female, Group, Unknown, Suspect, and Verified GLB models |
 | 14 | Agency staff management | Admin-created department accounts, username login, password reset, suspend/disable, and removal |
 
-Department roles and account management are part of the staged agency rollout. CFM case management and PM person-profile management are implemented; FM remains in progress. Sharing links, folders, tags, versions UI, and bulk operations remain outside the current scope.
+Department roles and account management are implemented. CFM case management, PM person-profile management, and FM archive/media operations are implemented. Sharing links, folders, tags, versions UI, and bulk operations remain outside the current scope.
 
 ---
 
@@ -351,21 +352,44 @@ Rules:
 
 ## 9. Authentication and Departmental Access
 
-- The public landing page at `/` links to department-specific login routes: `/admin/login`, `/cfm/login`, `/pm/login`, and `/fm/login`. Department links use Livewire navigation.
+- The public landing page at `/` links to department-specific login routes: `/admin/login`, `/cfm/login`, `/pm/login`, and `/fm/login`. Authenticated staff are redirected from `/` to their department workspace; authenticated admins go to `/admin`.
 - The central administrator authenticates only against the separate `Admin` model and `admin` guard. An administrator does not need a matching record in `users`.
-- The additive identity migration copies the configured existing admin's identity and already-hashed password to `admins`, and adds username, department, account status, and private photo-path fields to `users`. It does not delete the original account or its file history.
+- The additive identity migration copies the configured existing admin's identity and already-hashed password to `admins`, and adds username, department, account status, and private photo-path fields to `users`. A Department registry seeds CFM, PM, and FM and connects staff through `users.department_id`, while retaining the department code field for existing authorization logic. It does not delete the original account or its file history.
 - `AdminSeeder` creates the administrator in `admins` and does not create an administrator row in `users`.
 - All management routes under `/admin/` require the Admin guard. A narrowly restricted configured legacy `User` session remains accepted temporarily for compatibility with existing user-owned admin operations; it is not used by the Admin login flow and is not recreated by the seeder. `/admin/staff` provides the central account controls.
-- Staff sign in by username at their assigned department route. `cfm`, `pm`, and `fm` are stored as department codes. Only active accounts authenticate; suspended and disabled accounts are refused, and department middleware blocks cross-department route access.
-- Admins create and edit staff identity/department and private profile pictures, set initial passwords, reset passwords, change status, and delete accounts. Staff can view a read-only profile at `/{department}/profile`; CFM and PM staff can change their own login password. Profile photos are served only through authenticated private-storage routes.
+- Staff sign in by username at their assigned department route. Department codes are stored with each account. Only active accounts authenticate; suspended and disabled accounts are refused, and department middleware blocks cross-department route access. Newly registered departments receive a generic workspace and login route until department-specific tools are implemented.
+- Admins manage the department registry at `/admin/departments` and staff accounts at `/admin/staff`. Department names and ranks can be edited; saved departments cannot be deleted. A new department's route code is initialized from its short rank and remains stable if the displayed short rank is later edited. Staff accounts reference their Department record. Admins can search and filter the two-column staff directory, set initial passwords, explicitly choose replacement passwords, change status, and delete accounts. Staff can view a read-only profile at `/{department}/profile` and change their own login password. Profile photos are served only through authenticated private-storage routes.
 - CFM staff can create, view, and edit case files and their evidence, with uploads tracked privately per staff owner. They cannot access person-management routes or delete case files; only Admin can delete cases.
 - PM staff can create, view, and edit person profiles and their protected media through `/pm/people`. They can use the existing profile image PIN and private avatar previews but cannot access case-management routes or case-linking features. The PM workspace uses the department shell and owner-scoped upload tracker; only Admin can manage settings and avatar models.
-- FM feature workspace and file-management permissions remain pending.
+- FM staff can browse and preview/download the private file archive, manually upload arbitrary files through the shared owner-scoped chunked transfer pipeline, and view PIN-protected person images/videos without seeing profile or case dossier details. The department shell is available to FM and Admin only. Each FM staff member sees only their own upload tracker; archive status is refreshed over the authenticated `fm.vault` channel.
 - Login throttling: 5 attempts/minute per IP and identity; sessions regenerate on login and invalidate on logout.
 - Admin password changes through Settings update the Admin identity only.
 - Settings are at `/admin/settings`; API upload keys remain encrypted in the `settings` table.
 - Admin retains the full existing case, person, archive, shell, upload, and settings feature set. Department restrictions are enforced by explicit route middleware rather than hidden navigation alone.
-- The shell remains available only in the Admin workspace until its File Management integration is delivered.
+- The virtual shell is available to Admin and FM through their own authenticated department routes; its filesystem remains confined to the configured private vault root.
+
+### Auth Security and Activity Logging
+
+The admin-only security command center is available at `/admin/auth-security`. Its linked views provide searchable, month-filtered authentication history, agency-wide activity records, brute-force incidents, and blacklisted IP addresses. Individual authentication, activity, and brute-force records have detail routes. The sidebar badge counts activity entries newer than the administrator's last security-page visit and caps its display at `99+`.
+
+Authentication outcomes from Admin and department sign-in flows are recorded with matched account identity (or `Unknown`), guard, source IP, outcome, duration, and user-agent metadata. Passwords and submitted credential values are never stored. Failed attempts are counted by IP across accounts: the default brute-force threshold is three failures within 120 seconds; incidents continue to be recorded during the active window. Five failed attempts within 300 seconds blacklist the source IP. The admin can change the brute-force count and window in Settings; blacklist defaults can be set in the environment. Blacklist entries and authentication/brute-force records are retained for 30 days by default; activity logs are pruned after 14 days.
+
+Significant authentication, case/person record, staff/department, file, upload, and security-settings actions are logged with bounded metadata. File uploads record file category, detected MIME type, extension, size, upload method, and an item count; file contents, passwords, API keys, and image PINs are excluded. Activity updates broadcast over the private `admin.security` Pusher channel. This channel accepts only the configured admin identity. Echo requires the existing Pusher environment settings, and broadcasts require the queue worker described in [Broadcasting and queue workers](#broadcasting-and-queue-workers).
+
+Active-user snapshots run once per minute by joining tracked authenticated presence with fresh rows in Laravel's database-backed `sessions` table. Run Laravel's scheduler continuously in development (`php artisan schedule:work`) or configure the standard once-per-minute `php artisan schedule:run` cron entry in production. The same scheduler prunes expired security records daily. `SESSION_DRIVER=database` is required for the active-session count.
+
+Example environment defaults:
+
+```dotenv
+AUTH_BRUTE_FORCE_ATTEMPTS=3
+AUTH_BRUTE_FORCE_WINDOW_SECONDS=120
+AUTH_IP_BLACKLIST_ATTEMPTS=5
+AUTH_IP_BLACKLIST_WINDOW_SECONDS=300
+AUTH_SECURITY_RETENTION_DAYS=30
+AUTH_ACTIVE_SESSION_SECONDS=120
+```
+
+The logging design follows NIST SP 800-92's guidance on useful, attributable, retained audit records and NIST SP 800-63B's authentication risk guidance; the IP-based limits complement rather than replace strong credentials, MFA, and infrastructure-level protections. See [NIST SP 800-92](https://csrc.nist.gov/pubs/sp/800/92/final) and [NIST SP 800-63B](https://pages.nist.gov/800-63-4/sp800-63b.html). Corporate map URLs are accepted only from Google Maps HTTPS hosts; coordinate extraction is local and displays `Unknown` when the URL contains no supported coordinates. Map URL and embed behavior follow [Google Maps URLs documentation](https://developers.google.com/maps/documentation/urls/get-started).
 
 ---
 
@@ -454,6 +478,7 @@ GET   /admin/calculator              calculator.index
 GET   /admin/uploads                 uploads.create
 GET   /admin/settings                settings.index
 GET   /admin/staff                   admin.staff.index
+GET   /admin/departments             admin.departments.index
 GET   /admin/people                  people.index
 GET   /admin/people/{person}         people.show
 GET   /admin/cases                   cases.index
@@ -473,23 +498,26 @@ PUT   /cfm/cases/{caseFile}          cfm.cases.update
 GET   /cfm/profile                   cfm.profile (read-only)
 GET   /cfm/profile/photo             cfm.profile.photo (private)
 POST  /cfm/logout                    cfm.logout
-GET   /pm/                           pm.dashboard (feature workspace pending)
+GET   /pm/                           pm.dashboard
 GET   /pm/profile                    pm.profile (read-only)
 GET   /pm/profile/photo              pm.profile.photo (private)
 POST  /pm/logout                     pm.logout
-GET   /fm/                           fm.dashboard (feature workspace pending)
+GET   /fm/                           fm.dashboard (file archive workspace)
+GET   /fm/archive/files              fm.archive.files
+GET   /fm/files/{file}/preview       fm.files.preview (private)
+GET   /fm/files/{file}/stream        fm.files.stream (private)
+GET   /fm/files/{file}/download      fm.files.download (private)
+GET   /fm/uploads                    fm.uploads.create (owner-scoped chunk uploader)
+GET   /fm/person-media               fm.person-media.index (anonymized media collections)
+GET   /fm/person-media/{person}      fm.person-media.show (media only; PIN required)
 GET   /fm/profile                    fm.profile (read-only)
 GET   /fm/profile/photo              fm.profile.photo (private)
 POST  /fm/logout                     fm.logout
-GET   /shell/directory               shell.directory
-GET   /shell/preview                 shell.preview
-GET   /shell/stream                  shell.stream
-GET   /shell/download                shell.download
-DELETE /shell/file                   shell.file.destroy
-POST  /shell/directory               shell.directory.create
-POST  /shell/copy                    shell.copy
-POST  /shell/move                    shell.move
+GET   /admin/shell/directory         shell.directory (Admin only)
+GET   /fm/shell/directory            fm.shell.directory (FM only)
 ```
+
+The FM archive presents file metadata and private file previews without joining or displaying case/person dossier records. Person media collections use anonymized labels, and image/video routes retain the existing session PIN gate. Manual FM transfers are tied to the signed-in staff user, appear only in that user's tracker, and can complete in the background. Livewire navigation preserves the tracker and active transfers; a full refresh or closed tab cannot preserve the browser's selected-file handle, though the tracker can recover server-side transfer state and resume when the file is reselected.
 
 Person dossiers are managed at `/people`; case-file creation, evidence groups,
 and linked people are managed at `/cases`. The `/avatar-models` page configures
@@ -996,7 +1024,7 @@ ZIP uploads enqueue `BuildArchiveIndexJob`. The job stores a screened nested ent
 
 ### Broadcasting and queue workers
 
-Set `BROADCAST_CONNECTION=pusher` and fill in `PUSHER_APP_ID`, `PUSHER_APP_KEY`, `PUSHER_APP_SECRET`, and `PUSHER_APP_CLUSTER` to enable Pusher. The private `admin.vault` channel is restricted to the configured administrator; generic upload status uses the private, owner-scoped `uploads.{userId}` channel. Frontend Echo initialization is skipped if the Vite Pusher key or cluster is missing. File upload, metadata edit/delete, archive-index, video-upload, and generic transfer status events use minimal payloads and are queued on the `broadcasts` queue. File edits and deletes invalidate the file cache before their after-commit broadcasts.
+Set `BROADCAST_CONNECTION=pusher` and fill in `PUSHER_APP_ID`, `PUSHER_APP_KEY`, `PUSHER_APP_SECRET`, and `PUSHER_APP_CLUSTER` to enable Pusher. The private `admin.vault` channel is restricted to the configured administrator; `fm.vault` is restricted to active FM staff; generic upload status uses the private, owner-scoped `uploads.{userId}` channel. Frontend Echo initialization is skipped if the Vite Pusher key or cluster is missing. File upload, metadata edit/delete, archive-index, video-upload, and generic transfer status events use minimal payloads and are queued on the `broadcasts` queue. File edits and deletes invalidate the file cache before their after-commit broadcasts.
 
 Locally, start the app, worker, and Vite together with:
 

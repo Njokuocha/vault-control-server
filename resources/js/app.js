@@ -27,25 +27,51 @@ if (pusherKey && pusherCluster && applicationWorkspace) {
         },
     });
 
-    if (applicationWorkspace === 'admin') {
-        window.Echo.private('admin.vault')
+    if (applicationWorkspace === 'admin' || applicationWorkspace === 'fm') {
+        const vaultChannel = applicationWorkspace === 'fm' ? 'fm.vault' : 'admin.vault';
+        window.Echo.private(vaultChannel)
             .listen('.file.uploaded', (event) => {
-                window.vaultAlert({ type: 'info', message: `${event.name} received in the private archive.` });
+                if (applicationWorkspace === 'admin') {
+                    window.vaultAlert({ type: 'info', message: `${event.name} received in the private archive.` });
+                }
                 window.dispatchEvent(new CustomEvent('vault:file-uploaded', { detail: event }));
             })
             .listen('.file.edited', (event) => {
-                window.vaultAlert({ type: 'success', message: `${event.name} was updated in the private archive.` });
+                if (applicationWorkspace === 'admin') {
+                    window.vaultAlert({ type: 'success', message: `${event.name} was updated in the private archive.` });
+                }
                 window.dispatchEvent(new CustomEvent('vault:file-edited', { detail: event }));
             })
             .listen('.file.deleted', (event) => {
-                window.vaultAlert({ type: 'info', message: `${event.name} was removed from the private archive.` });
+                if (applicationWorkspace === 'admin') {
+                    window.vaultAlert({ type: 'info', message: `${event.name} was removed from the private archive.` });
+                }
                 window.dispatchEvent(new CustomEvent('vault:file-deleted', { detail: event }));
             })
             .listen('.archive.index-updated', (event) => {
                 window.dispatchEvent(new CustomEvent('vault:archive-index-updated', { detail: event }));
             })
             .listen('.video.upload.status', (event) => {
-                window.dispatchEvent(new CustomEvent('vault:video-upload-status', { detail: event }));
+                if (applicationWorkspace === 'admin') {
+                    window.dispatchEvent(new CustomEvent('vault:video-upload-status', { detail: event }));
+                }
+            });
+    }
+
+    if (applicationWorkspace === 'admin') {
+        window.Echo.private('admin.security')
+            .listen('.security.activity.created', (event) => {
+                const securityPageOpen = window.location.pathname.startsWith('/admin/auth-security');
+                if (!securityPageOpen) {
+                    document.querySelectorAll('[data-security-activity-badge]').forEach((badge) => {
+                        const count = Number.parseInt(badge.dataset.count ?? '0', 10) + 1;
+                        badge.dataset.count = String(count);
+                        badge.textContent = count > 99 ? '99+' : String(count);
+                        badge.hidden = false;
+                    });
+                }
+                window.Livewire?.dispatch('refresh-auth-security');
+                window.dispatchEvent(new CustomEvent('security:activity-created', { detail: event }));
             });
     }
 
@@ -992,14 +1018,39 @@ const refreshDashboardSnapshot = async () => {
 
 listenForPageEvent(window, 'vault:file-deleted', (event) => {
     if (previewBackdrop?.dataset.fileUuid === event.detail.uuid) closePreview();
+    refreshDashboardSnapshot();
+    window.Livewire?.dispatch('refresh-file-dashboard');
+    window.Livewire?.dispatch('refresh-archive');
 });
 listenForPageEvent(window, 'vault:file-uploaded', () => {
     refreshDashboardSnapshot();
+    window.Livewire?.dispatch('refresh-file-dashboard');
+    window.Livewire?.dispatch('refresh-archive');
+});
+listenForPageEvent(window, 'vault:file-edited', () => {
+    refreshDashboardSnapshot();
+    window.Livewire?.dispatch('refresh-file-dashboard');
     window.Livewire?.dispatch('refresh-archive');
 });
 listenForPageEvent(window, 'vault:archive-index-updated', (event) => {
     window.Livewire?.dispatch('refresh-archive');
     window.Livewire?.dispatch('refresh-private-preview', event.detail.uuid);
+});
+listenForPageEvent(window, 'vault:upload-transfer-status', (event) => {
+    if (event.detail.status === 'done') {
+        refreshDashboardSnapshot();
+        window.Livewire?.dispatch('refresh-file-dashboard');
+        window.Livewire?.dispatch('refresh-archive');
+    }
+});
+listenForPageEvent(window, 'vault:realtime-connected', () => {
+    refreshDashboardSnapshot();
+    window.Livewire?.dispatch('refresh-file-dashboard');
+    window.Livewire?.dispatch('refresh-archive');
+});
+listenForPageEvent(window, 'vault:video-upload-status', () => {
+    refreshDashboardSnapshot();
+    window.Livewire?.dispatch('refresh-file-dashboard');
 });
 
 listenForPageEvent(window, 'vault-file-preview-ready', (event) => {
@@ -2646,3 +2697,162 @@ document.addEventListener('livewire:navigated', () => {
     initializeVaultPage();
 });
 initializeVaultPage();
+
+document.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return;
+
+    const pinTrigger = event.target.closest('[data-fm-open-pin]');
+    if (pinTrigger) {
+        const dialog = document.querySelector('[data-fm-pin-dialog]');
+        if (dialog instanceof HTMLDialogElement) {
+            if (!dialog.open) dialog.showModal();
+            dialog.querySelector('[data-fm-pin-digit]')?.focus();
+        }
+        return;
+    }
+
+    const closePreview = event.target.closest('[data-fm-preview-close]');
+    if (closePreview) {
+        const dialog = document.querySelector('[data-fm-media-preview-dialog]');
+        if (dialog instanceof HTMLDialogElement) dialog.close();
+        return;
+    }
+
+    const mediaTrigger = event.target.closest('[data-fm-media-preview]');
+    if (mediaTrigger instanceof HTMLButtonElement) {
+        const mediaPage = mediaTrigger.closest('[data-fm-media-page]');
+        if (mediaPage?.dataset.unlocked !== 'true') {
+            const dialog = document.querySelector('[data-fm-pin-dialog]');
+            if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
+            return;
+        }
+
+        const dialog = document.querySelector('[data-fm-media-preview-dialog]');
+        const image = dialog?.querySelector('[data-fm-preview-image]');
+        const video = dialog?.querySelector('[data-fm-preview-video]');
+        const title = dialog?.querySelector('[data-fm-preview-title]');
+        const download = dialog?.querySelector('[data-fm-preview-download]');
+        const stage = dialog?.querySelector('[data-fm-preview-stage]');
+        const mediaUrl = mediaTrigger.dataset.mediaUrl;
+        if (!(dialog instanceof HTMLDialogElement) || !mediaUrl || !(image instanceof HTMLImageElement) || !(video instanceof HTMLVideoElement)) return;
+
+        if (video.dataset.active === 'true') {
+            video.pause();
+            video.removeAttribute('src');
+            video.load();
+            delete video.dataset.active;
+        }
+        const isVideo = mediaTrigger.dataset.mediaType === 'video';
+        image.hidden = isVideo;
+        video.hidden = !isVideo;
+        if (isVideo) {
+            video.src = mediaUrl;
+            video.dataset.active = 'true';
+            video.load();
+        } else {
+            image.src = mediaUrl;
+        }
+        if (title) title.textContent = mediaTrigger.dataset.mediaTitle ?? 'Private media';
+        if (download instanceof HTMLAnchorElement) download.href = mediaTrigger.dataset.downloadUrl ?? mediaUrl;
+        stage?.classList.toggle('is-video', isVideo);
+        dialog.showModal();
+        return;
+    }
+});
+
+document.addEventListener('submit', async (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.matches('[data-fm-pin-form]')) return;
+    event.preventDefault();
+
+    const dialog = form.closest('[data-fm-pin-dialog]');
+    const digits = [...form.querySelectorAll('[data-fm-pin-digit]')];
+    const error = form.querySelector('[data-fm-pin-error]');
+    const submit = form.querySelector('[data-fm-pin-submit]');
+    const pin = digits.map((input) => input.value).join('');
+    if (!/^\d{4}$/.test(pin)) {
+        if (error) error.textContent = 'Enter all four PIN digits.';
+        digits.find((input) => !input.value)?.focus();
+        return;
+    }
+    if (!(dialog instanceof HTMLDialogElement) || !(submit instanceof HTMLButtonElement)) return;
+
+    submit.disabled = true;
+    submit.textContent = 'VERIFYING...';
+    if (error) error.textContent = '';
+    try {
+        const response = await fetch(dialog.dataset.unlockUrl, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: JSON.stringify({ pin }),
+        });
+        if (!response.ok) {
+            if (response.status === 419) throw new Error('Your session has expired. Reload the page and sign in again.');
+            if (response.status >= 500) throw new Error('The image PIN could not be verified right now. Please try again.');
+            throw new Error(await responseError(response));
+        }
+
+        const mediaPage = document.querySelector('[data-fm-media-page]');
+        mediaPage?.setAttribute('data-unlocked', 'true');
+        mediaPage?.querySelector('[data-profile-gallery]')?.classList.remove('is-locked');
+        mediaPage?.querySelectorAll('[data-fm-protected-image]').forEach((image) => {
+            image.hidden = false;
+            const imageUrl = image.dataset.imageUrl;
+            if (imageUrl && !image.getAttribute('src')) image.src = imageUrl;
+        });
+        mediaPage?.querySelectorAll('[data-fm-lock-placeholder]').forEach((placeholder) => placeholder.remove());
+        dialog.close();
+        window.vaultAlert({ type: 'success', message: 'Protected viewables unlocked.' });
+    } catch (requestError) {
+        if (error) error.textContent = requestError instanceof Error ? requestError.message : 'PIN verification failed.';
+        digits.forEach((input) => { input.value = ''; });
+        digits[0]?.focus();
+    } finally {
+        submit.disabled = false;
+        submit.textContent = 'AUTHENTICATE PIN';
+    }
+});
+
+document.addEventListener('input', (event) => {
+    if (!(event.target instanceof HTMLInputElement) || !event.target.matches('[data-fm-pin-digit]')) return;
+    const digits = [...(event.target.closest('form')?.querySelectorAll('[data-fm-pin-digit]') ?? [])];
+    event.target.value = event.target.value.replace(/\D/g, '').slice(-1);
+    if (event.target.value) digits[digits.indexOf(event.target) + 1]?.focus();
+});
+
+document.addEventListener('keydown', (event) => {
+    if (!(event.target instanceof HTMLInputElement) || !event.target.matches('[data-fm-pin-digit]')) return;
+    const digits = [...(event.target.closest('form')?.querySelectorAll('[data-fm-pin-digit]') ?? [])];
+    if (event.key === 'Backspace' && !event.target.value) digits[digits.indexOf(event.target) - 1]?.focus();
+});
+
+document.addEventListener('paste', (event) => {
+    if (!(event.target instanceof HTMLInputElement) || !event.target.matches('[data-fm-pin-digit]')) return;
+    const pasted = event.clipboardData?.getData('text').replace(/\D/g, '').slice(0, 4);
+    if (!pasted) return;
+    event.preventDefault();
+    const digits = [...(event.target.closest('form')?.querySelectorAll('[data-fm-pin-digit]') ?? [])];
+    [...pasted].forEach((digit, index) => {
+        if (digits[index] instanceof HTMLInputElement) digits[index].value = digit;
+    });
+    digits[Math.min(pasted.length, 3)]?.focus();
+});
+
+document.addEventListener('close', (event) => {
+    const closedDialog = event.target;
+    const video = closedDialog instanceof HTMLDialogElement && closedDialog.matches('[data-fm-media-preview-dialog]')
+        ? closedDialog.querySelector('[data-fm-preview-video]')
+        : null;
+    if (video instanceof HTMLVideoElement) {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+        delete video.dataset.active;
+    }
+    const image = closedDialog instanceof HTMLDialogElement ? closedDialog.querySelector('[data-fm-preview-image]') : null;
+    if (image instanceof HTMLImageElement) image.removeAttribute('src');
+}, true);

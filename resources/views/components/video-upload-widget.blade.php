@@ -7,7 +7,7 @@
         data-initialize-url="{{ route('video-uploads.initialize') }}"
         data-transfer-initialize-url="{{ route('upload-transfers.initialize') }}"
         data-snapshot-url="{{ route('upload-transfers.index') }}"
-        data-upload-page-url="{{ route('uploads.create') }}"
+        data-upload-page-url="{{ auth('web')->check() && auth('web')->user()->department === 'fm' ? route('fm.uploads.create') : route('uploads.create') }}"
         data-csrf-token="{{ csrf_token() }}"
         aria-label="Background upload tracker"
         hidden

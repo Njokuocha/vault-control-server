@@ -7,6 +7,7 @@ use App\Models\File;
 use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -28,6 +29,16 @@ class DashboardArchive extends Component
     public bool $isOpen = false;
 
     public ?string $selectedUuid = null;
+
+    #[Locked]
+    public string $fileRoutePrefix = 'files';
+
+    public function mount(): void
+    {
+        if (request()->routeIs('fm.*')) {
+            $this->fileRoutePrefix = 'fm.files';
+        }
+    }
 
     #[On('open-archive')]
     public function open(): void
@@ -81,7 +92,7 @@ class DashboardArchive extends Component
     public function preview(string $uuid): void
     {
         $file = File::query()->where('uuid', $uuid)->firstOrFail();
-        $preview = app(FileController::class)->preview($file)->getData(true);
+        $preview = app(FileController::class)->preview($file, $this->fileRoutePrefix)->getData(true);
         $this->selectedUuid = $file->uuid;
         $this->dispatch('archive-preview-ready', file: $preview, uuid: $file->uuid);
     }
@@ -162,6 +173,7 @@ class DashboardArchive extends Component
             'files' => $files,
             'years' => $years,
             'extensions' => $extensions,
+            'fileRoutePrefix' => $this->fileRoutePrefix,
         ]);
     }
 

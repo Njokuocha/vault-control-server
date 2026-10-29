@@ -1,10 +1,10 @@
 <section class="settings-card manual-upload-card" aria-labelledby="manual-upload-title" data-manual-upload-component>
-    <div class="settings-card-head"><span class="settings-card-icon settings-card-icon-blue"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M8 8l4-4 4 4"/><path d="M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6"/></svg></span><div><div class="section-kicker">ADMINISTRATOR INGESTION</div><h2 id="manual-upload-title">Add files to the vault</h2></div><span class="settings-card-index">01</span></div>
+    <div class="settings-card-head"><span class="settings-card-icon settings-card-icon-blue"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M8 8l4-4 4 4"/><path d="M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6"/></svg></span><div><div class="section-kicker">{{ $uploadRoute === 'fm.uploads.create' ? 'FILE MANAGEMENT INGESTION' : 'ADMINISTRATOR INGESTION' }}</div><h2 id="manual-upload-title">Add files to the vault</h2></div><span class="settings-card-index">01</span></div>
     <p class="settings-description">Files are stored privately using generated names. Original names are retained only as display metadata. The current maximum size is <strong>{{ number_format($maxUploadMb) }} MB per file</strong>.</p>
     @if ($maxUploadMb === 0)
         <div class="upload-disabled-notice"><span>!</span> Uploads are disabled. Change the maximum upload size in Settings to enable manual and API uploads.</div>
     @else
-        <form class="manual-upload-form" method="POST" action="{{ route('uploads.create') }}" enctype="multipart/form-data" data-manual-upload data-max-upload-mb="{{ $maxUploadMb }}" data-max-video-upload-mb="{{ $maxVideoUploadMb }}" wire:ignore>
+        <form class="manual-upload-form" method="POST" action="{{ route($uploadRoute) }}" enctype="multipart/form-data" data-manual-upload data-max-upload-mb="{{ $maxUploadMb }}" data-max-video-upload-mb="{{ $maxVideoUploadMb }}" wire:ignore>
             @csrf
             <label class="upload-dropzone" data-upload-dropzone>
                 <input type="file" name="files[]" multiple required data-upload-input>
