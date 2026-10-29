@@ -8,6 +8,7 @@ use App\Services\ActivityLogger;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -40,6 +41,7 @@ class StaffManagement extends Component
 
     public string $newPasswordConfirmation = '';
 
+    #[Url(as: 'search', history: true)]
     public string $search = '';
 
     public string $departmentFilter = '';

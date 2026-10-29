@@ -376,7 +376,7 @@ Authentication outcomes from Admin and department sign-in flows are recorded wit
 
 Significant authentication, case/person record, staff/department, file, upload, and security-settings actions are logged with bounded metadata. File uploads record file category, detected MIME type, extension, size, upload method, and an item count; file contents, passwords, API keys, and image PINs are excluded. Activity updates broadcast over the private `admin.security` Pusher channel. This channel accepts only the configured admin identity. Echo requires the existing Pusher environment settings, and broadcasts require the queue worker described in [Broadcasting and queue workers](#broadcasting-and-queue-workers).
 
-Active-user snapshots run once per minute by joining tracked authenticated presence with fresh rows in Laravel's database-backed `sessions` table. Run Laravel's scheduler continuously in development (`php artisan schedule:work`) or configure the standard once-per-minute `php artisan schedule:run` cron entry in production. The same scheduler prunes expired security records daily. `SESSION_DRIVER=database` is required for the active-session count.
+Active-user snapshots run once per minute using authenticated presence and recent activity from Laravel's database-backed `sessions` table when available. The active window is at least the configured Laravel session lifetime (120 minutes by default), so an idle but still-authenticated browser remains counted until its session expires. A newly observed authenticated session and a logout also trigger an immediate snapshot; count changes broadcast over the private `admin.security` channel so an open dashboard refreshes without waiting for the next minute. Run Laravel's scheduler continuously in development (`php artisan schedule:work`) or configure the standard once-per-minute `php artisan schedule:run` cron entry in production. The scheduler may report that no commands are ready between minute boundaries; check `php artisan schedule:list` to confirm registration. The same scheduler prunes expired security records daily. `SESSION_DRIVER=database` is required for the active-session count.
 
 Example environment defaults:
 
@@ -386,7 +386,7 @@ AUTH_BRUTE_FORCE_WINDOW_SECONDS=120
 AUTH_IP_BLACKLIST_ATTEMPTS=5
 AUTH_IP_BLACKLIST_WINDOW_SECONDS=300
 AUTH_SECURITY_RETENTION_DAYS=30
-AUTH_ACTIVE_SESSION_SECONDS=120
+AUTH_ACTIVE_SESSION_SECONDS=7200
 ```
 
 The logging design follows NIST SP 800-92's guidance on useful, attributable, retained audit records and NIST SP 800-63B's authentication risk guidance; the IP-based limits complement rather than replace strong credentials, MFA, and infrastructure-level protections. See [NIST SP 800-92](https://csrc.nist.gov/pubs/sp/800/92/final) and [NIST SP 800-63B](https://pages.nist.gov/800-63-4/sp800-63b.html). Corporate map URLs are accepted only from Google Maps HTTPS hosts; coordinate extraction is local and displays `Unknown` when the URL contains no supported coordinates. Map URL and embed behavior follow [Google Maps URLs documentation](https://developers.google.com/maps/documentation/urls/get-started).

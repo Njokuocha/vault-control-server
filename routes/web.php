@@ -1,28 +1,30 @@
 <?php
 
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\AuthSecurityController;
 use App\Http\Controllers\AvatarModelController;
-use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\FileManagerController;
-use App\Http\Controllers\FileController;
-use App\Http\Controllers\InvestigationCaseController;
 use App\Http\Controllers\CaseManagerDashboardController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\FileController;
+use App\Http\Controllers\FileManagerController;
+use App\Http\Controllers\InvestigationCaseController;
 use App\Http\Controllers\ManualUploadController;
 use App\Http\Controllers\PersonController;
 use App\Http\Controllers\ProfileManagerDashboardController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StaffProfilePhotoController;
+use App\Http\Controllers\UploadTransferController;
 use App\Http\Controllers\VaultShellController;
 use App\Http\Controllers\VideoUploadController;
-use App\Http\Controllers\UploadTransferController;
-use App\Livewire\Admin\StaffManagement;
-use App\Livewire\Admin\DepartmentManagement;
-use App\Livewire\Admin\AuthSecurityDashboard;
-use App\Livewire\Admin\AuthHistory;
 use App\Livewire\Admin\ActivityLogIndex;
-use App\Livewire\Admin\BruteForceIndex;
+use App\Livewire\Admin\AuthHistory;
+use App\Livewire\Admin\AuthSecurityDashboard;
 use App\Livewire\Admin\BlacklistedIpIndex;
-use App\Http\Controllers\AuthSecurityController;
+use App\Livewire\Admin\BruteForceIndex;
+use App\Livewire\Admin\DepartmentManagement;
+use App\Livewire\Admin\DepartmentStaffDirectory;
+use App\Livewire\Admin\StaffManagement;
+use App\Livewire\Admin\StaffProfile;
 use App\Models\Department;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -218,7 +220,17 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::post('/settings/password', [SettingsController::class, 'updatePassword'])->name('settings.password.update');
     Route::post('/settings/person-image-pin', [SettingsController::class, 'updateImagePin'])->name('settings.person-image-pin.update');
     Route::get('/staff', StaffManagement::class)->name('admin.staff.index');
+    Route::get('/staff/{user}/{section}', StaffProfile::class)
+        ->whereIn('section', ['authentication-history', 'activity'])
+        ->whereNumber('user')
+        ->name('admin.staff.history');
+    Route::get('/staff/{user}', StaffProfile::class)
+        ->whereNumber('user')
+        ->name('admin.staff.show');
     Route::get('/departments', DepartmentManagement::class)->name('admin.departments.index');
+    Route::get('/departments/{department}/staff', DepartmentStaffDirectory::class)
+        ->whereNumber('department')
+        ->name('admin.departments.staff');
     Route::middleware('security.read')->prefix('/auth-security')->name('admin.security.')->group(function (): void {
         Route::get('/', AuthSecurityDashboard::class)->name('index');
         Route::get('/authentication-history', AuthHistory::class)->name('auth-history');

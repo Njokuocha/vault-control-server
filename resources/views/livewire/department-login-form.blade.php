@@ -31,7 +31,7 @@
             <span class="auth-field-label">ACCESS CODE</span>
             <span class="auth-input-wrap">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5M12 14.5v2.2"/></svg>
-                <input type="password" name="password" placeholder="Enter your access code" autocomplete="current-password" required>
+                <input id="access-code" type="password" name="password" placeholder="Enter your access code" autocomplete="current-password" required>
                 <button class="password-toggle" type="button" aria-label="Show access code" aria-pressed="false" data-password-toggle>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.3-6 9.5-6 9.5 6 9.5 6-3.3 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
                 </button>

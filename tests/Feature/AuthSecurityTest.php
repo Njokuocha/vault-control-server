@@ -1,6 +1,7 @@
 <?php
 
 use App\Events\SecurityActivityCreated;
+use App\Events\SecurityMetricsUpdated;
 use App\Livewire\SecuritySettings;
 use App\Models\ActivityLog;
 use App\Models\Admin;
@@ -10,8 +11,10 @@ use App\Models\BruteForceRecord;
 use App\Models\SecurityLocation;
 use App\Models\SecurityMetricsSnapshot;
 use App\Models\SecuritySessionPresence;
-use App\Services\AuthSecurityService;
+use App\Models\User;
 use App\Services\AdminLoginService;
+use App\Services\AuthSecurityService;
+use App\Services\SecuritySessionMetrics;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -21,7 +24,7 @@ use Livewire\Livewire;
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
-    Event::fake([SecurityActivityCreated::class]);
+    Event::fake([SecurityActivityCreated::class, SecurityMetricsUpdated::class]);
 });
 
 test('authentication attempts are audited and repeated failures create brute-force and blacklist records by IP', function () {
@@ -92,7 +95,7 @@ test('admin login records matched identities, results, and durations without cre
 });
 
 test('auth security routes are admin-only and render the command center', function () {
-    $staff = \App\Models\User::factory()->create([
+    $staff = User::factory()->create([
         'department' => 'cfm',
         'account_status' => 'active',
     ]);
@@ -204,12 +207,76 @@ test('active session snapshots count only fresh authenticated database sessions'
 
     $this->artisan('security:snapshot-sessions')->assertExitCode(0);
     expect(SecurityMetricsSnapshot::query()->findOrFail(1)->active_accounts)->toBe(1);
+    Event::assertDispatched(SecurityMetricsUpdated::class);
 
     DB::table('sessions')->where('id', $sessionId)->update([
         'last_activity' => now()->subMinutes(5)->timestamp,
     ]);
+    SecuritySessionPresence::query()->where('session_id', $sessionId)->update([
+        'last_seen_at' => now()->subMinutes(5),
+    ]);
+    $this->artisan('security:snapshot-sessions')->assertExitCode(0);
+    expect(SecurityMetricsSnapshot::query()->findOrFail(1)->active_accounts)->toBe(1);
+
+    DB::table('sessions')->where('id', $sessionId)->update([
+        'last_activity' => now()->subSeconds(((int) config('session.lifetime', 120) * 60) + 1)->timestamp,
+    ]);
     $this->artisan('security:snapshot-sessions')->assertExitCode(0);
     expect(SecurityMetricsSnapshot::query()->findOrFail(1)->active_accounts)->toBe(0);
+});
+
+test('authenticated presence refreshes session totals and emits metrics for login and logout', function () {
+    config([
+        'session.driver' => 'database',
+        'session.table' => 'sessions',
+        'vault.admin.email' => 'live-admin@example.test',
+    ]);
+    $admin = Admin::query()->create([
+        'name' => 'Live Metrics Administrator',
+        'email' => 'live-admin@example.test',
+        'password' => 'a-strong-password',
+    ]);
+
+    $this->post(route('auth.attempt'), [
+        'email' => $admin->email,
+        'password' => 'a-strong-password',
+    ])->assertRedirect(route('dashboard.index'));
+    $this->get(route('dashboard.index'))->assertOk();
+
+    $presence = SecuritySessionPresence::query()->where('account_id', (string) $admin->id)->firstOrFail();
+    expect(SecuritySessionPresence::query()->where('account_id', (string) $admin->id)->exists())->toBeTrue()
+        ->and(SecurityMetricsSnapshot::query()->findOrFail(1)->active_accounts)->toBe(1);
+    Event::assertDispatched(SecurityMetricsUpdated::class, fn (SecurityMetricsUpdated $event): bool => $event->activeAccounts === 1);
+
+    app(SecuritySessionMetrics::class)->forgetSession($presence->session_id);
+
+    expect(SecuritySessionPresence::query()->where('session_id', $presence->session_id)->exists())->toBeFalse()
+        ->and(SecurityMetricsSnapshot::query()->findOrFail(1)->active_accounts)->toBe(0);
+    Event::assertDispatched(SecurityMetricsUpdated::class, fn (SecurityMetricsUpdated $event): bool => $event->activeAccounts === 0);
+});
+
+test('recent activity uses a custom paginator when more than ten records exist', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Security Administrator',
+        'email' => 'security-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    foreach (range(1, 12) as $index) {
+        ActivityLog::query()->create([
+            'category' => 'testing',
+            'action' => 'test.recorded',
+            'actor_type' => 'system',
+            'actor_name' => 'System',
+            'summary' => "Test activity {$index}.",
+            'occurred_at' => now()->subSeconds($index),
+        ]);
+    }
+
+    $this->actingAs($admin, 'admin')
+        ->get(route('admin.security.index'))
+        ->assertOk()
+        ->assertSee('Recent activity pagination')
+        ->assertSee('Showing 1–10 of 12');
 });
 
 test('security cleanup prunes activity and threat records after their retention windows', function () {

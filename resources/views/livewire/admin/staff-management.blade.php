@@ -53,11 +53,13 @@
             <div class="agency-staff-directory">
                 @forelse ($staffMembers as $staff)
                     <article class="agency-staff-row">
-                        @if ($staff->profile_photo_path)
-                            <img class="agency-staff-row__avatar" src="{{ route('admin.staff.photo', $staff) }}" alt="{{ $staff->name }} profile picture">
-                        @else
-                            <div class="agency-staff-row__avatar">{{ strtoupper(substr($staff->name, 0, 1)) }}</div>
-                        @endif
+                        <a class="agency-staff-row__photo-link" href="{{ route('admin.staff.show', $staff) }}" wire:navigate aria-label="View {{ $staff->name }}'s profile">
+                            @if ($staff->profile_photo_path)
+                                <img class="agency-staff-row__avatar" src="{{ route('admin.staff.photo', $staff) }}" alt="">
+                            @else
+                                <div class="agency-staff-row__avatar" aria-hidden="true">{{ strtoupper(substr($staff->name, 0, 1)) }}</div>
+                            @endif
+                        </a>
                         <div class="agency-staff-row__identity">
                             <strong>{{ $staff->name }}</strong>
                             <span>{{ $staff->username }} · {{ $staff->email }}</span>

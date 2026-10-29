@@ -33,7 +33,7 @@
                         <th scope="col">RANK</th>
                         <th scope="col">STAFF</th>
                         <th scope="col">CREATED AT</th>
-                        <th scope="col"><span class="sr-only">Row action</span></th>
+                        <th scope="col">ROW ACTION</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -57,6 +57,8 @@
                             <td>
                                 @if ($row['id'] === null)
                                     <button class="agency-department-remove" type="button" wire:click="removeNewRow({{ $index }})" aria-label="Remove unsaved department row">×</button>
+                                @else
+                                    <a class="button-secondary agency-department-view" href="{{ route('admin.departments.staff', $row['id']) }}" wire:navigate>VIEW</a>
                                 @endif
                             </td>
                         </tr>

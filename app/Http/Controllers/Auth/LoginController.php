@@ -3,9 +3,10 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
-use App\Services\AdminLoginService;
-use App\Services\ActivityLogger;
 use App\Models\ActivityLog;
+use App\Services\ActivityLogger;
+use App\Services\AdminLoginService;
+use App\Services\SecuritySessionMetrics;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -39,6 +40,7 @@ class LoginController extends Controller
 
     public function destroy(Request $request): RedirectResponse
     {
+        $sessionId = $request->session()->getId();
         $actor = Auth::guard('admin')->user() ?? Auth::guard('web')->user();
         app(ActivityLogger::class)->record(
             'authentication',
@@ -51,6 +53,7 @@ class LoginController extends Controller
 
         Auth::guard('admin')->logout();
         Auth::guard('web')->logout();
+        app(SecuritySessionMetrics::class)->forgetSession($sessionId);
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();

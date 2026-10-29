@@ -72,6 +72,9 @@ if (pusherKey && pusherCluster && applicationWorkspace) {
                 }
                 window.Livewire?.dispatch('refresh-auth-security');
                 window.dispatchEvent(new CustomEvent('security:activity-created', { detail: event }));
+            })
+            .listen('.security.metrics.updated', () => {
+                window.Livewire?.dispatch('refresh-security-metrics');
             });
     }
 
@@ -319,16 +322,18 @@ listenForPageEvent(document, 'keydown', (event) => {
     }
 });
 
-document.querySelectorAll('[data-password-toggle]').forEach((button) => {
-    button.addEventListener('click', () => {
-        const input = document.querySelector('#access-code');
-        if (!(input instanceof HTMLInputElement)) return;
+document.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return;
+    const button = event.target.closest('[data-password-toggle]');
+    if (!(button instanceof HTMLButtonElement)) return;
 
-        const showPassword = input.type === 'password';
-        input.type = showPassword ? 'text' : 'password';
-        button.setAttribute('aria-pressed', String(showPassword));
-        button.setAttribute('aria-label', showPassword ? 'Hide access code' : 'Show access code');
-    });
+    const input = button.closest('.auth-input-wrap')?.querySelector('input');
+    if (!(input instanceof HTMLInputElement)) return;
+
+    const showPassword = input.type === 'password';
+    input.type = showPassword ? 'text' : 'password';
+    button.setAttribute('aria-pressed', String(showPassword));
+    button.setAttribute('aria-label', showPassword ? 'Hide access code' : 'Show access code');
 });
 
 const shellLayer = document.querySelector('[data-shell-layer]');

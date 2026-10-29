@@ -14,9 +14,9 @@
                 </div>
             </div>
             <div class="security-connect-card__checks">
-                <span><i class="{{ $isAdminAuthenticated ? 'is-ok' : 'is-failed' }}"></i> Authenticated <b class="{{ $isAdminAuthenticated ? '' : 'is-failed' }}">{{ $isAdminAuthenticated ? 'VERIFIED' : 'UNVERIFIED' }}</b></span>
-                <span><i class="is-ok"></i> Connected to server <b>ONLINE</b></span>
-                <span><i class="{{ $connectedToDatabase ? 'is-ok' : 'is-failed' }}"></i> Connected to database <b class="{{ $connectedToDatabase ? '' : 'is-failed' }}">{{ $connectedToDatabase ? 'ONLINE' : 'OFFLINE' }}</b></span>
+                <span><i class="ri ri-check-double-line {{ $isAdminAuthenticated ? 'is-ok' : 'is-failed' }}" aria-hidden="true"></i> Authenticated</span>
+                <span><i class="ri ri-check-double-line is-ok" aria-hidden="true"></i> Connected to server</span>
+                <span><i class="ri ri-check-double-line {{ $connectedToDatabase ? 'is-ok' : 'is-failed' }}" aria-hidden="true"></i> Connected to database</span>
                 <div class="security-connect-card__ratio"><span>ACTIVE ACCOUNT RATIO</span><strong>{{ $activeRatio }}%</strong><i style="--ratio: {{ $activeRatio }}%"></i></div>
             </div>
         </article>
@@ -60,7 +60,9 @@
         @if ($recentDepartments->isNotEmpty())
             <div class="security-department-list">
                 @foreach ($recentDepartments as $department)
-                    <div><span>{{ $department->rank_short }}</span><strong>{{ $department->name }}</strong><small>{{ $department->rank }}</small></div>
+                    <a href="{{ route('admin.departments.staff', $department) }}" wire:navigate>
+                        <span>{{ $department->rank_short }}</span><strong>{{ $department->name }}</strong><small>{{ $department->rank }}</small>
+                    </a>
                 @endforeach
             </div>
         @else
@@ -112,6 +114,6 @@
                 <tr><td class="security-table-empty" colspan="5">No activity has been recorded yet.</td></tr>
             @endforelse
         </tbody></table></div>
-        <div class="security-pagination">{{ $activityLogs->links() }}</div>
+        <div class="security-dashboard-pagination">{{ $activityLogs->links('livewire.admin.security-pagination') }}</div>
     </section>
 </div>

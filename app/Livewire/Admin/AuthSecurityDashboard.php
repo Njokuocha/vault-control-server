@@ -13,7 +13,6 @@ use App\Models\SecurityMetricsSnapshot;
 use App\Models\User;
 use App\Services\SettingService;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
@@ -32,12 +31,13 @@ class AuthSecurityDashboard extends Component
         session()->put('security_activity_last_seen_id', (int) ActivityLog::query()->max('id'));
     }
 
+    #[On('refresh-security-metrics')]
+    public function refreshSessionMetrics(): void {}
+
     public function render(): View
     {
         $snapshot = SecurityMetricsSnapshot::query()->find(1);
-        $snapshotFresh = $snapshot?->captured_at?->greaterThanOrEqualTo(now()->subSeconds(
-            max(30, (int) config('auth_security.active_session_seconds', 120) * 2),
-        )) ?? false;
+        $snapshotFresh = $snapshot?->captured_at?->greaterThanOrEqualTo(now()->subSeconds(180)) ?? false;
         $activeAccounts = $snapshotFresh ? (int) $snapshot->active_accounts : 0;
         $totalAccounts = User::query()->whereNotNull('department')->count() + Admin::query()->count();
         $since24Hours = now()->subDay();
