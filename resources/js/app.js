@@ -4,6 +4,7 @@ import './upload-tracker';
 import './upload-transfer-uploader';
 import './record-form-submitter';
 import './video-uploader';
+import './report-system';
 import { evaluateTriggerExpression } from './shell-math.mjs';
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
@@ -34,6 +35,19 @@ if (pusherKey && pusherCluster && applicationWorkspace) {
                 if (applicationWorkspace === 'admin') {
                     window.vaultAlert({ type: 'info', message: `${event.name} received in the private archive.` });
                 }
+
+                window.Echo.private('reports.agency')
+                    .listen('.agency.report.updated', (event) => {
+                        if (event.action === 'created' && !window.location.pathname.includes('/reports')) {
+                            document.querySelectorAll('[data-report-system-badge]').forEach((badge) => {
+                                const count = Number.parseInt(badge.dataset.count ?? '0', 10) + 1;
+                                badge.dataset.count = String(count);
+                                badge.textContent = count > 99 ? '99+' : String(count);
+                                badge.hidden = false;
+                            });
+                        }
+                        window.Livewire?.dispatch('agency-report-updated');
+                    });
                 window.dispatchEvent(new CustomEvent('vault:file-uploaded', { detail: event }));
             })
             .listen('.file.edited', (event) => {

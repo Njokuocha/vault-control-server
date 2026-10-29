@@ -57,4 +57,9 @@ class Person extends Model
     {
         return $this->belongsToMany(InvestigationCase::class, 'case_person', 'person_id', 'case_file_id')->withTimestamps();
     }
+
+    public function reports(): BelongsToMany
+    {
+        return $this->belongsToMany(Report::class, 'report_person', 'person_id', 'report_id')->withTimestamps();
+    }
 }

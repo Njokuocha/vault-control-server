@@ -65,6 +65,18 @@
                     <a class="nav-item {{ request()->routeIs('admin.security.*') ? 'is-active' : '' }}" href="{{ route('admin.security.index') }}" wire:navigate data-security-nav @if(request()->routeIs('admin.security.*')) aria-current="page" @endif>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5.5c0 4.7-3.1 7.7-8 9.5-4.9-1.8-8-4.8-8-9.5V6z"/><path d="M12 7v5M12 16h.01"/></svg><span>Auth Security</span><span class="security-unread-badge" data-security-activity-badge data-count="{{ $securityUnreadCount }}">{{ $securityUnreadCount > 99 ? '99+' : $securityUnreadCount }}</span>
                     </a>
+                    @php
+                        $reportUnreadCount = 0;
+                        if (\Illuminate\Support\Facades\Schema::hasTable('reports')) {
+                            $reportUnreadCount = app(\App\Services\ReportAccess::class)
+                                ->visibleQuery()
+                                ->where('id', '>', (int) session('report_system_last_seen_id', 0))
+                                ->count();
+                        }
+                    @endphp
+                    <a class="nav-item {{ request()->routeIs('admin.reports.*') ? 'is-active' : '' }}" href="{{ route('admin.reports.index') }}" wire:navigate data-report-system-nav @if(request()->routeIs('admin.reports.*')) aria-current="page" @endif>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v10H9l-4 3v-13Z"/><path d="M8.5 9h7M8.5 12h4.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg><span>Report System</span><span class="security-unread-badge" data-report-system-badge data-count="{{ $reportUnreadCount }}" @if($reportUnreadCount === 0) hidden @endif>{{ $reportUnreadCount > 99 ? '99+' : $reportUnreadCount }}</span>
+                    </a>
                 </nav>
                 <div class="sidebar-bottom">
                     <div class="storage-card">

@@ -62,6 +62,17 @@
                 @endif
             </div>
             @endunless
+            <div class="case-linked-reports person-linked-reports">
+                <div class="profile-section-heading"><div><span class="section-kicker">CONNECTED INTELLIGENCE</span><h3>Linked reports <span>{{ $linkedReports->count() }}</span></h3></div><a class="text-action" href="{{ route($profileManagement ? 'pm.reports.index' : 'admin.reports.index') }}" wire:navigate>REPORT SYSTEM ↗</a></div>
+                @forelse ($linkedReports as $linkedReport)
+                    <a class="case-linked-report-row" href="{{ route($profileManagement ? 'pm.reports.index' : 'admin.reports.index', ['report' => $linkedReport->uuid]) }}" wire:navigate>
+                        <span class="case-linked-report-node" aria-hidden="true"></span>
+                        <span><strong>{{ \Illuminate\Support\Str::limit($linkedReport->body, 140) }}</strong><small>{{ $linkedReport->created_at?->format('M d, Y · H:i') }} UTC · {{ $linkedReport->comments_count }} comments</small></span><i class="ri ri-arrow-right-up-line" aria-hidden="true"></i>
+                    </a>
+                @empty
+                    <p class="profile-gallery-empty">No reports are linked to this person record.</p>
+                @endforelse
+            </div>
             <div class="profile-gallery-block">
                 <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h3>Gallery <span>{{ $person->images->count() }}</span></h3></div><a href="{{ route($routePrefix.'.edit', $person) }}" wire:navigate class="text-action">MANAGE MEDIA</a></div>
                 @if ($person->images->isNotEmpty())

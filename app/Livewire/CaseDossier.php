@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use App\Models\InvestigationCase;
+use App\Services\ReportAccess;
 use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
@@ -27,7 +28,7 @@ class CaseDossier extends Component
         }
     }
 
-    public function render(): View
+    public function render(ReportAccess $reportAccess): View
     {
         $isCaseManager = auth('web')->user()?->department === 'cfm';
         $relations = ['categories.images', 'creator'];
@@ -43,9 +44,15 @@ class CaseDossier extends Component
                 ->with($relations)
                 ->findOrFail($this->caseFile->getKey()),
         );
+        $linkedReports = $reportAccess->visibleQuery()
+            ->whereHas('cases', fn ($query) => $query->whereKey($caseFile->id))
+            ->withCount('comments')
+            ->latest('updated_at')
+            ->get();
 
         return view('livewire.case-dossier', [
             'caseFile' => $caseFile,
+            'linkedReports' => $linkedReports,
         ]);
     }
 }

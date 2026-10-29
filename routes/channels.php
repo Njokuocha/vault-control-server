@@ -29,3 +29,23 @@ Broadcast::channel('fm.vault', function ($user): bool {
 Broadcast::channel('uploads.{userId}', function ($user, int $userId): bool {
     return (int) $user->getAuthIdentifier() === $userId;
 });
+
+Broadcast::channel('reports.agency', function ($user): bool {
+    if ($user instanceof Admin) {
+        return true;
+    }
+
+    if (! ($user instanceof User)) {
+        return false;
+    }
+
+    if (in_array($user->department, ['cfm', 'pm', 'fm'], true) && $user->account_status === 'active') {
+        return true;
+    }
+
+    $adminEmail = strtolower((string) config('vault.admin.email'));
+
+    return $user->department === null
+        && $adminEmail !== ''
+        && hash_equals($adminEmail, strtolower((string) $user->email));
+});

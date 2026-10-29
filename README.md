@@ -5,7 +5,7 @@
 **Application name:** `Vault Intelligence Agency` · **Short name:** `Vault` · **Acronym:** `VIA` · **Symbol:** `V`
 **Stack:** Laravel 12 · Blade + Livewire 3 · Alpine.js (provided by Livewire) · Echo/Pusher · configured database driver · Remix Icon
 **Design language:** Federal-intelligence-style command console: dark, authoritative, restrained, animated, glass-morphism overlays.
-**Departmental rollout:** The public department selector, separate login entry points, Admin identity, and admin-controlled staff lifecycle are implemented. Case File Management supports case creation, viewing, editing, evidence uploads, and owner-scoped background-transfer tracking. Profile Management provides an isolated person-profile workspace with protected media handling. File Management now provides the private archive, owner-scoped manual chunked uploads, PIN-protected person media viewing, and the restricted vault shell.
+**Departmental rollout:** The public department selector, separate login entry points, Admin identity, and admin-controlled staff lifecycle are implemented. Case File Management supports case creation, viewing, editing, evidence uploads, and owner-scoped background-transfer tracking. Profile Management provides an isolated person-profile workspace with protected media handling. File Management now provides the private archive, owner-scoped manual chunked uploads, PIN-protected person media viewing, and the restricted vault shell. All active agency accounts can publish and read internal reports through the shared Report System.
 
 ---
 
@@ -21,6 +21,7 @@
 8. [Private Storage Strategy](#8-private-storage-strategy)
 9. [Authentication and Departmental Access](#9-authentication-and-departmental-access)
    - [Auth Security and Activity Logging](#auth-security-and-activity-logging)
+   - [Report System](#report-system)
 10. [Upload API Endpoint](#10-upload-api-endpoint)
 11. [Routes Map](#11-routes-map)
 12. [Dashboard Specification](#12-dashboard-specification)
@@ -43,7 +44,7 @@
 
 ## 1. Project Overview
 
-Vault Intelligence Agency is a private intelligence and security system. Administrators can manage case files, person profiles, settings, and the organizational archive. External systems can upload through the key-protected API endpoint. Files are stored privately on the server and can be browsed and previewed through authenticated tools.
+Vault Intelligence Agency is a private intelligence and security system. Administrators can manage case files, person profiles, settings, and the organizational archive. Authorized staff across departments can also publish and discuss internal reports. External systems can upload through the key-protected API endpoint. Files are stored privately on the server and can be browsed and previewed through authenticated tools.
 
 **Core principles**
 
@@ -74,6 +75,7 @@ Vault Intelligence Agency is a private intelligence and security system. Adminis
 | 12 | Case files | Classified case dossiers with grouped image evidence and linked people |
 | 13 | Avatar models | Authenticated configuration of private Male, Female, Group, Unknown, Suspect, and Verified GLB models |
 | 14 | Agency staff management | Admin-created department accounts, username login, password reset, suspend/disable, and removal |
+| 15 | Agency Report System | Cross-department reports, private image/video attachments, linked case/person records, discussion threads, and admin moderation |
 
 Department roles and account management are implemented. CFM case management, PM person-profile management, and FM archive/media operations are implemented. Sharing links, folders, tags, versions UI, and bulk operations remain outside the current scope.
 
@@ -391,6 +393,16 @@ AUTH_ACTIVE_SESSION_SECONDS=7200
 
 The logging design follows NIST SP 800-92's guidance on useful, attributable, retained audit records and NIST SP 800-63B's authentication risk guidance; the IP-based limits complement rather than replace strong credentials, MFA, and infrastructure-level protections. See [NIST SP 800-92](https://csrc.nist.gov/pubs/sp/800/92/final) and [NIST SP 800-63B](https://pages.nist.gov/800-63-4/sp800-63b.html). Corporate map URLs are accepted only from Google Maps HTTPS hosts; coordinate extraction is local and displays `Unknown` when the URL contains no supported coordinates. Map URL and embed behavior follow [Google Maps URLs documentation](https://developers.google.com/maps/documentation/urls/get-started).
 
+### Report System
+
+The internal Report System is available to administrators and active staff in CFM, PM, and FM. Each account sees the same agency-wide report feed and can publish a text report with optional image/video attachments, comment on any visible report, and follow report updates in real time. Reports have no separate title field; the narrative is the report content. A connected-dot feed, report/comments switcher, commenter avatars, recent-comment preview, and stacked private gallery/file-preview windows provide the shared interface across workspaces.
+
+Reports are linked many-to-many with case files and person records. CFM staff can link cases; PM staff can link people; admins can link either. On case and person detail pages, authorized users can open the linked reports. A report reader outside the responsible department sees that a case/person linkage exists but cannot see record identifiers or details or open the restricted record. Hiding a report removes it from other staff feeds and its attachments, while the reporter can still view their own report and admins can view all reports.
+
+Report creators and administrators may edit reports. Any active agency staff member may comment. Only the report creator or an administrator can reply to a comment. Top-level admin comments are prioritized above other comments, and the comments view loads 15 at a time. Report and comment changes broadcast through the private `reports.agency` Pusher channel; a connected queue worker must consume the `broadcasts` queue.
+
+Report images and videos are validated by detected MIME type and stored on the private upload disk under `reports/<report-id>/`; the browser receives media only through authenticated, report-authorized stream routes. The Livewire form previews selections before submission, and accepts at most 12 files of up to 50 MB each. Livewire's temporary-upload limit is configured to 50 MB with a 15-minute transfer window; record-specific validation still applies. The administrator-only `/admin/reports/manage` register supports searching, immediate hide/restore, and deletion confirmation. Deletion is blocked while any case or person link exists; comments and media do not themselves block deletion. Deleting an unlinked report also removes its comments, replies, and private attachments.
+
 ---
 
 ## 10. Upload API Endpoint
@@ -479,6 +491,8 @@ GET   /admin/uploads                 uploads.create
 GET   /admin/settings                settings.index
 GET   /admin/staff                   admin.staff.index
 GET   /admin/departments             admin.departments.index
+GET   /admin/reports                 admin.reports.index
+GET   /admin/reports/manage          admin.reports.manage (Admin moderation)
 GET   /admin/people                  people.index
 GET   /admin/people/{person}         people.show
 GET   /admin/cases                   cases.index
@@ -497,10 +511,12 @@ GET   /cfm/cases/{caseFile}/edit     cfm.cases.edit
 PUT   /cfm/cases/{caseFile}          cfm.cases.update
 GET   /cfm/profile                   cfm.profile (read-only)
 GET   /cfm/profile/photo             cfm.profile.photo (private)
+GET   /cfm/reports                   cfm.reports.index
 POST  /cfm/logout                    cfm.logout
 GET   /pm/                           pm.dashboard
 GET   /pm/profile                    pm.profile (read-only)
 GET   /pm/profile/photo              pm.profile.photo (private)
+GET   /pm/reports                    pm.reports.index
 POST  /pm/logout                     pm.logout
 GET   /fm/                           fm.dashboard (file archive workspace)
 GET   /fm/archive/files              fm.archive.files
@@ -512,6 +528,7 @@ GET   /fm/person-media               fm.person-media.index (anonymized media col
 GET   /fm/person-media/{person}      fm.person-media.show (media only; PIN required)
 GET   /fm/profile                    fm.profile (read-only)
 GET   /fm/profile/photo              fm.profile.photo (private)
+GET   /fm/reports                    fm.reports.index
 POST  /fm/logout                     fm.logout
 GET   /admin/shell/directory         shell.directory (Admin only)
 GET   /fm/shell/directory            fm.shell.directory (FM only)
@@ -1011,6 +1028,8 @@ Livewire 3 is installed and is used by the People index for URL-backed, debounce
 This remains a staged Livewire conversion. Dashboard archive filtering and file preview modals and Settings key/PIN/password forms continue to use their established Blade/JavaScript or controller paths; they have not been rewritten into fully stateful Livewire flows. The case and people create/edit forms submit through the shared JavaScript `fetch` handler without a full-page reload, show inline validation errors, and navigate to the success destination with Livewire `wire:navigate`. They are not Livewire form components. New case evidence and people gallery files are staged with previews and start chunked background transfer only after the record save succeeds; the main profile image is staged and uploaded through the same pipeline. On `/cases/create`, uploads link to the newly saved case and evidence categories; on edits and people forms, they link to existing record/category IDs. Existing attachments remain visible and removable. The submit button disables and displays a saving label while the request is in progress. The shared tracker stays closed until opened from the header and its badge indicates active uploads. Supported case evidence includes the configured image, video, document, and audio formats; people gallery and main-image inputs accept only their configured image/video or image types. Executable/script formats and SVG are excluded. Server-side extension and detected MIME validation remain authoritative. SPA navigation preserves active browser transfers, but a full refresh or closed tab loses access to staged files and requires reselecting a file to resume an interrupted transfer.
 
 The `/admin/uploads` selection summary is Livewire-driven, while file bytes use the chunked XHR uploader; the legacy synchronous upload handler is no longer available. SPA navigation is limited to links marked `wire:navigate`. Pusher delivery requires valid deployment credentials, outbound network access, and a running queue worker. Browser verification against authenticated pages requires operator credentials, and FFmpeg/ffprobe processing must be exercised on a host where trusted binaries are installed.
+
+The Report System is a shared Livewire workspace mounted at `/admin/reports`, `/cfm/reports`, `/pm/reports`, and `/fm/reports`, with administrator moderation at `/admin/reports/manage`. Its schema is applied by the additive report-system migration. It uses `reports`, `report_media`, `report_comments`, `report_case_file`, and `report_person`; report media remains on the configured private upload disk. Authorization is shared through `App\Services\ReportAccess`, and report/media/record links are filtered by account role. Private-channel broadcasts use `AgencyReportUpdated`; run a worker that includes `broadcasts` for live feed refreshes. The report composer allows up to 12 images/videos at 50 MB each; this limit is validated on the server as well as exposed in the UI.
 
 ### Cache behavior
 

@@ -11,6 +11,7 @@ use App\Http\Controllers\InvestigationCaseController;
 use App\Http\Controllers\ManualUploadController;
 use App\Http\Controllers\PersonController;
 use App\Http\Controllers\ProfileManagerDashboardController;
+use App\Http\Controllers\ReportMediaController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StaffProfilePhotoController;
 use App\Http\Controllers\UploadTransferController;
@@ -25,6 +26,8 @@ use App\Livewire\Admin\DepartmentManagement;
 use App\Livewire\Admin\DepartmentStaffDirectory;
 use App\Livewire\Admin\StaffManagement;
 use App\Livewire\Admin\StaffProfile;
+use App\Livewire\Admin\ReportManagement;
+use App\Livewire\ReportWorkspace;
 use App\Models\Department;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -128,9 +131,20 @@ foreach ($departments as $department => $departmentName) {
         }
         Route::get('/profile/photo', [StaffProfilePhotoController::class, 'department'])->name('profile.photo');
         Route::view('/profile', 'departments.profile')->name('profile');
+        Route::get('/reports', ReportWorkspace::class)->name('reports.index');
         Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
     });
 }
+
+Route::middleware(['auth:web,admin', 'security.presence'])->group(function (): void {
+    Route::get('/agency-reports/staff/{user}/photo', [ReportMediaController::class, 'commenterPhoto'])
+        ->whereNumber('user')
+        ->name('reports.commenter-photo');
+    Route::get('/agency-reports/{report}/media/{media}', ReportMediaController::class)
+        ->whereNumber('report')
+        ->whereNumber('media')
+        ->name('reports.media');
+});
 
 Route::middleware(['auth:web,admin', 'security.presence', 'throttle:2000,1'])->prefix('/upload-transfers')->name('upload-transfers.')->group(function (): void {
     Route::get('/', [UploadTransferController::class, 'index'])->name('index');
@@ -220,6 +234,8 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::post('/settings/password', [SettingsController::class, 'updatePassword'])->name('settings.password.update');
     Route::post('/settings/person-image-pin', [SettingsController::class, 'updateImagePin'])->name('settings.person-image-pin.update');
     Route::get('/staff', StaffManagement::class)->name('admin.staff.index');
+    Route::get('/reports', ReportWorkspace::class)->name('admin.reports.index');
+    Route::get('/reports/manage', ReportManagement::class)->name('admin.reports.manage');
     Route::get('/staff/{user}/{section}', StaffProfile::class)
         ->whereIn('section', ['authentication-history', 'activity'])
         ->whereNumber('user')

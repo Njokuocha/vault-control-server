@@ -11,6 +11,7 @@ use App\Models\VideoUpload;
 use App\Services\PublicRecordId;
 use App\Services\ActivityLogger;
 use App\Services\RecordUploadAttachmentService;
+use App\Services\ReportAccess;
 use App\Services\SettingService;
 use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
@@ -129,7 +130,7 @@ class PersonController extends Controller
         return redirect()->to($redirectUrl)->with('status', 'Person profile created.');
     }
 
-    public function show(Person $person, SettingService $settings): Response
+    public function show(Person $person, SettingService $settings, ReportAccess $reportAccess): Response
     {
         request()->session()->forget('unlocked_person_images');
         $profileManagement = request()->routeIs('pm.*');
@@ -141,6 +142,11 @@ class PersonController extends Controller
                 ? $person->load('images')
                 : $person->load(['images', 'cases' => fn ($query) => $query->latest()]),
         );
+        $linkedReports = $reportAccess->visibleQuery()
+            ->whereHas('people', fn ($query) => $query->whereKey($person->id))
+            ->withCount('comments')
+            ->latest('updated_at')
+            ->get();
         $avatarGroup = strtolower($person->avatar_group);
         $avatarPath = in_array($avatarGroup, ['male', 'female', 'group', 'unknown', 'suspect', 'verified'], true)
             ? $settings->get('avatar_model_'.$avatarGroup)
@@ -148,6 +154,7 @@ class PersonController extends Controller
 
         return response()->view('people.show', [
             'person' => $person,
+            'linkedReports' => $linkedReports,
             'profileManagement' => $profileManagement,
             'routePrefix' => $this->routePrefix(),
             'imagePinConfigured' => $settings->get('person_image_pin_hash') !== null,

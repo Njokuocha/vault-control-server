@@ -24,6 +24,17 @@
         <div class="case-narrative-text">{{ $caseFile->narrative }}</div>
         <div class="case-comment-text"><span>COMMENTS / CONTINUITY NOTES</span><p>{{ $caseFile->comment }}</p></div>
     </section>
+    <section class="case-linked-reports">
+        <div class="profile-section-heading"><div><span class="section-kicker">CONNECTED INTELLIGENCE</span><h2>Linked reports <span>{{ $linkedReports->count() }}</span></h2></div><a class="text-action" href="{{ route($cfmWorkspace ? 'cfm.reports.index' : 'admin.reports.index') }}" wire:navigate>REPORT SYSTEM ↗</a></div>
+        @forelse ($linkedReports as $linkedReport)
+            <a class="case-linked-report-row" href="{{ route($cfmWorkspace ? 'cfm.reports.index' : 'admin.reports.index', ['report' => $linkedReport->uuid]) }}" wire:navigate>
+                <span class="case-linked-report-node" aria-hidden="true"></span>
+                <span><strong>{{ \Illuminate\Support\Str::limit($linkedReport->body, 140) }}</strong><small>{{ $linkedReport->created_at?->format('M d, Y · H:i') }} UTC · {{ $linkedReport->comments_count }} comments</small></span><i class="ri ri-arrow-right-up-line" aria-hidden="true"></i>
+            </a>
+        @empty
+            <p class="profile-gallery-empty">No reports are linked to this case file.</p>
+        @endforelse
+    </section>
     @unless ($cfmWorkspace)
     <section class="case-linked-people">
         <div class="profile-section-heading"><div><span class="section-kicker">CONNECTED RECORDS</span><h2>Linked people <span>{{ $caseFile->people->count() }}</span></h2></div><a href="{{ route('people.index') }}" wire:navigate class="text-action">PERSON INDEX ↗</a></div>
