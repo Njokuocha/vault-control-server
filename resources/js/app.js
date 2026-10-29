@@ -28,6 +28,21 @@ if (pusherKey && pusherCluster && applicationWorkspace) {
         },
     });
 
+    if (['admin', 'cfm', 'pm', 'fm'].includes(applicationWorkspace)) {
+        window.Echo.private('reports.agency')
+            .listen('.agency.report.updated', (event) => {
+                if (event.action === 'created' && !window.location.pathname.includes('/reports')) {
+                    document.querySelectorAll('[data-report-system-badge]').forEach((badge) => {
+                        const count = Number.parseInt(badge.dataset.count ?? '0', 10) + 1;
+                        badge.dataset.count = String(count);
+                        badge.textContent = count > 99 ? '99+' : String(count);
+                        badge.hidden = false;
+                    });
+                }
+                window.Livewire?.dispatch('agency-report-updated');
+            });
+    }
+
     if (applicationWorkspace === 'admin' || applicationWorkspace === 'fm') {
         const vaultChannel = applicationWorkspace === 'fm' ? 'fm.vault' : 'admin.vault';
         window.Echo.private(vaultChannel)
@@ -36,18 +51,6 @@ if (pusherKey && pusherCluster && applicationWorkspace) {
                     window.vaultAlert({ type: 'info', message: `${event.name} received in the private archive.` });
                 }
 
-                window.Echo.private('reports.agency')
-                    .listen('.agency.report.updated', (event) => {
-                        if (event.action === 'created' && !window.location.pathname.includes('/reports')) {
-                            document.querySelectorAll('[data-report-system-badge]').forEach((badge) => {
-                                const count = Number.parseInt(badge.dataset.count ?? '0', 10) + 1;
-                                badge.dataset.count = String(count);
-                                badge.textContent = count > 99 ? '99+' : String(count);
-                                badge.hidden = false;
-                            });
-                        }
-                        window.Livewire?.dispatch('agency-report-updated');
-                    });
                 window.dispatchEvent(new CustomEvent('vault:file-uploaded', { detail: event }));
             })
             .listen('.file.edited', (event) => {

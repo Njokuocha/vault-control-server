@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\VersionedCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -21,6 +22,12 @@ class Report extends Model
     protected function casts(): array
     {
         return ['is_hidden' => 'boolean'];
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(fn (): mixed => app(VersionedCache::class)->bump('reports'));
+        static::deleted(fn (): mixed => app(VersionedCache::class)->bump('reports'));
     }
 
     public function reporter(): MorphTo

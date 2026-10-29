@@ -4,6 +4,7 @@ use App\Events\AgencyReportUpdated;
 use App\Livewire\Admin\ReportManagement;
 use App\Livewire\ReportWorkspace;
 use App\Models\Admin;
+use App\Models\Department;
 use App\Models\InvestigationCase;
 use App\Models\Person;
 use App\Models\Report;
@@ -144,13 +145,15 @@ test('staff can comment but only the report owner or an administrator can reply'
     $comment = $report->comments()->where('body', 'Additional corroborating detail.')->firstOrFail();
 
     $commenterWorkspace
-        ->call('beginReply', $comment->id)
+        ->set('replyingToId', $comment->id)
+        ->set('replyBody', 'An unauthorized reply.')
+        ->call('addReply')
         ->assertForbidden();
 
     Livewire::actingAs($owner, 'web')
         ->test(ReportWorkspace::class)
         ->set('selectedReport', $report->uuid)
-        ->call('beginReply', $comment->id)
+        ->set('replyingToId', $comment->id)
         ->set('replyBody', 'Reporter clarification.')
         ->call('addReply')
         ->assertHasNoErrors();
@@ -252,4 +255,75 @@ test('administrators may delete reports with comments and media but record links
     expect(Report::query()->whereKey($report->id)->exists())->toBeFalse()
         ->and(ReportMedia::query()->whereKey($media->id)->exists())->toBeFalse()
         ->and(Storage::disk(config('vault.upload_disk', 'vault'))->exists($path))->toBeFalse();
+});
+
+test('report control shows the reporters configured departmental rank', function () {
+    $department = Department::query()->where('code', 'cfm')->firstOrFail();
+    $department->update(['rank' => 'Senior Case Officer']);
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    createTestReport($reporter);
+
+    Livewire::actingAs(createReportSystemAdmin(), 'admin')
+        ->test(ReportManagement::class)
+        ->assertSee('SENIOR CASE OFFICER')
+        ->assertDontSee('AGENCY STAFF');
+});
+
+test('report attachment preview host is ignored by Livewire DOM morphing', function () {
+    $staff = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+
+    Livewire::actingAs($staff, 'web')
+        ->test(ReportWorkspace::class)
+        ->call('openComposer')
+        ->assertSee('data-report-previews wire:ignore', false);
+});
+
+test('cached report comment counts refresh after a comment is created', function () {
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $report = createTestReport($reporter);
+    $workspace = Livewire::actingAs($reporter, 'web')
+        ->test(ReportWorkspace::class)
+        ->assertSee('0 Comments');
+
+    $report->comments()->create([
+        'author_type' => User::class,
+        'author_id' => $reporter->id,
+        'body' => 'A newly cached field note.',
+    ]);
+
+    $workspace->call('refreshReports')
+        ->assertSee('1 Comments')
+        ->assertSee('A newly cached field note.');
+});
+
+test('cached case link suggestions refresh after a case is edited', function () {
+    $staff = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $caseFile = InvestigationCase::query()->create([
+        'public_id' => 'CSE-CACHE-01',
+        'title' => 'Cacheable original case',
+    ]);
+
+    $workspace = Livewire::actingAs($staff, 'web')
+        ->test(ReportWorkspace::class)
+        ->call('openComposer')
+        ->set('caseSearch', 'Cacheable')
+        ->assertSee('Cacheable original case');
+
+    $caseFile->update(['title' => 'Cacheable revised case']);
+
+    $workspace->call('refreshReports')
+        ->assertDontSee('Cacheable original case')
+        ->assertSee('Cacheable revised case');
 });

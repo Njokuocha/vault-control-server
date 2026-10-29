@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\VersionedCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -16,6 +17,12 @@ class ReportComment extends Model
         'author_id',
         'body',
     ];
+
+    protected static function booted(): void
+    {
+        static::saved(fn (): mixed => app(VersionedCache::class)->bump('reports'));
+        static::deleted(fn (): mixed => app(VersionedCache::class)->bump('reports'));
+    }
 
     public function report(): BelongsTo
     {

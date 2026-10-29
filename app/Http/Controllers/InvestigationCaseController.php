@@ -288,6 +288,7 @@ class InvestigationCaseController extends Controller
             );
         });
 
+        app(VersionedCache::class)->bump('reports');
         Storage::disk(config('vault.upload_disk'))->delete($paths->all());
         foreach (File::query()->whereKey($fileIds)->get() as $file) {
             $file->delete();

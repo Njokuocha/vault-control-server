@@ -3,10 +3,11 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Support\VersionedCache;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -62,6 +63,8 @@ class User extends Authenticatable
                     : Department::query()->where('code', $user->department)->value('id');
             }
         });
+        static::saved(fn (): mixed => app(VersionedCache::class)->bump('reports'));
+        static::deleted(fn (): mixed => app(VersionedCache::class)->bump('reports'));
     }
 
     public function uploadTransfers(): HasMany

@@ -16,7 +16,7 @@
                     @forelse ($reports as $report)
                         <tr wire:key="report-management-{{ $report->id }}">
                             <td><a href="{{ route('admin.reports.index', ['report' => $report->uuid]) }}" wire:navigate><code>{{ strtoupper(substr(str_replace('-', '', $report->uuid), 0, 12)) }}</code><span>{{ \Illuminate\Support\Str::limit($report->body, 90) }}</span></a></td>
-                            <td>{{ $report->reporter?->name ?? 'Former account' }}<small>{{ $report->reporter_type === \App\Models\Admin::class ? 'ADMINISTRATOR' : 'AGENCY STAFF' }}</small></td>
+                            <td>{{ $report->reporter?->name ?? 'Former account' }}<small>{{ $report->reporter instanceof \App\Models\User ? strtoupper($report->reporter->departmentRecord?->rank ?? 'AGENCY STAFF') : 'ADMINISTRATOR' }}</small></td>
                             <td><span>{{ $report->cases_count }} CASE</span><span>{{ $report->people_count }} PERSON</span></td>
                             <td>{{ $report->comments_count }} COMMENTS<br>{{ $report->media_count }} MEDIA</td>
                             <td>{{ $report->updated_at?->format('M d, Y · H:i') }}</td>

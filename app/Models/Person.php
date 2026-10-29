@@ -13,7 +13,10 @@ class Person extends Model
     protected static function booted(): void
     {
         static::saved(fn (): mixed => app(VersionedCache::class)->bump('people'));
-        static::deleted(fn (): mixed => app(VersionedCache::class)->bump('people'));
+        static::deleted(function (): void {
+            app(VersionedCache::class)->bump('people');
+            app(VersionedCache::class)->bump('reports');
+        });
     }
 
     protected $fillable = [

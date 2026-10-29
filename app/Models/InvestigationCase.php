@@ -2,18 +2,21 @@
 
 namespace App\Models;
 
+use App\Support\VersionedCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use App\Support\VersionedCache;
 
 class InvestigationCase extends Model
 {
     protected static function booted(): void
     {
         static::saved(fn (): mixed => app(VersionedCache::class)->bump('cases'));
-        static::deleted(fn (): mixed => app(VersionedCache::class)->bump('cases'));
+        static::deleted(function (): void {
+            app(VersionedCache::class)->bump('cases');
+            app(VersionedCache::class)->bump('reports');
+        });
     }
 
     protected $table = 'case_files';

@@ -30,7 +30,7 @@
                             @if ($feedReport->is_hidden)<em>RESTRICTED</em>@endif
                         </span>
                         <strong>{{ \Illuminate\Support\Str::limit($feedReport->body, 115) }}</strong>
-                        <span class="report-feed-item__byline">{{ $reporter?->name ?? 'Former account' }} · {{ $feedReport->comments_count }} comments · {{ $feedReport->media->count() }} media</span>
+                        <span class="report-feed-item__byline">{{ $reporter?->name ?? 'Former account' }} · {{ $feedReport->comments_count }} comments · {{ $feedReport->media_count }} media</span>
                         @if ($feedReport->latestComment)
                             <span class="report-feed-item__latest"><i aria-hidden="true"></i><span><b>{{ $feedReport->latestComment->author?->name ?? 'Former account' }}:</b> {{ \Illuminate\Support\Str::limit($feedReport->latestComment->body, 78) }}</span></span>
                         @endif
@@ -75,12 +75,11 @@
                 </header>
 
                 <nav class="report-detail-tabs" role="tablist" aria-label="Report sections">
-                    <button id="report-tab" role="tab" aria-controls="report-tab-panel" aria-selected="{{ $activeSection === 'report' ? 'true' : 'false' }}" tabindex="{{ $activeSection === 'report' ? '0' : '-1' }}" type="button" class="{{ $activeSection === 'report' ? 'is-active' : '' }}" wire:click="showSection('report')"><span class="ri ri-file-list-3-line" aria-hidden="true"></span> REPORT</button>
-                    <button id="comments-tab" role="tab" aria-controls="comments-tab-panel" aria-selected="{{ $activeSection === 'comments' ? 'true' : 'false' }}" tabindex="{{ $activeSection === 'comments' ? '0' : '-1' }}" type="button" class="{{ $activeSection === 'comments' ? 'is-active' : '' }}" wire:click="showSection('comments')"><span class="ri ri-chat-3-line" aria-hidden="true"></span> COMMENTS <b>{{ $report->comments_count }}</b></button>
+                    <button id="report-tab" data-report-section-button="report" role="tab" aria-controls="report-tab-panel" aria-selected="{{ $activeSection === 'report' ? 'true' : 'false' }}" tabindex="{{ $activeSection === 'report' ? '0' : '-1' }}" type="button" class="{{ $activeSection === 'report' ? 'is-active' : '' }}"><span class="ri ri-file-list-3-line" aria-hidden="true"></span> REPORT</button>
+                    <button id="comments-tab" data-report-section-button="comments" role="tab" aria-controls="comments-tab-panel" aria-selected="{{ $activeSection === 'comments' ? 'true' : 'false' }}" tabindex="{{ $activeSection === 'comments' ? '0' : '-1' }}" type="button" class="{{ $activeSection === 'comments' ? 'is-active' : '' }}"><span class="ri ri-chat-3-line" aria-hidden="true"></span> COMMENTS <b>{{ $report->comments_count }}</b></button>
                 </nav>
 
-                @if ($activeSection === 'report')
-                    <article id="report-tab-panel" class="report-content-card" role="tabpanel" aria-labelledby="report-tab" tabindex="0">
+                    <article id="report-tab-panel" data-report-section-panel="report" class="report-content-card" role="tabpanel" aria-labelledby="report-tab" tabindex="0" @if ($activeSection !== 'report') hidden @endif>
                         @if ($report->admin_commented)
                             <div class="report-admin-commented"><span class="ri ri-shield-check-line" aria-hidden="true"></span> ADMIN COMMENTED</div>
                         @endif
@@ -94,11 +93,20 @@
                         @if ($report->media->isNotEmpty())
                             <div class="report-media-grid report-media-grid--{{ min(4, $report->media->count()) }}">
                                 @foreach ($report->media->take(4) as $media)
-                                    <button class="report-media-tile" type="button" wire:click="{{ $report->media->count() > 4 && $loop->last ? 'openGallery' : 'openMedia('.$media->id.')' }}" aria-label="{{ $report->media->count() > 4 && $loop->last ? 'Open all report attachments' : 'Preview '.$media->original_name }}">
+                                    <button
+                                        class="report-media-tile"
+                                        type="button"
+                                        data-report-media-open
+                                        data-report-gallery-open="{{ $report->media->count() > 4 && $loop->last ? 'true' : 'false' }}"
+                                        data-media-url="{{ route('reports.media', [$report, $media]) }}"
+                                        data-media-type="{{ $media->media_type }}"
+                                        data-media-name="{{ $media->original_name }}"
+                                        aria-label="{{ $report->media->count() > 4 && $loop->last ? 'Open all report attachments' : 'Preview '.$media->original_name }}"
+                                    >
                                         @if ($media->media_type === 'image')
-                                            <img src="{{ route('reports.media', [$report, $media]) }}" alt="{{ $media->original_name }}" loading="lazy">
+                                            <img src="{{ route('reports.media', [$report, $media]) }}" alt="{{ $media->original_name }}" loading="lazy" decoding="async">
                                         @else
-                                            <video src="{{ route('reports.media', [$report, $media]) }}" preload="metadata" muted playsinline aria-label="{{ $media->original_name }}"></video>
+                                            <video src="{{ route('reports.media', [$report, $media]) }}" preload="none" muted playsinline aria-label="{{ $media->original_name }}"></video>
                                             <span class="report-video-mark"><i class="ri ri-play-fill" aria-hidden="true"></i> VIDEO</span>
                                         @endif
                                         @if ($report->media->count() > 4 && $loop->last)
@@ -136,7 +144,7 @@
                         @endif
 
                         @if ($report->latestComment)
-                            <button class="report-latest-comment" type="button" wire:click="showSection('comments')">
+                            <button class="report-latest-comment" data-report-section-button="comments" type="button">
                                 <span class="report-comment-node" aria-hidden="true"></span>
                                 <span><small>MOST RECENT COMMENT · {{ $report->latestComment->updated_at?->diffForHumans() }}</small><strong>{{ $report->latestComment->author?->name ?? 'Former account' }}</strong><p>{{ \Illuminate\Support\Str::limit($report->latestComment->body, 240) }}</p></span>
                                 <i class="ri ri-arrow-right-line" aria-hidden="true"></i>
@@ -145,8 +153,7 @@
                             <div class="report-first-comment-note"><span class="ri ri-chat-new-line" aria-hidden="true"></span> No comments yet. Add the first field note.</div>
                         @endif
                     </article>
-                @else
-                    <section id="comments-tab-panel" class="report-comments-panel" role="tabpanel" aria-labelledby="comments-tab" tabindex="0">
+                    <section id="comments-tab-panel" data-report-section-panel="comments" class="report-comments-panel" role="tabpanel" aria-labelledby="comments-tab" tabindex="0" @if ($activeSection !== 'comments') hidden @endif>
                         <div class="report-comments-heading"><div><span class="section-kicker">AGENCY DISCUSSION</span><h3>{{ $totalMainComments }} Comments</h3></div><span>ADMIN PRIORITY · NEWEST FIRST</span></div>
                         <div class="report-comment-thread">
                             @forelse ($mainComments as $comment)
@@ -160,17 +167,17 @@
                                         </header>
                                         <p>{{ $comment->body }}</p>
                                         <footer>
-                                            @if ($comment->replies->isNotEmpty())
-                                                <button type="button" wire:click="toggleReplies({{ $comment->id }})">{{ in_array($comment->id, array_map('intval', $expandedReplyIds), true) ? 'HIDE' : 'VIEW' }} REPLIES · {{ $comment->replies->count() }}</button>
+                                            @if ($comment->replies_count > 0)
+                                                <button type="button" wire:click="toggleReplies({{ $comment->id }})">{{ in_array($comment->id, array_map('intval', $expandedReplyIds), true) ? 'HIDE' : 'VIEW' }} REPLIES · {{ $comment->replies_count }}</button>
                                             @endif
                                             @if ($canReply)
-                                                <button type="button" wire:click="beginReply({{ $comment->id }})">REPLY</button>
+                                                <button type="button" data-report-reply-open data-reply-id="{{ $comment->id }}">REPLY</button>
                                             @endif
                                         </footer>
                                         @if (in_array($comment->id, array_map('intval', $expandedReplyIds), true))
                                             <div class="report-replies">
                                                 @foreach ($comment->replies as $reply)
-                                                    <article class="report-reply">
+                                                    <article class="report-reply {{ $reply->author_type === \App\Models\Admin::class ? 'is-admin' : '' }}">
                                                         <span class="report-reply__node" aria-hidden="true"></span>
                                                         <header><span class="report-author-seal">{{ strtoupper(substr($reply->author?->name ?? 'A', 0, 1)) }}</span><span><strong>{{ $reply->author?->name ?? 'Former account' }}</strong><small>{{ $reply->author_type === \App\Models\Admin::class ? 'ADMINISTRATOR' : ($reply->author instanceof \App\Models\User ? strtoupper($reply->author->departmentRecord?->rank ?? 'AGENCY STAFF') : 'AGENCY STAFF') }}</small></span><time>{{ $reply->updated_at?->diffForHumans() }}</time></header>
                                                         <p>{{ $reply->body }}</p>
@@ -178,13 +185,13 @@
                                                 @endforeach
                                             </div>
                                         @endif
-                                        @if ($replyingToId === $comment->id)
-                                            <form class="report-reply-form" wire:submit="addReply">
+                                        @if ($canReply)
+                                            <form class="report-reply-form" data-report-reply-form data-reply-id="{{ $comment->id }}" wire:submit="addReply" @if ($replyingToId !== $comment->id) hidden @endif>
+                                                <header><span>OFFICIAL REPLY</span><button type="button" data-report-reply-cancel aria-label="Cancel reply">×</button></header>
                                                 <label class="sr-only" for="report-reply-{{ $comment->id }}">Reply to comment</label>
-                                                <textarea id="report-reply-{{ $comment->id }}" wire:model="replyBody" rows="2" maxlength="5000" placeholder="Write an official reply…"></textarea>
+                                                <textarea id="report-reply-{{ $comment->id }}" wire:model="replyBody" rows="3" maxlength="5000" placeholder="Add a concise official response…"></textarea>
                                                 @error('replyBody')<small>{{ $message }}</small>@enderror
-                                                <button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="addReply"><span wire:loading.remove wire:target="addReply">POST REPLY</span><span wire:loading wire:target="addReply">POSTING…</span></button>
-                                                <button class="button-secondary" type="button" wire:click="cancelReply">CANCEL</button>
+                                                <footer><span>RESPONSE WILL BE ATTACHED TO THIS COMMENT</span><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="addReply"><span wire:loading.remove wire:target="addReply">POST REPLY</span><span wire:loading wire:target="addReply">POSTING…</span></button></footer>
                                             </form>
                                         @endif
                                     </div>
@@ -204,7 +211,6 @@
                             <div><small>Comments are visible to authorized agency personnel. Replies are reserved for the reporter and administrators.</small><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="addComment"><span wire:loading.remove wire:target="addComment">POST COMMENT</span><span wire:loading wire:target="addComment">POSTING…</span></button></div>
                         </form>
                     </section>
-                @endif
             @else
                 <div class="report-empty-state report-empty-state--detail"><span class="ri ri-radar-line" aria-hidden="true"></span><strong>AWAITING FIRST REPORT</strong><p>Publish a field report to begin the agency situation record.</p><button class="button-primary" type="button" wire:click="openComposer">＋ CREATE REPORT</button></div>
             @endif
@@ -213,7 +219,7 @@
 
     @if ($composerOpen)
         <div class="report-modal-backdrop" role="presentation" wire:click.self="$set('composerOpen', false)">
-            <section class="report-composer-modal" role="dialog" aria-modal="true" aria-labelledby="report-composer-title">
+            <section class="report-composer-modal" data-report-composer role="dialog" aria-modal="true" aria-labelledby="report-composer-title">
                 <header><div><span class="section-kicker">{{ $editingUuid ? 'UPDATE RECORD' : 'NEW SITUATION REPORT' }}</span><h2 id="report-composer-title">{{ $editingUuid ? 'Edit report' : 'Publish a report' }}</h2></div><button type="button" aria-label="Close report form" wire:click="$set('composerOpen', false)">×</button></header>
                 <form wire:submit="saveReport">
                     <label class="report-form-label" for="report-body">REPORT NARRATIVE <span>NO TITLE REQUIRED</span></label>
@@ -234,7 +240,7 @@
 
                     <label class="report-form-label" for="report-uploads">IMAGE / VIDEO ATTACHMENTS <span>UP TO 12 · 50 MB EACH</span></label>
                     <input id="report-uploads" type="file" wire:model="uploads" accept="image/jpeg,image/png,image/gif,image/webp,image/avif,video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska" multiple data-report-files>
-                    <div class="report-upload-previews" data-report-previews aria-live="polite"></div>
+                    <div class="report-upload-previews" data-report-previews wire:ignore aria-live="polite"></div>
                     <div wire:loading wire:target="uploads" class="report-upload-progress">SECURELY PREPARING SELECTED MEDIA…</div>
                     @error('uploads')<small class="report-form-error">{{ $message }}</small>@enderror
                     @error('uploads.*')<small class="report-form-error">{{ $message }}</small>@enderror
@@ -262,32 +268,27 @@
         </div>
     @endif
 
-    @if ($galleryOpen && $report)
-        <div class="report-gallery-backdrop" role="presentation" wire:click.self="closeGallery">
+    @if ($report && $report->media->isNotEmpty())
+        <div data-report-gallery-data hidden>
+            @foreach ($report->media as $media)
+                <span
+                    data-report-media-item
+                    data-media-url="{{ route('reports.media', [$report, $media]) }}"
+                    data-media-type="{{ $media->media_type }}"
+                    data-media-name="{{ $media->original_name }}"
+                ></span>
+            @endforeach
+        </div>
+        <div class="report-gallery-backdrop" data-report-gallery-modal hidden role="presentation">
             <section class="report-gallery-modal" role="dialog" aria-modal="true" aria-labelledby="report-gallery-title">
-                <header><div><span class="section-kicker">PRIVATE REPORT MEDIA</span><h2 id="report-gallery-title">Attachment gallery <small>{{ $report->media->count() }} FILES</small></h2></div><button type="button" aria-label="Close gallery" wire:click="closeGallery">×</button></header>
-                <div class="report-gallery-grid">
-                    @foreach ($report->media as $media)
-                        <button type="button" wire:click="openMedia({{ $media->id }})">
-                            @if ($media->media_type === 'image')<img src="{{ route('reports.media', [$report, $media]) }}" alt="{{ $media->original_name }}" loading="lazy">
-                            @else <video src="{{ route('reports.media', [$report, $media]) }}" preload="metadata" muted playsinline></video><span class="report-video-mark"><i class="ri ri-play-fill" aria-hidden="true"></i> VIDEO</span>@endif
-                            <small>{{ $media->original_name }}</small>
-                        </button>
-                    @endforeach
-                </div>
+                <header><div><span class="section-kicker">PRIVATE REPORT MEDIA</span><h2 id="report-gallery-title">Attachment gallery <small>{{ $report->media->count() }} FILES</small></h2></div><button type="button" data-report-modal-close aria-label="Close gallery">×</button></header>
+                <div class="report-gallery-grid" data-report-gallery-items></div>
             </section>
         </div>
-    @endif
-
-    @if ($previewMedia && $report)
-        <div class="report-file-backdrop" role="presentation" wire:click.self="closeMedia">
+        <div class="report-file-backdrop" data-report-media-modal hidden role="presentation">
             <section class="report-file-modal" role="dialog" aria-modal="true" aria-label="Report attachment preview">
-                <header><span>{{ $previewMedia->original_name }}</span><button type="button" aria-label="Close preview" wire:click="closeMedia">×</button></header>
-                @if ($previewMedia->media_type === 'image')
-                    <img src="{{ route('reports.media', [$report, $previewMedia]) }}" alt="{{ $previewMedia->original_name }}">
-                @else
-                    <video src="{{ route('reports.media', [$report, $previewMedia]) }}" controls autoplay playsinline></video>
-                @endif
+                <header><span data-report-media-name></span><button type="button" data-report-modal-close aria-label="Close preview">×</button></header>
+                <div class="report-file-content" data-report-media-content></div>
             </section>
         </div>
     @endif

@@ -8,7 +8,9 @@ use App\Models\Report;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\ReportAccess;
+use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\On;
@@ -87,6 +89,7 @@ class ReportManagement extends Component
         }
 
         DB::transaction(fn () => $report->delete());
+        app(VersionedCache::class)->bump('reports');
         app(ActivityLogger::class)->record(
             'report-system',
             'report.deleted',
@@ -114,21 +117,34 @@ class ReportManagement extends Component
     {
         $actor = $access->actor();
         abort_unless($access->isAdministrator($actor), 403);
-        $reports = Report::query()
-            ->with('reporter')
-            ->withCount(['comments', 'media', 'cases', 'people'])
-            ->when(trim($this->search) !== '', function ($query): void {
-                $term = '%'.trim($this->search).'%';
-                $query->where(function ($query) use ($term): void {
-                    $query->where('uuid', 'like', $term)
-                        ->orWhere('body', 'like', $term)
-                        ->orWhereHasMorph('reporter', [User::class, Admin::class], function ($query) use ($term): void {
-                            $query->where('name', 'like', $term)->orWhere('email', 'like', $term);
+        $search = trim($this->search);
+        $page = $this->getPage();
+        $reports = app(VersionedCache::class)->remember(
+            'reports',
+            'management:'.hash('sha256', $search).":page:{$page}",
+            now()->addSeconds(20),
+            function () use ($search, $page) {
+                return Report::query()
+                    ->with([
+                        'reporter' => fn (MorphTo $relation) => $relation->morphWith([
+                            User::class => ['departmentRecord'],
+                        ]),
+                    ])
+                    ->withCount(['comments', 'media', 'cases', 'people'])
+                    ->when($search !== '', function ($query) use ($search): void {
+                        $term = '%'.$search.'%';
+                        $query->where(function ($query) use ($term): void {
+                            $query->where('uuid', 'like', $term)
+                                ->orWhere('body', 'like', $term)
+                                ->orWhereHasMorph('reporter', [User::class, Admin::class], function ($query) use ($term): void {
+                                    $query->where('name', 'like', $term)->orWhere('email', 'like', $term);
+                                });
                         });
-                });
-            })
-            ->latest('updated_at')
-            ->paginate(20);
+                    })
+                    ->latest('updated_at')
+                    ->paginate(20, ['*'], 'page', $page);
+            },
+        );
         $confirmingReport = $this->confirmingDeleteId
             ? Report::query()->withCount(['comments', 'media', 'cases', 'people'])->find($this->confirmingDeleteId)
             : null;

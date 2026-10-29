@@ -8,12 +8,13 @@ use App\Models\InvestigationCase;
 use App\Models\Person;
 use App\Models\Report;
 use App\Models\ReportComment;
-use App\Models\ReportMedia;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\ReportAccess;
+use App\Support\VersionedCache;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -22,8 +23,8 @@ use Illuminate\Validation\Rule;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 use Livewire\Component;
-use Livewire\WithFileUploads;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Livewire\WithFileUploads;
 use Throwable;
 
 class ReportWorkspace extends Component
@@ -70,10 +71,6 @@ class ReportWorkspace extends Component
 
     public int $reportLimit = 30;
 
-    public bool $galleryOpen = false;
-
-    public ?int $previewMediaId = null;
-
     public function mount(ReportAccess $access): void
     {
         $actor = $this->authorizeWorkspace($access);
@@ -90,9 +87,8 @@ class ReportWorkspace extends Component
         $this->activeSection = 'report';
         $this->commentLimit = 15;
         $this->replyingToId = null;
+        $this->replyBody = '';
         $this->expandedReplyIds = [];
-        $this->galleryOpen = false;
-        $this->previewMediaId = null;
     }
 
     public function showSection(string $section, ReportAccess $access): void
@@ -213,6 +209,7 @@ class ReportWorkspace extends Component
             throw new \RuntimeException('The report was saved, but removed attachments could not be cleared from private storage.');
         }
 
+        app(VersionedCache::class)->bump('reports');
         app(ActivityLogger::class)->record(
             'report-system',
             $existing === null ? 'report.created' : 'report.updated',
@@ -258,16 +255,6 @@ class ReportWorkspace extends Component
         $this->dispatch('alert', type: 'success', message: 'Comment added.');
     }
 
-    public function beginReply(int $commentId, ReportAccess $access): void
-    {
-        $actor = $this->authorizeWorkspace($access);
-        $report = $this->selectedVisibleReport($access, $actor);
-        abort_unless($this->canReply($report, $access, $actor), 403);
-        $comment = $report->comments()->whereKey($commentId)->whereNull('parent_id')->firstOrFail();
-        $this->replyingToId = $comment->id;
-        $this->replyBody = '';
-    }
-
     public function addReply(ReportAccess $access): void
     {
         $actor = $this->authorizeWorkspace($access);
@@ -294,13 +281,6 @@ class ReportWorkspace extends Component
         $this->replyingToId = null;
         $this->reset('replyBody');
         $this->dispatch('alert', type: 'success', message: 'Reply added.');
-    }
-
-    public function cancelReply(ReportAccess $access): void
-    {
-        $this->authorizeWorkspace($access);
-        $this->replyingToId = null;
-        $this->reset('replyBody');
     }
 
     public function toggleReplies(int $commentId, ReportAccess $access): void
@@ -351,37 +331,6 @@ class ReportWorkspace extends Component
         $this->reportLimit += 30;
     }
 
-    public function openGallery(ReportAccess $access): void
-    {
-        $actor = $this->authorizeWorkspace($access);
-        $report = $this->selectedVisibleReport($access, $actor);
-        abort_if($report->media->count() <= 4, 404);
-        $this->galleryOpen = true;
-        $this->previewMediaId = null;
-    }
-
-    public function openMedia(int $mediaId, ReportAccess $access): void
-    {
-        $actor = $this->authorizeWorkspace($access);
-        $report = $this->selectedVisibleReport($access, $actor);
-        $media = $report->media()->findOrFail($mediaId);
-        abort_unless(in_array($media->media_type, ['image', 'video'], true), 404);
-        $this->previewMediaId = $media->id;
-    }
-
-    public function closeMedia(ReportAccess $access): void
-    {
-        $this->authorizeWorkspace($access);
-        $this->previewMediaId = null;
-    }
-
-    public function closeGallery(ReportAccess $access): void
-    {
-        $this->authorizeWorkspace($access);
-        $this->galleryOpen = false;
-        $this->previewMediaId = null;
-    }
-
     #[On('agency-report-updated')]
     public function refreshReports(): void
     {
@@ -391,31 +340,77 @@ class ReportWorkspace extends Component
     public function render(ReportAccess $access): View
     {
         $actor = $this->authorizeWorkspace($access);
-        $visibleReports = $access->visibleQuery($actor);
-        $totalReportCount = (clone $visibleReports)->count();
-        $reports = $visibleReports
-            ->with(['reporter', 'media', 'latestComment.author'])
-            ->withCount('comments')
-            ->latest('updated_at')
-            ->limit($this->reportLimit)
-            ->get();
+        $actorCacheKey = hash('sha256', $actor::class.':'.$actor->getAuthIdentifier());
+        $cache = app(VersionedCache::class);
+        $totalReportCount = $cache->remember(
+            'reports',
+            "workspace:{$actorCacheKey}:count",
+            now()->addSeconds(20),
+            fn (): int => $access->visibleQuery($actor)->count(),
+        );
+        $reports = $cache->remember(
+            'reports',
+            "workspace:{$actorCacheKey}:feed:{$this->reportLimit}",
+            now()->addSeconds(20),
+            function () use ($access, $actor): Collection {
+                $reports = $access->visibleQuery($actor)
+                    ->with([
+                        'reporter' => fn (MorphTo $relation) => $relation->morphWith([
+                            User::class => ['departmentRecord'],
+                        ]),
+                        'latestComment.author',
+                    ])
+                    ->withCount(['comments', 'media'])
+                    ->latest('updated_at')
+                    ->limit($this->reportLimit)
+                    ->get();
+
+                $this->attachCommenterPreviews($reports);
+
+                return $reports;
+            },
+        );
 
         if ($this->selectedReport === null && $reports->isNotEmpty()) {
             $this->selectedReport = $reports->first()->uuid;
         }
         $selected = $this->selectedReport === null
             ? null
-            : $access->visibleQuery($actor)
-                ->with(['reporter', 'media', 'cases', 'people'])
-                ->withCount('comments')
-                ->where('uuid', $this->selectedReport)
-                ->first();
+            : $cache->remember(
+                'reports',
+                "workspace:{$actorCacheKey}:detail:{$this->selectedReport}",
+                now()->addSeconds(20),
+                fn (): ?Report => $access->visibleQuery($actor)
+                    ->with([
+                        'reporter' => fn (MorphTo $relation) => $relation->morphWith([
+                            User::class => ['departmentRecord'],
+                        ]),
+                        'media',
+                        'cases',
+                        'people',
+                    ])
+                    ->withCount('comments')
+                    ->where('uuid', $this->selectedReport)
+                    ->first(),
+            );
         if ($selected === null && $reports->isNotEmpty()) {
-            $selected = $access->visibleQuery($actor)
-                ->with(['reporter', 'media', 'cases', 'people'])
-                ->withCount('comments')
-                ->whereKey($reports->first()->id)
-                ->first();
+            $selected = $cache->remember(
+                'reports',
+                "workspace:{$actorCacheKey}:detail:{$reports->first()->uuid}",
+                now()->addSeconds(20),
+                fn (): ?Report => $access->visibleQuery($actor)
+                    ->with([
+                        'reporter' => fn (MorphTo $relation) => $relation->morphWith([
+                            User::class => ['departmentRecord'],
+                        ]),
+                        'media',
+                        'cases',
+                        'people',
+                    ])
+                    ->withCount('comments')
+                    ->whereKey($reports->first()->id)
+                    ->first(),
+            );
             $this->selectedReport = $selected?->uuid;
             $this->activeSection = 'report';
         }
@@ -423,17 +418,44 @@ class ReportWorkspace extends Component
         $mainComments = collect();
         $totalMainComments = 0;
         if ($selected !== null) {
-            $commentQuery = $selected->comments()->whereNull('parent_id');
-            $totalMainComments = (clone $commentQuery)->count();
-            $mainComments = $commentQuery
-                ->with(['author', 'replies.author'])
-                ->orderByRaw('CASE WHEN author_type = ? THEN 0 ELSE 1 END', [Admin::class])
-                ->latest('updated_at')
-                ->limit($this->commentLimit)
-                ->get();
-        }
+            $expandedReplyIds = array_values(array_unique(array_map('intval', $this->expandedReplyIds)));
+            $commentCacheKey = "workspace:{$actorCacheKey}:comments:{$selected->id}:{$this->commentLimit}:".hash(
+                'sha256',
+                implode(',', $expandedReplyIds),
+            );
+            $comments = $cache->remember(
+                'reports',
+                $commentCacheKey,
+                now()->addSeconds(20),
+                function () use ($selected, $expandedReplyIds): array {
+                    $commentQuery = $selected->comments()->whereNull('parent_id');
+                    $total = (clone $commentQuery)->count();
+                    $comments = $commentQuery
+                        ->with([
+                            'author' => fn (MorphTo $relation) => $relation->morphWith([
+                                User::class => ['departmentRecord'],
+                            ]),
+                        ])
+                        ->withCount('replies')
+                        ->orderByRaw('CASE WHEN author_type = ? THEN 0 ELSE 1 END', [Admin::class])
+                        ->latest('updated_at')
+                        ->limit($this->commentLimit)
+                        ->get();
 
-        $this->attachCommenterPreviews($reports);
+                    $expanded = $comments->whereIn('id', $expandedReplyIds);
+                    if ($expanded->isNotEmpty()) {
+                        $expanded->load([
+                            'replies.author' => fn (MorphTo $relation) => $relation->morphWith([
+                                User::class => ['departmentRecord'],
+                            ]),
+                        ]);
+                    }
+
+                    return [$comments, $total];
+                },
+            );
+            [$mainComments, $totalMainComments] = $comments;
+        }
 
         $isAdmin = $access->isAdministrator($actor);
         $currentDepartment = $actor instanceof User ? $actor->department : null;
@@ -453,9 +475,8 @@ class ReportWorkspace extends Component
             'canLinkPeople' => $access->canLinkPeople($actor),
             'canEditReport' => $selected !== null && $access->canManage($selected, $actor),
             'canReply' => $selected !== null && $this->canReply($selected, $access, $actor),
-            'caseOptions' => $this->caseOptions($access, $actor),
-            'personOptions' => $this->personOptions($access, $actor),
-            'previewMedia' => $selected?->media->firstWhere('id', $this->previewMediaId),
+            'caseOptions' => $this->composerOpen ? $this->caseOptions($access, $actor) : collect(),
+            'personOptions' => $this->composerOpen ? $this->personOptions($access, $actor) : collect(),
             'department' => $currentDepartment,
         ])->extends($layout, [
             'page_title' => 'Report System — '.config('app.name'),
@@ -487,19 +508,31 @@ class ReportWorkspace extends Component
             return collect();
         }
 
-        $matches = InvestigationCase::query()
-            ->when(trim($this->caseSearch) !== '', function ($query): void {
-                $term = '%'.trim($this->caseSearch).'%';
-                $query->where(fn ($query) => $query->where('public_id', 'like', $term)->orWhere('title', 'like', $term));
-            })
-            ->latest('updated_at')
-            ->limit(20)
-            ->get(['id', 'public_id', 'title']);
-        $selected = $this->caseIds === []
-            ? collect()
-            : InvestigationCase::query()->whereIn('id', $this->caseIds)->get(['id', 'public_id', 'title']);
+        $search = trim($this->caseSearch);
+        $selectedIds = array_values(array_unique(array_map('intval', $this->caseIds)));
+        sort($selectedIds);
+        $actorKey = hash('sha256', $actor::class.':'.$actor->getAuthIdentifier());
 
-        return $selected->merge($matches)->unique('id')->values();
+        return app(VersionedCache::class)->remember(
+            'cases',
+            'report-link:'.$actorKey.':'.hash('sha256', $search.':'.implode(',', $selectedIds)),
+            now()->addSeconds(30),
+            function () use ($search, $selectedIds): Collection {
+                $matches = InvestigationCase::query()
+                    ->when($search !== '', function ($query) use ($search): void {
+                        $term = '%'.$search.'%';
+                        $query->where(fn ($query) => $query->where('public_id', 'like', $term)->orWhere('title', 'like', $term));
+                    })
+                    ->latest('updated_at')
+                    ->limit(20)
+                    ->get(['id', 'public_id', 'title']);
+                $selected = $selectedIds === []
+                    ? collect()
+                    : InvestigationCase::query()->whereIn('id', $selectedIds)->get(['id', 'public_id', 'title']);
+
+                return $selected->merge($matches)->unique('id')->values();
+            },
+        );
     }
 
     private function personOptions(ReportAccess $access, Authenticatable $actor): Collection
@@ -508,19 +541,31 @@ class ReportWorkspace extends Component
             return collect();
         }
 
-        $matches = Person::query()
-            ->when(trim($this->personSearch) !== '', function ($query): void {
-                $term = '%'.trim($this->personSearch).'%';
-                $query->where(fn ($query) => $query->where('public_id', 'like', $term)->orWhere('name', 'like', $term));
-            })
-            ->latest('updated_at')
-            ->limit(20)
-            ->get(['id', 'public_id', 'name']);
-        $selected = $this->personIds === []
-            ? collect()
-            : Person::query()->whereIn('id', $this->personIds)->get(['id', 'public_id', 'name']);
+        $search = trim($this->personSearch);
+        $selectedIds = array_values(array_unique(array_map('intval', $this->personIds)));
+        sort($selectedIds);
+        $actorKey = hash('sha256', $actor::class.':'.$actor->getAuthIdentifier());
 
-        return $selected->merge($matches)->unique('id')->values();
+        return app(VersionedCache::class)->remember(
+            'people',
+            'report-link:'.$actorKey.':'.hash('sha256', $search.':'.implode(',', $selectedIds)),
+            now()->addSeconds(30),
+            function () use ($search, $selectedIds): Collection {
+                $matches = Person::query()
+                    ->when($search !== '', function ($query) use ($search): void {
+                        $term = '%'.$search.'%';
+                        $query->where(fn ($query) => $query->where('public_id', 'like', $term)->orWhere('name', 'like', $term));
+                    })
+                    ->latest('updated_at')
+                    ->limit(20)
+                    ->get(['id', 'public_id', 'name']);
+                $selected = $selectedIds === []
+                    ? collect()
+                    : Person::query()->whereIn('id', $selectedIds)->get(['id', 'public_id', 'name']);
+
+                return $selected->merge($matches)->unique('id')->values();
+            },
+        );
     }
 
     private function attachCommenterPreviews(Collection $reports): void
@@ -544,8 +589,8 @@ class ReportWorkspace extends Component
 
         $userIds = $rows->where('author_type', User::class)->pluck('author_id')->unique();
         $adminIds = $rows->where('author_type', Admin::class)->pluck('author_id')->unique();
-        $users = User::query()->whereIn('id', $userIds)->get()->keyBy('id');
-        $admins = Admin::query()->whereIn('id', $adminIds)->get()->keyBy('id');
+        $users = User::query()->whereIn('id', $userIds)->get(['id', 'name', 'profile_photo_path'])->keyBy('id');
+        $admins = Admin::query()->whereIn('id', $adminIds)->get(['id', 'name'])->keyBy('id');
         $rowsByReport = $rows->groupBy('report_id');
 
         foreach ($reports as $report) {
