@@ -6,6 +6,7 @@
         <meta name="theme-color" content="#080d14">
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <meta name="app-workspace" content="admin">
+        <meta name="broadcast-connection" content="{{ config('broadcasting.default') }}">
         <meta name="application-acronym" content="{{ config('app.acronym') }}">
         <meta name="description" content="{{ config('app.name') }} secure file archive command center.">
         <meta name="dashboard-snapshot-url" content="{{ route('dashboard.snapshot') }}">
@@ -53,6 +54,11 @@
                     <a class="nav-item {{ request()->routeIs('admin.staff.*') ? 'is-active' : '' }}" href="{{ route('admin.staff.index') }}" wire:navigate @if(request()->routeIs('admin.staff.*')) aria-current="page" @endif>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 20v-1.5a5.5 5.5 0 0 1 11 0V20zM16 8h5M18.5 5.5v5"/></svg><span>Staff management</span>
                     </a>
+                    @if (auth('admin')->check())
+                        <a class="nav-item {{ request()->routeIs('admin.mail.*') ? 'is-active' : '' }}" href="{{ route('admin.mail.index') }}" wire:navigate @if(request()->routeIs('admin.mail.*')) aria-current="page" @endif>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="m4 7 8 6 8-6"/></svg><span>Mail center</span>
+                        </a>
+                    @endif
                     @php
                         $securityUnreadCount = 0;
                         if (\Illuminate\Support\Facades\Schema::hasTable('activity_logs')
@@ -65,6 +71,11 @@
                     <a class="nav-item {{ request()->routeIs('admin.security.*') ? 'is-active' : '' }}" href="{{ route('admin.security.index') }}" wire:navigate data-security-nav @if(request()->routeIs('admin.security.*')) aria-current="page" @endif>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5.5c0 4.7-3.1 7.7-8 9.5-4.9-1.8-8-4.8-8-9.5V6z"/><path d="M12 7v5M12 16h.01"/></svg><span>Auth Security</span><span class="security-unread-badge" data-security-activity-badge data-count="{{ $securityUnreadCount }}">{{ $securityUnreadCount > 99 ? '99+' : $securityUnreadCount }}</span>
                     </a>
+                    @if (auth('admin')->check())
+                        <a class="nav-item {{ request()->routeIs('admin.security.two-factor') ? 'is-active' : '' }}" href="{{ route('admin.security.two-factor') }}" wire:navigate @if(request()->routeIs('admin.security.two-factor')) aria-current="page" @endif>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5.5c0 4.7-3.1 7.7-8 9.5-4.9-1.8-8-4.8-8-9.5V6z"/><rect x="9" y="10" width="6" height="5" rx="1"/><path d="M10.5 10V8.5a1.5 1.5 0 0 1 3 0V10"/></svg><span>Two-factor access</span>
+                        </a>
+                    @endif
                     @php
                         $reportUnreadCount = 0;
                         if (\Illuminate\Support\Facades\Schema::hasTable('reports')) {
@@ -114,6 +125,7 @@
         <livewire:dashboard-archive />
         @include('components.portable-calculator')
         @include('components.video-upload-widget')
+        <x-image-viewer />
         @persist('alert-host')
             <x-alert-host />
         @endpersist

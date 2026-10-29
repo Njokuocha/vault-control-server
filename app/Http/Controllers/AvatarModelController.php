@@ -58,12 +58,14 @@ class AvatarModelController extends Controller
         $path = $settings->get('avatar_model_'.$group);
         abort_unless(is_string($path) && Storage::disk(config('vault.upload_disk'))->exists($path), 404);
 
-        return Storage::disk(config('vault.upload_disk'))->response($path, null, [
-            'Content-Type' => 'model/gltf-binary',
-            'Content-Disposition' => 'inline',
-            'X-Content-Type-Options' => 'nosniff',
-            'Content-Security-Policy' => "default-src 'none'; sandbox",
-        ]);
+        $response = app(FileController::class)->streamPrivatePath(
+            request(),
+            $path,
+            'model/gltf-binary',
+        );
+        $response->headers->set('Content-Security-Policy', "default-src 'none'; sandbox");
+
+        return $response;
     }
 
     private function isSafeGlb(?string $path): bool

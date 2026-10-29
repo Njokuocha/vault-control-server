@@ -27,7 +27,7 @@
                     <button class="profile-gallery-tile video-gallery-tile" type="button" data-fm-media-preview data-media-type="video" data-media-url="{{ route('fm.person-media.image', ['person' => $person->id, 'image' => $image->id]) }}" data-download-url="{{ route('fm.person-media.download', ['person' => $person->id, 'image' => $image->id]) }}" data-media-title="Protected video" aria-label="Locked video. Unlock viewables to preview.">
                         <span class="image-lock-placeholder" data-fm-lock-placeholder>?</span>
                         @if ($image->poster_path)<img data-fm-protected-image data-image-url="{{ route('fm.person-media.poster', ['person' => $person->id, 'image' => $image->id]) }}" alt="" loading="lazy" hidden>@endif
-                        <span class="video-play-overlay" aria-hidden="true">▶ VIDEO</span>
+                        <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                     </button>
                 @else
                     <button class="profile-gallery-tile" type="button" data-fm-media-preview data-media-type="image" data-media-url="{{ route('fm.person-media.image', ['person' => $person->id, 'image' => $image->id]) }}" data-download-url="{{ route('fm.person-media.download', ['person' => $person->id, 'image' => $image->id]) }}" data-media-title="Protected image" aria-label="Locked image. Unlock viewables to preview.">
@@ -66,7 +66,7 @@
             <div class="image-viewer-heading"><span class="section-kicker">PRIVATE MEDIA VIEWER</span><h2 data-fm-preview-title>Preview</h2></div>
             <div class="image-viewer-tools"><a class="image-viewer-download" data-fm-preview-download download aria-label="Download file" title="Download file">↓</a><button type="button" data-fm-preview-close aria-label="Close media viewer">×</button></div>
         </header>
-        <div class="image-viewer-stage" data-fm-preview-stage><img data-fm-preview-image alt="" draggable="false" hidden><video data-fm-preview-video controls playsinline hidden></video></div>
+        <div class="image-viewer-stage" data-fm-preview-stage><video data-fm-preview-video controls playsinline hidden></video></div>
     </dialog>
     <footer class="page-footer"><span>{{ strtoupper(config('app.name')) }} · PROTECTED MEDIA</span><span>PRIVATE BY DESIGN <i>·</i> ACCESS CONTROLLED</span></footer>
 @endsection

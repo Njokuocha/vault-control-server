@@ -2,7 +2,10 @@
 
 use App\Events\SecurityActivityCreated;
 use App\Events\SecurityMetricsUpdated;
+use App\Livewire\Admin\BlacklistedIpIndex;
+use App\Livewire\Admin\WhitelistedIpIndex;
 use App\Livewire\SecuritySettings;
+use App\Livewire\WhitelistIpPolicyToggle;
 use App\Models\ActivityLog;
 use App\Models\Admin;
 use App\Models\AuthEvent;
@@ -12,12 +15,17 @@ use App\Models\SecurityLocation;
 use App\Models\SecurityMetricsSnapshot;
 use App\Models\SecuritySessionPresence;
 use App\Models\User;
+use App\Models\WhitelistedIp;
 use App\Services\AdminLoginService;
+use App\Services\AdminTwoFactorService;
 use App\Services\AuthSecurityService;
+use App\Services\DepartmentLoginService;
 use App\Services\SecuritySessionMetrics;
+use App\Services\SettingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 
@@ -49,7 +57,170 @@ test('authentication attempts are audited and repeated failures create brute-for
         ->and(AuthEvent::query()->where('is_brute_force', true)->count())->toBe(3)
         ->and(BruteForceRecord::query()->count())->toBe(3)
         ->and(BlacklistedIp::query()->where('ip_address', '203.0.113.81')->exists())->toBeTrue()
+        ->and(BlacklistedIp::query()->where('ip_address', '203.0.113.81')->value('source'))->toBe('automatic')
         ->and(ActivityLog::query()->where('category', 'authentication')->count())->toBe(5);
+});
+
+test('whitelist enforcement is shared, supports empty-list fallback, and never overrides blacklists', function () {
+    $security = app(AuthSecurityService::class);
+    $settings = app(SettingService::class);
+    $allowedIp = '203.0.113.91';
+    $unknownIp = '203.0.113.92';
+    $blockedIp = '203.0.113.93';
+
+    $settings->set('whitelist_ip_enforcement', '1');
+    expect($security->isIpAllowed($unknownIp))->toBeTrue();
+
+    WhitelistedIp::query()->create(['ip_address' => $allowedIp]);
+    expect($security->isIpAllowed($allowedIp))->toBeTrue()
+        ->and($security->isIpAllowed($unknownIp))->toBeFalse();
+
+    BlacklistedIp::query()->create([
+        'ip_address' => $allowedIp,
+        'failed_attempts' => null,
+        'triggered_at' => null,
+        'reason' => 'Manual security block.',
+        'source' => 'manual',
+    ]);
+    expect($security->isIpAllowed($allowedIp))->toBeFalse();
+
+    $settings->set('whitelist_ip_enforcement', '0');
+    expect($security->isIpAllowed($unknownIp))->toBeTrue()
+        ->and($security->isIpAllowed($allowedIp))->toBeFalse();
+
+    WhitelistedIp::query()->delete();
+    $settings->set('whitelist_ip_enforcement', '1');
+    expect($security->isIpAllowed($unknownIp))->toBeTrue();
+
+    BlacklistedIp::query()->create([
+        'ip_address' => $blockedIp,
+        'failed_attempts' => null,
+        'triggered_at' => null,
+        'reason' => 'Manual security block.',
+        'source' => 'manual',
+    ]);
+    expect($security->isIpAllowed($blockedIp))->toBeFalse();
+});
+
+test('administrators can manually blacklist an IP and the nullable automatic fields render clearly', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Security Administrator',
+        'email' => 'security-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+
+    Livewire::actingAs($admin, 'admin')
+        ->test(BlacklistedIpIndex::class)
+        ->call('openAddModal')
+        ->set('ipAddress', '203.0.113.94')
+        ->set('reason', 'Investigation requested')
+        ->call('add')
+        ->assertHasNoErrors();
+
+    $record = BlacklistedIp::query()->where('ip_address', '203.0.113.94')->firstOrFail();
+    expect($record->source)->toBe('manual')
+        ->and($record->failed_attempts)->toBeNull()
+        ->and($record->triggered_at)->toBeNull()
+        ->and($record->reason)->toBe('Investigation requested');
+
+    $this->actingAs($admin, 'admin')
+        ->get(route('admin.security.blacklisted-ips'))
+        ->assertOk()
+        ->assertSee('Manually added')
+        ->assertSee('Unknown');
+});
+
+test('whitelist management and settings use the same administrator toggle', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Security Administrator',
+        'email' => 'security-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+
+    Livewire::actingAs($admin, 'admin')
+        ->test(WhitelistedIpIndex::class)
+        ->call('openAddModal')
+        ->set('ipAddress', '203.0.113.95')
+        ->call('add')
+        ->assertHasNoErrors();
+
+    Livewire::actingAs($admin, 'admin')
+        ->test(WhitelistIpPolicyToggle::class)
+        ->call('toggle')
+        ->assertSet('enabled', true);
+
+    expect(app(AuthSecurityService::class)->isIpAllowed('203.0.113.95'))->toBeTrue()
+        ->and(app(AuthSecurityService::class)->isIpAllowed('203.0.113.96'))->toBeFalse();
+
+    $this->actingAs($admin, 'admin')
+        ->get(route('admin.security.whitelisted-ips'))
+        ->assertOk()
+        ->assertSee('Whitelisted IP Addresses')
+        ->assertSee('203.0.113.95');
+
+    $this->actingAs($admin, 'admin')
+        ->get(route('settings.index'))
+        ->assertOk()
+        ->assertSee('WHITELIST-ONLY AUTHENTICATION');
+
+    $record = WhitelistedIp::query()->where('ip_address', '203.0.113.95')->firstOrFail();
+    Livewire::actingAs($admin, 'admin')
+        ->test(WhitelistedIpIndex::class)
+        ->call('confirmRemove', $record->id)
+        ->call('remove', $record->id)
+        ->assertHasNoErrors();
+
+    expect(WhitelistedIp::query()->find($record->id))->toBeNull()
+        ->and(app(AuthSecurityService::class)->isIpAllowed('203.0.113.96'))->toBeTrue();
+});
+
+test('non-whitelisted admin, department, and OTP sign-ins share a generic failure', function () {
+    config(['vault.admin.email' => 'operator@example.test']);
+    $admin = Admin::query()->create([
+        'name' => 'Security Administrator',
+        'email' => 'operator@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $staff = User::factory()->create([
+        'username' => 'officer',
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    app(SettingService::class)->set('whitelist_ip_enforcement', '1');
+    WhitelistedIp::query()->create(['ip_address' => '203.0.113.97']);
+    $deniedIp = '203.0.113.98';
+    $expectedMessage = 'Due to a system-level authentication algorithm, you are unable to log in.';
+
+    try {
+        app(AdminLoginService::class)->attempt($admin->email, 'a-secure-password', false, $deniedIp);
+        test()->fail('Expected Admin sign-in to be denied.');
+    } catch (ValidationException $exception) {
+        expect($exception->errors()['email'][0])->toBe($expectedMessage);
+    }
+
+    try {
+        app(DepartmentLoginService::class)->attempt('officer', 'a-secure-password', 'cfm', false, $deniedIp);
+        test()->fail('Expected department sign-in to be denied.');
+    } catch (ValidationException $exception) {
+        expect($exception->errors()['username'][0])->toBe($expectedMessage);
+    }
+
+    session(['admin_otp_challenge' => [
+        'id' => 'security-test-challenge',
+        'admin_id' => $admin->id,
+        'code_hash' => Hash::make('123456'),
+        'expires_at' => now()->addMinute()->timestamp,
+        'remember' => false,
+    ]]);
+    try {
+        app(AdminTwoFactorService::class)->verify('123456', $deniedIp);
+        test()->fail('Expected OTP verification to be denied.');
+    } catch (ValidationException $exception) {
+        expect($exception->errors()['otpCode'][0])->toBe($expectedMessage);
+    }
+
+    expect(AuthEvent::query()->where('ip_address', $deniedIp)->where('status', 'passed')->exists())->toBeFalse()
+        ->and(session()->has('admin_otp_challenge'))->toBeFalse();
 });
 
 test('successful authentication resets consecutive brute-force detection while preserving the audit trail', function () {

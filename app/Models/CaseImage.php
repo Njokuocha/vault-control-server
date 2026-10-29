@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use App\Support\VersionedCache;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CaseImage extends Model
@@ -18,8 +18,9 @@ class CaseImage extends Model
     protected static function booted(): void
     {
         $invalidate = static function (CaseImage $image): void {
-            app(VersionedCache::class)->bump('media');
-            app(VersionedCache::class)->bump('cases');
+            $cache = app(VersionedCache::class);
+            $cache->bumpAfterCommit('media');
+            $cache->bumpAfterCommit('cases');
         };
         static::saved($invalidate);
         static::deleted($invalidate);

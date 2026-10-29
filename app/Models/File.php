@@ -5,10 +5,11 @@ namespace App\Models;
 use App\Events\FileDeleted;
 use App\Events\FileEdited;
 use App\Services\ActivityLogger;
+use App\Support\VersionedCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use App\Support\VersionedCache;
 
 class File extends Model
 {
@@ -56,16 +57,20 @@ class File extends Model
             }
         });
         static::saved(function (): void {
-            app(VersionedCache::class)->bump('files');
-            Cache::forget('dashboard.archive-metrics');
-            Cache::forget('dashboard.archive-years');
-            Cache::forget('dashboard.archive-extensions');
+            DB::afterCommit(function (): void {
+                app(VersionedCache::class)->bump('files');
+                Cache::forget('dashboard.archive-metrics');
+                Cache::forget('dashboard.archive-years');
+                Cache::forget('dashboard.archive-extensions');
+            });
         });
         static::deleted(function (File $file): void {
-            app(VersionedCache::class)->bump('files');
-            Cache::forget('dashboard.archive-metrics');
-            Cache::forget('dashboard.archive-years');
-            Cache::forget('dashboard.archive-extensions');
+            DB::afterCommit(function (): void {
+                app(VersionedCache::class)->bump('files');
+                Cache::forget('dashboard.archive-metrics');
+                Cache::forget('dashboard.archive-years');
+                Cache::forget('dashboard.archive-extensions');
+            });
 
             event(new FileDeleted(
                 $file->uuid,

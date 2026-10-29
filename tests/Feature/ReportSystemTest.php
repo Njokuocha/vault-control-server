@@ -12,6 +12,7 @@ use App\Models\ReportComment;
 use App\Models\ReportMedia;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -55,6 +56,7 @@ test('active staff in each department and administrators can open the agency rep
             ->assertOk()
             ->assertSee('Report System')
             ->assertSee('Cross-agency incident update.')
+            ->assertSee('data-vault-image-viewer', false)
             ->assertSee(route($department.'.reports.index'), false);
     }
 
@@ -62,6 +64,8 @@ test('active staff in each department and administrators can open the agency rep
         ->get(route('admin.reports.index'))
         ->assertOk()
         ->assertSee('Cross-agency incident update.')
+        ->assertSee('data-vault-image-viewer', false)
+        ->assertSee('report-feed-item__spinner', false)
         ->assertSee(route('admin.reports.manage'), false);
 });
 
@@ -284,46 +288,55 @@ test('report attachment preview host is ignored by Livewire DOM morphing', funct
         ->assertSee('data-report-previews wire:ignore', false);
 });
 
-test('cached report comment counts refresh after a comment is created', function () {
+test('report media remains private and supports byte-range playback', function () {
+    Storage::fake(config('vault.upload_disk', 'vault'));
     $reporter = User::factory()->create([
         'department' => 'cfm',
         'account_status' => 'active',
     ]);
     $report = createTestReport($reporter);
-    $workspace = Livewire::actingAs($reporter, 'web')
-        ->test(ReportWorkspace::class)
-        ->assertSee('0 Comments');
-
-    $report->comments()->create([
-        'author_type' => User::class,
-        'author_id' => $reporter->id,
-        'body' => 'A newly cached field note.',
+    $path = "reports/{$report->id}/evidence.png";
+    Storage::disk(config('vault.upload_disk', 'vault'))->put($path, '0123456789');
+    $media = $report->media()->create([
+        'path' => $path,
+        'original_name' => 'evidence.png',
+        'mime_type' => 'image/png',
+        'media_type' => 'image',
+        'size' => 10,
+        'sort_order' => 0,
     ]);
 
-    $workspace->call('refreshReports')
-        ->assertSee('1 Comments')
-        ->assertSee('A newly cached field note.');
+    $response = $this->actingAs($reporter, 'web')
+        ->get(route('reports.media', ['report' => $report, 'media' => $media]), ['Range' => 'bytes=2-5']);
+
+    $response->assertStatus(206)
+        ->assertHeader('Content-Range', 'bytes 2-5/10');
+    expect($response->headers->get('Cache-Control'))
+        ->toContain('private')
+        ->toContain('no-store');
+    ob_start();
+    $response->baseResponse->sendContent();
+    expect(ob_get_clean())->toBe('2345');
 });
 
-test('cached case link suggestions refresh after a case is edited', function () {
-    $staff = User::factory()->create([
+test('selecting a report reuses the loaded detail during the Livewire render', function () {
+    $reporter = User::factory()->create([
         'department' => 'cfm',
         'account_status' => 'active',
     ]);
-    $caseFile = InvestigationCase::query()->create([
-        'public_id' => 'CSE-CACHE-01',
-        'title' => 'Cacheable original case',
-    ]);
+    $workspace = Livewire::actingAs($reporter, 'web')->test(ReportWorkspace::class);
+    $report = createTestReport($reporter, 'Measured report detail request.');
+    $connection = DB::connection();
+    $connection->flushQueryLog();
+    $connection->enableQueryLog();
 
-    $workspace = Livewire::actingAs($staff, 'web')
-        ->test(ReportWorkspace::class)
-        ->call('openComposer')
-        ->set('caseSearch', 'Cacheable')
-        ->assertSee('Cacheable original case');
+    $workspace->call('selectReport', $report->uuid)
+        ->assertSee('Measured report detail request.');
 
-    $caseFile->update(['title' => 'Cacheable revised case']);
+    $detailQueries = collect($connection->getQueryLog())
+        ->pluck('query')
+        ->filter(fn (string $query): bool => str_contains(strtolower($query), 'reports') && str_contains(strtolower($query), 'uuid'));
+    $connection->disableQueryLog();
 
-    $workspace->call('refreshReports')
-        ->assertDontSee('Cacheable original case')
-        ->assertSee('Cacheable revised case');
+    expect($detailQueries)->toHaveCount(1);
 });

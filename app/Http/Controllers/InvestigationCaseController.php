@@ -288,7 +288,6 @@ class InvestigationCaseController extends Controller
             );
         });
 
-        app(VersionedCache::class)->bump('reports');
         Storage::disk(config('vault.upload_disk'))->delete($paths->all());
         foreach (File::query()->whereKey($fileIds)->get() as $file) {
             $file->delete();
@@ -321,11 +320,16 @@ class InvestigationCaseController extends Controller
         }
         abort_unless(Storage::disk(config('vault.upload_disk'))->exists($image->path), 404);
 
-        return Storage::disk(config('vault.upload_disk'))->response($image->path, null, [
-            'Content-Disposition' => $download ? 'attachment' : 'inline',
-            'X-Content-Type-Options' => 'nosniff',
-            'Content-Security-Policy' => "default-src 'none'; sandbox",
-        ]);
+        $response = app(FileController::class)->streamPrivatePath(
+            request(),
+            $image->path,
+            null,
+            $image->original_name,
+            $download,
+        );
+        $response->headers->set('Content-Security-Policy', "default-src 'none'; sandbox");
+
+        return $response;
     }
 
     public function previewEvidence(InvestigationCase $caseFile, File $file): JsonResponse

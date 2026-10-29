@@ -89,7 +89,6 @@ class ReportManagement extends Component
         }
 
         DB::transaction(fn () => $report->delete());
-        app(VersionedCache::class)->bump('reports');
         app(ActivityLogger::class)->record(
             'report-system',
             'report.deleted',

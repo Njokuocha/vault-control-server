@@ -5,6 +5,7 @@ namespace App\Support;
 use Closure;
 use DateTimeInterface;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class VersionedCache
 {
@@ -13,9 +14,11 @@ class VersionedCache
         $versionKey = $this->versionKey($resource);
         $version = (int) Cache::get($versionKey, 0);
         $cacheKey = "vault:{$resource}:v{$version}:{$key}";
+        $missing = new \stdClass;
+        $cached = Cache::get($cacheKey, $missing);
 
-        if (Cache::has($cacheKey)) {
-            return Cache::get($cacheKey);
+        if ($cached !== $missing) {
+            return $cached;
         }
 
         return Cache::lock("vault:lock:{$cacheKey}", 15)->block(5, function () use ($cacheKey, $expiresAt, $resolver): mixed {
@@ -28,6 +31,11 @@ class VersionedCache
         $versionKey = $this->versionKey($resource);
         Cache::add($versionKey, 0, now()->addYears(10));
         Cache::increment($versionKey);
+    }
+
+    public function bumpAfterCommit(string $resource): void
+    {
+        DB::afterCommit(fn () => $this->bump($resource));
     }
 
     private function versionKey(string $resource): string

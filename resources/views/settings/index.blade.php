@@ -12,6 +12,7 @@
     <livewire:settings-upload-key />
 
     <livewire:settings-upload-policy />
+    <livewire:whitelist-ip-policy-toggle />
 
     <livewire:settings-image-pin />
     <livewire:settings-password />

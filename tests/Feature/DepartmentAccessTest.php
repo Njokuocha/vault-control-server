@@ -1,21 +1,21 @@
 <?php
 
 use App\Livewire\Admin\StaffManagement;
-use App\Livewire\DepartmentPassword;
 use App\Livewire\DepartmentLoginForm;
+use App\Livewire\DepartmentPassword;
 use App\Models\Admin;
 use App\Models\Department;
-use App\Models\InvestigationCase;
 use App\Models\File as VaultFile;
+use App\Models\InvestigationCase;
 use App\Models\Person;
 use App\Models\User;
+use App\Services\SettingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
-use Illuminate\Http\UploadedFile;
-use App\Services\SettingService;
 
 uses(RefreshDatabase::class);
 
@@ -416,6 +416,9 @@ test('file managers can access their restricted archive, upload, media and shell
         ->assertOk()
         ->assertSee('Viewables')
         ->assertSee('Protected image')
+        ->assertSee('data-vault-image-viewer', false)
+        ->assertSee('data-vault-image-zoom-in', false)
+        ->assertSee('data-vault-image-grayscale', false)
         ->assertDontSee('Restricted Person Name')
         ->assertDontSee('Confidential dossier statement');
     $this->getJson(route('fm.files.preview', $file->uuid))

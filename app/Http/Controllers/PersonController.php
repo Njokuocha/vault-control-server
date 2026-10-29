@@ -8,8 +8,8 @@ use App\Models\Person;
 use App\Models\PersonImage;
 use App\Models\User;
 use App\Models\VideoUpload;
-use App\Services\PublicRecordId;
 use App\Services\ActivityLogger;
+use App\Services\PublicRecordId;
 use App\Services\RecordUploadAttachmentService;
 use App\Services\ReportAccess;
 use App\Services\SettingService;
@@ -308,12 +308,16 @@ class PersonController extends Controller
 
         abort_unless(is_string($path) && Storage::disk(config('vault.upload_disk'))->exists($path), 404);
 
-        return Storage::disk(config('vault.upload_disk'))->response($path, null, [
-            'Content-Disposition' => $download ? 'attachment' : 'inline',
-            'X-Content-Type-Options' => 'nosniff',
-            'Content-Security-Policy' => "default-src 'none'; sandbox",
-            'Cache-Control' => 'no-store, private',
-        ]);
+        $response = app(FileController::class)->streamPrivatePath(
+            request(),
+            $path,
+            null,
+            basename($path),
+            $download,
+        );
+        $response->headers->set('Content-Security-Policy', "default-src 'none'; sandbox");
+
+        return $response;
     }
 
     public function imagePoster(Person $person, PersonImage $image): mixed

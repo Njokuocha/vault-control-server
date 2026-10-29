@@ -22,7 +22,7 @@
             <div class="report-feed-list">
                 @forelse ($reports as $feedReport)
                     @php($reporter = $feedReport->reporter)
-                    <button class="report-feed-item {{ $report?->id === $feedReport->id ? 'is-selected' : '' }}" type="button" wire:click="selectReport('{{ $feedReport->uuid }}')">
+                    <button class="report-feed-item {{ $report?->id === $feedReport->id ? 'is-selected' : '' }}" type="button" wire:click="selectReport('{{ $feedReport->uuid }}')" wire:loading.attr="disabled" wire:target="selectReport('{{ $feedReport->uuid }}')">
                         <span class="report-feed-item__node" aria-hidden="true"></span>
                         <span class="report-feed-item__meta">
                             <span>{{ $feedReport->created_at?->format('M d, Y · H:i') }} UTC</span>
@@ -46,7 +46,8 @@
                                 @endforeach
                             </span>
                             <span>{{ $feedReport->commenter_count }} {{ $feedReport->commenter_count === 1 ? 'staff' : 'staffs' }} commented</span>
-                            <span class="report-feed-item__arrow" aria-hidden="true">↗</span>
+                            <span class="report-feed-item__arrow" aria-hidden="true" wire:loading.remove wire:target="selectReport('{{ $feedReport->uuid }}')">↗</span>
+                            <span class="report-feed-item__spinner" aria-label="Loading report" wire:loading wire:target="selectReport('{{ $feedReport->uuid }}')"></span>
                         </span>
                     </button>
                 @empty

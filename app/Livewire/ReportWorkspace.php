@@ -81,8 +81,9 @@ class ReportWorkspace extends Component
 
     public function selectReport(string $uuid, ReportAccess $access): void
     {
-        $this->authorizeWorkspace($access);
-        $report = $access->visibleQuery()->where('uuid', $uuid)->firstOrFail();
+        $actor = $this->authorizeWorkspace($access);
+        $report = $this->cachedReportDetail($access, $actor, $uuid);
+        abort_if($report === null, 404);
         $this->selectedReport = $report->uuid;
         $this->activeSection = 'report';
         $this->commentLimit = 15;
@@ -209,7 +210,6 @@ class ReportWorkspace extends Component
             throw new \RuntimeException('The report was saved, but removed attachments could not be cleared from private storage.');
         }
 
-        app(VersionedCache::class)->bump('reports');
         app(ActivityLogger::class)->record(
             'report-system',
             $existing === null ? 'report.created' : 'report.updated',
@@ -376,41 +376,9 @@ class ReportWorkspace extends Component
         }
         $selected = $this->selectedReport === null
             ? null
-            : $cache->remember(
-                'reports',
-                "workspace:{$actorCacheKey}:detail:{$this->selectedReport}",
-                now()->addSeconds(20),
-                fn (): ?Report => $access->visibleQuery($actor)
-                    ->with([
-                        'reporter' => fn (MorphTo $relation) => $relation->morphWith([
-                            User::class => ['departmentRecord'],
-                        ]),
-                        'media',
-                        'cases',
-                        'people',
-                    ])
-                    ->withCount('comments')
-                    ->where('uuid', $this->selectedReport)
-                    ->first(),
-            );
+            : $this->cachedReportDetail($access, $actor, $this->selectedReport);
         if ($selected === null && $reports->isNotEmpty()) {
-            $selected = $cache->remember(
-                'reports',
-                "workspace:{$actorCacheKey}:detail:{$reports->first()->uuid}",
-                now()->addSeconds(20),
-                fn (): ?Report => $access->visibleQuery($actor)
-                    ->with([
-                        'reporter' => fn (MorphTo $relation) => $relation->morphWith([
-                            User::class => ['departmentRecord'],
-                        ]),
-                        'media',
-                        'cases',
-                        'people',
-                    ])
-                    ->withCount('comments')
-                    ->whereKey($reports->first()->id)
-                    ->first(),
-            );
+            $selected = $this->cachedReportDetail($access, $actor, $reports->first()->uuid);
             $this->selectedReport = $selected?->uuid;
             $this->activeSection = 'report';
         }
@@ -494,6 +462,29 @@ class ReportWorkspace extends Component
         abort_unless($this->selectedReport !== null, 404);
 
         return $access->visibleQuery($actor)->where('uuid', $this->selectedReport)->with('media')->firstOrFail();
+    }
+
+    private function cachedReportDetail(ReportAccess $access, Authenticatable $actor, string $uuid): ?Report
+    {
+        $actorCacheKey = hash('sha256', $actor::class.':'.$actor->getAuthIdentifier());
+
+        return app(VersionedCache::class)->remember(
+            'reports',
+            "workspace:{$actorCacheKey}:detail:{$uuid}",
+            now()->addSeconds(20),
+            fn (): ?Report => $access->visibleQuery($actor)
+                ->with([
+                    'reporter' => fn (MorphTo $relation) => $relation->morphWith([
+                        User::class => ['departmentRecord'],
+                    ]),
+                    'media',
+                    'cases',
+                    'people',
+                ])
+                ->withCount('comments')
+                ->where('uuid', $uuid)
+                ->first(),
+        );
     }
 
     private function canReply(Report $report, ReportAccess $access, Authenticatable $actor): bool

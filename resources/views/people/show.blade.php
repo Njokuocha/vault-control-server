@@ -82,7 +82,7 @@
                                 <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-video-title="{{ $image->original_name }}" data-video-pin-required aria-label="Locked video. Unlock viewables to preview." @if ($loop->index >= 4) hidden data-gallery-extra @endif>
                                     <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
                                     @if ($image->poster_path)<img data-protected-image data-image-url="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id]) }}" alt="" loading="lazy" hidden>@endif
-                                    <span class="video-play-overlay" aria-hidden="true">▶ VIDEO</span>
+                                    <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                                     @if ($loop->index === 3 && $person->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $person->images->count() - 4 }}</span>@endif
                                 </button>
                             @else
@@ -140,22 +140,6 @@
                 @endunless
             @endif
         </div>
-    </dialog>
-    <dialog class="image-viewer-dialog" data-image-viewer-dialog>
-        <header class="image-viewer-header">
-            <div class="image-viewer-heading"><span class="section-kicker">PRIVATE IMAGE VIEWER</span><h2 data-image-viewer-title>Image preview</h2></div>
-            <div class="image-viewer-tools">
-                <div class="image-zoom-controls" aria-label="Image zoom controls">
-                    <button type="button" data-image-zoom-out aria-label="Zoom out" title="Zoom out">−</button>
-                    <span data-image-zoom-level>100%</span>
-                    <button type="button" data-image-zoom-in aria-label="Zoom in" title="Zoom in">+</button>
-                </div>
-                <label class="image-grayscale-toggle"><input type="checkbox" data-image-grayscale><span class="image-grayscale-switch" aria-hidden="true"></span><span>GRAYSCALE</span></label>
-                <a class="image-viewer-download" data-image-viewer-download download aria-label="Download image" title="Download image"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m-4-4 4 4 4-4"/><path d="M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4"/></svg></a>
-                <button type="button" data-close-image-viewer aria-label="Close image viewer">×</button>
-            </div>
-        </header>
-        <div class="image-viewer-stage" data-image-viewer-stage><img data-image-viewer-image alt="" draggable="false"></div>
     </dialog>
     <x-video-viewer />
     @unless($profileManagement)

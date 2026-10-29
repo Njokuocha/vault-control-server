@@ -85,6 +85,22 @@ test('private stream returns correct bytes, validators, and supports range reque
     expect($rangeContent)->toBe('2345');
 });
 
+test('PDF stream preserves private inline viewing and supports progressive byte ranges', function () {
+    $pdf = "%PDF-1.7\n".str_repeat('page data ', 20);
+    Storage::disk('vault')->put('report.pdf', $pdf);
+    $file = makeVaultFile('report.pdf', 'report.pdf', 'application/pdf', 'pdf');
+    $this->actingAs(User::factory()->create());
+
+    $response = $this->get(route('files.stream', ['file' => $file->uuid]), ['Range' => 'bytes=0-7']);
+
+    $response->assertStatus(206)
+        ->assertHeader('Content-Type', 'application/pdf')
+        ->assertHeader('Content-Range', 'bytes 0-7/'.strlen($pdf));
+    expect($response->headers->get('Cache-Control'))
+        ->toContain('private')
+        ->toContain('must-revalidate');
+});
+
 test('nginx sendfile mode delegates bytes only after Laravel authorization and keeps validators', function () {
     Storage::disk('vault')->put('2026/10/video.mp4', 'private video bytes');
     $file = makeVaultFile('2026/10/video.mp4', 'video.mp4', 'video/mp4', 'mp4');

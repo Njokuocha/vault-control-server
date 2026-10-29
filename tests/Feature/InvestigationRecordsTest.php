@@ -333,7 +333,7 @@ test('case dossiers and forms render through Livewire with document upload contr
         ->assertOk()
         ->assertSee('wire:id', false)
         ->assertSee('Livewire case dossier')
-        ->assertSee('data-image-viewer-dialog', false);
+        ->assertSee('data-vault-image-viewer', false);
 
     Livewire::test(CaseDossier::class, ['caseFile' => $case])
         ->assertSee('Livewire case dossier')
@@ -595,10 +595,10 @@ test('person images require a PIN on every profile visit and downloads stay auth
         ->assertSee('data-image-pin-form', false)
         ->assertSee('type="submit" class="button-primary pin-submit"', false)
         ->assertSee('loading="lazy"', false)
-        ->assertSee('data-image-zoom-in', false)
-        ->assertSee('data-image-zoom-out', false)
-        ->assertSee('data-image-grayscale', false)
-        ->assertSee('data-image-viewer-stage', false)
+        ->assertSee('data-vault-image-zoom-in', false)
+        ->assertSee('data-vault-image-zoom-out', false)
+        ->assertSee('data-vault-image-grayscale', false)
+        ->assertSee('data-vault-image-stage', false)
         ->assertSee('UNKNOWN MODEL NOT CONFIGURED')
         ->assertDontSee('src="'.route('people.image', ['person' => $person, 'image' => 'main']).'"', false)
         ->assertSee('data-image-url="'.route('people.image', ['person' => $person, 'image' => 'main']).'"', false);
@@ -609,9 +609,11 @@ test('person images require a PIN on every profile visit and downloads stay auth
         ->assertJsonPath('status', 'unlocked');
 
     $this->get(route('people.image', ['person' => $person, 'image' => 'main']))->assertOk();
-    $this->get(route('people.images.download', ['person' => $person, 'image' => 'main']))
-        ->assertOk()
-        ->assertHeader('Content-Disposition', 'attachment');
+    $download = $this->get(route('people.images.download', ['person' => $person, 'image' => 'main']))
+        ->assertOk();
+    expect($download->headers->get('Content-Disposition'))
+        ->toStartWith('attachment; filename=')
+        ->toEndWith('.png');
     $this->get(route('people.image', ['person' => $person, 'image' => $person->images()->first()->id]))->assertOk();
 
     $this->get(route('people.show', $person))->assertOk();
@@ -638,17 +640,17 @@ test('case evidence galleries expand beyond four images and provide image downlo
         ->assertOk()
         ->assertSee('+2')
         ->assertSee('data-gallery-extra', false)
-        ->assertSee('data-image-viewer-dialog', false)
-        ->assertSee('data-image-zoom-in', false)
-        ->assertSee('data-image-zoom-out', false)
-        ->assertSee('data-image-grayscale', false)
-        ->assertSee('data-image-viewer-stage', false);
+        ->assertSee('data-vault-image-viewer', false)
+        ->assertSee('data-vault-image-zoom-in', false)
+        ->assertSee('data-vault-image-zoom-out', false)
+        ->assertSee('data-vault-image-grayscale', false)
+        ->assertSee('data-vault-image-stage', false);
 
     expect(substr_count($response->getContent(), 'data-gallery-extra'))->toBe(2);
 
-    $this->get(route('cases.images.download', ['caseFile' => $caseFile, 'image' => $firstImage]))
-        ->assertOk()
-        ->assertHeader('Content-Disposition', 'attachment');
+    $download = $this->get(route('cases.images.download', ['caseFile' => $caseFile, 'image' => $firstImage]))
+        ->assertOk();
+    expect($download->headers->get('Content-Disposition'))->toBe('attachment; filename=image-1.png');
 });
 
 test('avatar models accept valid embedded GLB files and reject external asset references', function () {

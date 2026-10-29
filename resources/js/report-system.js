@@ -1,3 +1,5 @@
+import { openImageViewer } from './image-viewer.js';
+
 const previewObjectUrls = new WeakMap();
 const activeObjectUrls = new Set();
 let lastModalTrigger = null;
@@ -129,6 +131,16 @@ function openReportMedia(source, trigger) {
 
     const returnTarget = trigger.closest('[data-report-gallery-modal]') ? lastModalTrigger : trigger;
     closeReportModals();
+    if (mediaType === 'image') {
+        openImageViewer({
+            src: mediaUrl,
+            downloadUrl: mediaUrl,
+            name: mediaName,
+            returnFocus: returnTarget,
+        });
+        return;
+    }
+
     lastModalTrigger = returnTarget instanceof HTMLElement ? returnTarget : trigger;
     name.textContent = mediaName;
     content.append(mediaElement(mediaType, mediaUrl, mediaName));

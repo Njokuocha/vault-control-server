@@ -20,8 +20,8 @@ class ReportComment extends Model
 
     protected static function booted(): void
     {
-        static::saved(fn (): mixed => app(VersionedCache::class)->bump('reports'));
-        static::deleted(fn (): mixed => app(VersionedCache::class)->bump('reports'));
+        static::saved(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('reports'));
+        static::deleted(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('reports'));
     }
 
     public function report(): BelongsTo

@@ -6,6 +6,7 @@
         <meta name="theme-color" content="#080d14">
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <meta name="app-workspace" content="{{ auth('web')->user()->department }}">
+        <meta name="broadcast-connection" content="{{ config('broadcasting.default') }}">
         <meta name="application-acronym" content="{{ config('app.acronym') }}">
         <meta name="upload-user-id" content="{{ auth('web')->id() }}">
         <title>@yield('page_title', config('app.name'))</title>
@@ -139,6 +140,7 @@
         @else
             <x-file-preview-modal />
         @endif
+        <x-image-viewer />
         <x-alert-host />
         @livewireScripts
     </body>

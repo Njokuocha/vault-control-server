@@ -26,12 +26,16 @@ class LoginController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        $login->attempt(
+        $requiresOtp = $login->attempt(
             $credentials['email'],
             $credentials['password'],
             $request->boolean('remember'),
             (string) $request->ip(),
         );
+        if ($requiresOtp) {
+            return redirect()->route('login');
+        }
+
         $request->session()->regenerate();
         $request->session()->put('security_activity_last_seen_id', (int) ActivityLog::query()->max('id'));
 

@@ -9,6 +9,7 @@ use App\Models\AuthEvent;
 use App\Models\BlacklistedIp;
 use App\Models\BruteForceRecord;
 use App\Models\User;
+use App\Models\WhitelistedIp;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -16,7 +17,26 @@ class AuthSecurityService
 {
     public function isBlacklisted(string $ip): bool
     {
-        return BlacklistedIp::query()->where('ip_address', $ip)->exists();
+        return BlacklistedIp::query()->where('ip_address', $this->normalizeIp($ip))->exists();
+    }
+
+    public function isIpAllowed(string $ip): bool
+    {
+        if ($this->isBlacklisted($ip)) {
+            return false;
+        }
+
+        $settings = app(SettingService::class);
+        $enforcement = $settings->get('whitelist_ip_enforcement');
+        if ($enforcement !== null && ! in_array($enforcement, ['0', '1'], true)) {
+            throw new \UnexpectedValueException('The whitelist IP enforcement setting is invalid.');
+        }
+
+        if ($enforcement !== '1' || ! WhitelistedIp::query()->exists()) {
+            return true;
+        }
+
+        return WhitelistedIp::query()->where('ip_address', $this->normalizeIp($ip))->exists();
     }
 
     public function recordAttempt(
@@ -29,6 +49,8 @@ class AuthSecurityService
         string $detail,
         ?string $userAgent,
     ): AuthEvent {
+        $ip = $this->normalizeIp($ip);
+
         return Cache::lock('auth-security:ip:'.hash('sha256', $ip), 15)
             ->block(5, fn (): AuthEvent => DB::transaction(function () use ($guard, $admin, $staff, $ip, $durationMs, $passed, $detail, $userAgent): AuthEvent {
                 $account = $admin ?? $staff;
@@ -36,11 +58,14 @@ class AuthSecurityService
                 $accountName = $account?->name ?? 'Unknown';
                 $accountId = $account === null ? null : (string) $account->getAuthIdentifier();
                 $blacklist = BlacklistedIp::query()->where('ip_address', $ip)->lockForUpdate()->first();
-                $passed = $passed && $blacklist === null;
+                $ipAllowed = $this->isIpAllowed($ip);
+                $passed = $passed && $ipAllowed;
 
                 if ($blacklist !== null) {
                     $blacklist->forceFill(['last_attempt_at' => now()])->save();
                     $detail = 'Source IP is blocked by the security policy.';
+                } elseif (! $ipAllowed) {
+                    $detail = 'Source IP is restricted by the security policy.';
                 }
 
                 $event = AuthEvent::query()->create([
@@ -113,6 +138,7 @@ class AuthSecurityService
                         'triggered_at' => now(),
                         'last_attempt_at' => now(),
                         'reason' => "{$blacklistFailures} failed sign-in attempts within {$blacklistWindow} seconds.",
+                        'source' => 'automatic',
                     ]);
                     app(ActivityLogger::class)->record(
                         'security',
@@ -134,6 +160,13 @@ class AuthSecurityService
         $value = $setting === null ? (int) config("auth_security.{$configKey}", $default) : (int) $setting;
 
         return min($max, max($min, $value));
+    }
+
+    private function normalizeIp(string $ip): string
+    {
+        $packed = inet_pton($ip);
+
+        return $packed === false ? $ip : inet_ntop($packed);
     }
 
     private function logAuthentication(AuthEvent $event): void

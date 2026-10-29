@@ -63,8 +63,8 @@ class User extends Authenticatable
                     : Department::query()->where('code', $user->department)->value('id');
             }
         });
-        static::saved(fn (): mixed => app(VersionedCache::class)->bump('reports'));
-        static::deleted(fn (): mixed => app(VersionedCache::class)->bump('reports'));
+        static::saved(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('reports'));
+        static::deleted(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('reports'));
     }
 
     public function uploadTransfers(): HasMany

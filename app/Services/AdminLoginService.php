@@ -4,13 +4,15 @@ namespace App\Services;
 
 use App\Models\Admin;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class AdminLoginService
 {
-    public function attempt(string $email, string $password, bool $remember, string $ipAddress): void
+    public function attempt(string $email, string $password, bool $remember, string $ipAddress): bool
     {
         $startedAt = hrtime(true);
         $email = Str::lower(trim($email));
@@ -18,10 +20,10 @@ class AdminLoginService
         $admin = Admin::query()->whereRaw('LOWER(email) = ?', [$email])->first();
         $security = app(AuthSecurityService::class);
 
-        if ($security->isBlacklisted($ipAddress)) {
-            $security->recordAttempt('admin', $admin, null, $ipAddress, $this->elapsedMilliseconds($startedAt), false, 'Source IP is blacklisted.', request()->userAgent());
+        if (! $security->isIpAllowed($ipAddress)) {
+            $security->recordAttempt('admin', $admin, null, $ipAddress, $this->elapsedMilliseconds($startedAt), false, 'Source IP is restricted by the security policy.', request()->userAgent());
             throw ValidationException::withMessages([
-                'email' => 'This network is temporarily blocked from authentication. Contact an administrator.',
+                'email' => 'Due to a system-level authentication algorithm, you are unable to log in.',
             ]);
         }
 
@@ -32,8 +34,10 @@ class AdminLoginService
             ]);
         }
 
-        $isConfiguredAdmin = $email === Str::lower((string) config('vault.admin.email'));
-        $authenticated = $isConfiguredAdmin && Auth::guard('admin')->attempt(['email' => $email, 'password' => $password], $remember);
+        $isConfiguredAdmin = $email === Str::lower(trim((string) config('vault.admin.email')));
+        $authenticated = $isConfiguredAdmin
+            && $admin !== null
+            && Hash::check($password, $admin->password);
 
         if (! $authenticated) {
             RateLimiter::hit($key, 60);
@@ -45,7 +49,31 @@ class AdminLoginService
         }
 
         RateLimiter::clear($key);
+        if (app(AdminTwoFactorService::class)->enabled()) {
+            try {
+                app(AdminTwoFactorService::class)->begin($admin, $remember, $ipAddress);
+            } catch (Throwable $exception) {
+                $security->recordAttempt(
+                    'admin',
+                    $admin,
+                    null,
+                    $ipAddress,
+                    $this->elapsedMilliseconds($startedAt),
+                    false,
+                    'Administrator verification email could not be delivered.',
+                    request()->userAgent(),
+                );
+
+                throw $exception;
+            }
+
+            return true;
+        }
+
+        Auth::guard('admin')->login($admin, $remember);
         $security->recordAttempt('admin', $admin, null, $ipAddress, $this->elapsedMilliseconds($startedAt), true, 'Administrator authentication succeeded.', request()->userAgent());
+
+        return false;
     }
 
     private function elapsedMilliseconds(int $startedAt): int

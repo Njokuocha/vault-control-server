@@ -1,11 +1,16 @@
 <?php
 
+use App\Models\CaseCategory;
+use App\Models\CaseImage;
 use App\Models\File as VaultFile;
+use App\Models\InvestigationCase;
 use App\Models\Person;
 use App\Models\PersonImage;
 use App\Models\User;
 use App\Models\VideoUpload;
+use App\Services\SettingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -79,7 +84,7 @@ test('completed private videos can be attached to person galleries and require t
     $this->get(route('people.images.poster', ['person' => $person, 'image' => $media->id]))
         ->assertForbidden();
 
-    app(\App\Services\SettingService::class)->set('person_image_pin_hash', \Illuminate\Support\Facades\Hash::make('0427'));
+    app(SettingService::class)->set('person_image_pin_hash', Hash::make('0427'));
     $this->postJson(route('people.images.unlock', $person), ['pin' => '0427'])->assertOk();
     $this->get(route('people.image', ['person' => $person, 'image' => $media->id]), ['Range' => 'bytes=0-5'])
         ->assertStatus(206)
@@ -101,8 +106,8 @@ test('completed private videos can be attached to any case evidence category and
         ])
         ->assertRedirect();
 
-    $case = \App\Models\InvestigationCase::query()->firstOrFail();
-    $media = \App\Models\CaseImage::query()->firstOrFail();
+    $case = InvestigationCase::query()->firstOrFail();
+    $media = CaseImage::query()->firstOrFail();
     expect($media->type)->toBe('video')
         ->and($upload->fresh()->attached_at)->not->toBeNull();
 
@@ -113,6 +118,78 @@ test('completed private videos can be attached to any case evidence category and
     $this->get(route('cases.image', ['caseFile' => $case, 'image' => $media]))
         ->assertOk()
         ->assertHeader('Content-Type', 'video/mp4');
+});
+
+test('legacy case image files support private byte-range delivery', function () {
+    $staff = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $case = InvestigationCase::query()->create([
+        'public_id' => 'CSE-RANGE-01',
+        'title' => 'Range delivery case',
+    ]);
+    $category = CaseCategory::query()->create([
+        'case_file_id' => $case->id,
+        'title' => 'Photographs',
+        'sort_order' => 0,
+    ]);
+    $path = "cases/{$case->id}/image.png";
+    Storage::disk('vault')->put($path, '0123456789');
+    $image = CaseImage::query()->create([
+        'case_category_id' => $category->id,
+        'path' => $path,
+        'original_name' => 'image.png',
+        'type' => 'image',
+    ]);
+
+    $response = $this->actingAs($staff, 'web')
+        ->get(route('cfm.cases.image', ['caseFile' => $case, 'image' => $image]), ['Range' => 'bytes=1-4']);
+
+    $response->assertStatus(206)
+        ->assertHeader('Content-Range', 'bytes 1-4/10');
+    expect($response->headers->get('Cache-Control'))
+        ->toContain('private')
+        ->toContain('no-store');
+    ob_start();
+    $response->baseResponse->sendContent();
+    expect(ob_get_clean())->toBe('1234');
+});
+
+test('PIN-protected legacy person images support private byte-range delivery', function () {
+    $staff = User::factory()->create([
+        'department' => 'pm',
+        'account_status' => 'active',
+    ]);
+    $person = Person::query()->create([
+        'public_id' => 'USR-RANGE-01',
+        'name' => 'Range delivery person',
+    ]);
+    $path = "people/{$person->id}/image.png";
+    Storage::disk('vault')->put($path, '0123456789');
+    $image = PersonImage::query()->create([
+        'person_id' => $person->id,
+        'path' => $path,
+        'original_name' => 'image.png',
+        'type' => 'image',
+    ]);
+    app(SettingService::class)->set('person_image_pin_hash', Hash::make('0427'));
+    $this->actingAs($staff, 'web')
+        ->postJson(route('pm.people.images.unlock', $person), ['pin' => '0427'])
+        ->assertOk();
+
+    $response = $this->get(route('pm.people.image', ['person' => $person, 'image' => $image->id]), [
+        'Range' => 'bytes=3-6',
+    ]);
+
+    $response->assertStatus(206)
+        ->assertHeader('Content-Range', 'bytes 3-6/10');
+    expect($response->headers->get('Cache-Control'))
+        ->toContain('private')
+        ->toContain('no-store');
+    ob_start();
+    $response->baseResponse->sendContent();
+    expect(ob_get_clean())->toBe('3456');
 });
 
 test('optional private renditions and posters are served through authorized media routes', function () {
@@ -127,8 +204,8 @@ test('optional private renditions and posters are served through authorized medi
         ])
         ->assertRedirect();
 
-    $case = \App\Models\InvestigationCase::query()->firstOrFail();
-    $media = \App\Models\CaseImage::query()->firstOrFail();
+    $case = InvestigationCase::query()->firstOrFail();
+    $media = CaseImage::query()->firstOrFail();
     expect($media->playable_path)->not->toBeNull()
         ->and($media->poster_path)->not->toBeNull()
         ->and($media->duration)->toBe(37);

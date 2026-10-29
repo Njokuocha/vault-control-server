@@ -6,7 +6,6 @@ use App\Models\Report;
 use App\Models\ReportMedia;
 use App\Models\User;
 use App\Services\ReportAccess;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 
 class ReportMediaController extends Controller
@@ -20,14 +19,15 @@ class ReportMediaController extends Controller
             404,
         );
 
-        $disk = Storage::disk(config('vault.upload_disk', 'vault'));
-        abort_unless($disk->exists($media->path), 404);
+        $response = app(FileController::class)->streamPrivatePath(
+            request(),
+            $media->path,
+            $media->mime_type,
+            $media->original_name,
+        );
+        $response->headers->set('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'");
 
-        return $disk->response($media->path, $media->original_name, [
-            'Cache-Control' => 'private, no-store',
-            'X-Content-Type-Options' => 'nosniff',
-            'Content-Security-Policy' => "default-src 'none'; img-src 'self'; media-src 'self'",
-        ], 'inline');
+        return $response;
     }
 
     public function commenterPhoto(User $user, ReportAccess $access): Response
@@ -38,12 +38,6 @@ class ReportMediaController extends Controller
         $path = $user->profile_photo_path;
         abort_unless(is_string($path) && str_starts_with($path, 'staff-profiles/'.$user->id.'/'), 404);
 
-        $disk = Storage::disk('vault');
-        abort_unless($disk->exists($path), 404);
-
-        return $disk->response($path, basename($path), [
-            'Cache-Control' => 'private, no-store',
-            'X-Content-Type-Options' => 'nosniff',
-        ], 'inline');
+        return app(FileController::class)->streamPrivatePath(request(), $path);
     }
 }

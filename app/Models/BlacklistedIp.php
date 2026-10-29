@@ -12,6 +12,7 @@ class BlacklistedIp extends Model
         'triggered_at',
         'last_attempt_at',
         'reason',
+        'source',
     ];
 
     protected function casts(): array

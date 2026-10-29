@@ -12,5 +12,6 @@ Schedule::command('vault:prune-video-uploads')->hourly()->withoutOverlapping();
 Schedule::command('vault:prune-upload-transfers')->hourly()->withoutOverlapping();
 Schedule::command('security:snapshot-sessions')
     ->everyMinute()
+    ->withoutOverlapping()
     ->createMutexNameUsing('framework/schedule-security-snapshot-v2');
 Schedule::command('security:prune-records')->daily()->withoutOverlapping();

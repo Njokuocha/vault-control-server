@@ -6,9 +6,11 @@ use App\Jobs\BuildArchiveIndexJob;
 use App\Models\File;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\Response;
 use ZipArchive;
 
@@ -79,25 +81,81 @@ class FileController extends Controller
     public function stream(Request $request, File $file): Response
     {
         $absolutePath = $this->privateAbsolutePath($file);
-
         $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($absolutePath);
         $mime = is_string($mime) && $mime !== '' ? $mime : 'application/octet-stream';
+
+        return $this->privateFileResponse(
+            $request,
+            $file->stored_path,
+            $absolutePath,
+            $mime,
+            $file->checksum,
+            $file->updated_at,
+            'private, must-revalidate',
+            $file->original_name,
+        );
+    }
+
+    public function streamPrivatePath(
+        Request $request,
+        string $relativePath,
+        ?string $mimeType = null,
+        ?string $fileName = null,
+        bool $download = false,
+    ): Response {
+        $absolutePath = $this->privateRelativePath($relativePath);
+        $modifiedAt = filemtime($absolutePath);
+        $size = filesize($absolutePath);
+        if (! is_int($modifiedAt) || ! is_int($size)) {
+            throw new \RuntimeException('Unable to read private media metadata.');
+        }
+
+        $mime = $mimeType ?? (new \finfo(FILEINFO_MIME_TYPE))->file($absolutePath);
+        $mime = is_string($mime) && $mime !== '' ? $mime : 'application/octet-stream';
+
+        return $this->privateFileResponse(
+            $request,
+            $relativePath,
+            $absolutePath,
+            $mime,
+            hash('sha256', $relativePath.':'.$size.':'.$modifiedAt),
+            Carbon::createFromTimestamp($modifiedAt),
+            'private, no-store',
+            $fileName ?? basename($relativePath),
+            $download,
+        );
+    }
+
+    private function privateFileResponse(
+        Request $request,
+        string $relativePath,
+        string $absolutePath,
+        string $mime,
+        string $etag,
+        \DateTimeInterface $lastModified,
+        string $cacheControl,
+        string $fileName,
+        bool $download = false,
+    ): Response {
         $headers = [
             'Content-Type' => $mime,
             'X-Content-Type-Options' => 'nosniff',
-            'Cache-Control' => 'private, must-revalidate',
+            'Cache-Control' => $cacheControl,
         ];
-
         if (in_array($mime, ['text/html', 'image/svg+xml', 'application/xml', 'text/xml'], true)) {
             $headers['Content-Security-Policy'] = "sandbox; default-src 'none'";
         }
+        $headers['Content-Disposition'] = HeaderUtils::makeDisposition(
+            $download ? 'attachment' : 'inline',
+            $this->safeDownloadName($fileName),
+        );
 
         $mode = $this->sendfileMode();
         $response = $mode === 'off'
             ? response()->file($absolutePath, $headers)
             : response('', 200, $headers);
-        $response->setEtag($file->checksum);
-        $response->setLastModified($file->updated_at);
+        $response->setEtag($etag);
+        $response->setLastModified($lastModified);
         $response->setPrivate();
 
         if ($response->isNotModified($request)) {
@@ -107,7 +165,7 @@ class FileController extends Controller
         if ($mode !== 'off') {
             $response->headers->set('Accept-Ranges', 'bytes');
             $response->headers->set('Content-Length', (string) filesize($absolutePath));
-            $this->addSendfileHeader($response, $file, $absolutePath, $mode);
+            $this->addSendfileHeader($response, $relativePath, $absolutePath, $mode);
         }
 
         return $response;
@@ -118,56 +176,32 @@ class FileController extends Controller
         $absolutePath = $this->privateAbsolutePath($file);
         $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($absolutePath);
         $mime = is_string($mime) && $mime !== '' ? $mime : 'application/octet-stream';
-        $headers = [
-            'Content-Type' => $mime,
-            'Content-Disposition' => \Symfony\Component\HttpFoundation\HeaderUtils::makeDisposition(
-                'attachment',
-                $this->safeDownloadName($file->original_name),
-            ),
-            'X-Content-Type-Options' => 'nosniff',
-            'Cache-Control' => 'private, no-store',
-        ];
-        $mode = $this->sendfileMode();
-        if ($mode !== 'off') {
-            $response = response('', 200, $headers);
-            $response->headers->set('Accept-Ranges', 'bytes');
-            $this->addSendfileHeader($response, $file, $absolutePath, $mode);
 
-            return $response;
-        }
-
-        return response()->download($absolutePath, $this->safeDownloadName($file->original_name), [
-            'X-Content-Type-Options' => 'nosniff',
-            'Cache-Control' => 'private, no-store',
-        ]);
+        return $this->privateFileResponse(
+            request(),
+            $file->stored_path,
+            $absolutePath,
+            $mime,
+            $file->checksum,
+            $file->updated_at,
+            'private, no-store',
+            $file->original_name,
+            true,
+        );
     }
 
-    public function videoRendition(File $file): BinaryFileResponse
+    public function videoRendition(File $file): Response
     {
         abort_unless($file->category === 'video' && is_string($file->video_playable_path), 404);
-        $path = $this->privateRelativePath($file->video_playable_path);
-        $response = response()->file($path, [
-            'Content-Type' => 'video/mp4',
-            'X-Content-Type-Options' => 'nosniff',
-            'Cache-Control' => 'private, no-store',
-        ]);
-        $response->setPrivate();
 
-        return $response;
+        return $this->streamPrivatePath(request(), $file->video_playable_path, 'video/mp4');
     }
 
-    public function videoPoster(File $file): BinaryFileResponse
+    public function videoPoster(File $file): Response
     {
         abort_unless($file->category === 'video' && is_string($file->video_poster_path), 404);
-        $path = $this->privateRelativePath($file->video_poster_path);
-        $response = response()->file($path, [
-            'Content-Type' => 'image/jpeg',
-            'X-Content-Type-Options' => 'nosniff',
-            'Cache-Control' => 'private, no-store',
-        ]);
-        $response->setPrivate();
 
-        return $response;
+        return $this->streamPrivatePath(request(), $file->video_poster_path, 'image/jpeg');
     }
 
     public function archiveEntry(Request $request, File $file, ?string $routePrefix = null): JsonResponse|Response
@@ -279,7 +313,7 @@ class FileController extends Controller
     }
 
     /**
-     * @param resource|false $stream
+     * @param  resource|false  $stream
      * @return array{0: string|null, 1: bool}
      */
     private function readTextPreview(mixed $stream): array
@@ -307,7 +341,7 @@ class FileController extends Controller
     }
 
     /**
-     * @param array<string, mixed> $tree
+     * @param  array<string, mixed>  $tree
      */
     private function treeContainsFile(array $tree, string $path): bool
     {
@@ -339,7 +373,7 @@ class FileController extends Controller
     }
 
     /**
-     * @param list<array<string, mixed>> $nodes
+     * @param  list<array<string, mixed>>  $nodes
      * @return list<string>
      */
     private function flattenTree(array $nodes, string $prefix = ''): array
@@ -361,7 +395,7 @@ class FileController extends Controller
     }
 
     /**
-     * @param list<array<string, mixed>> $nodes
+     * @param  list<array<string, mixed>>  $nodes
      * @return list<array<string, mixed>>
      */
     private function limitTree(array $nodes, int &$remaining): array
@@ -411,10 +445,10 @@ class FileController extends Controller
         return $mode;
     }
 
-    private function addSendfileHeader(Response $response, File $file, string $absolutePath, string $mode): void
+    private function addSendfileHeader(Response $response, string $relativePath, string $absolutePath, string $mode): void
     {
         if ($mode === 'nginx') {
-            $encodedPath = implode('/', array_map('rawurlencode', explode('/', $file->stored_path)));
+            $encodedPath = implode('/', array_map('rawurlencode', explode('/', $relativePath)));
             $response->headers->set('X-Accel-Redirect', '/_vault/'.$encodedPath);
 
             return;

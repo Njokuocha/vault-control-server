@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AdminEmailAttachmentController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\AuthSecurityController;
 use App\Http\Controllers\AvatarModelController;
@@ -24,9 +25,12 @@ use App\Livewire\Admin\BlacklistedIpIndex;
 use App\Livewire\Admin\BruteForceIndex;
 use App\Livewire\Admin\DepartmentManagement;
 use App\Livewire\Admin\DepartmentStaffDirectory;
+use App\Livewire\Admin\MailCenter;
+use App\Livewire\Admin\ReportManagement;
 use App\Livewire\Admin\StaffManagement;
 use App\Livewire\Admin\StaffProfile;
-use App\Livewire\Admin\ReportManagement;
+use App\Livewire\Admin\TwoFactorSettings;
+use App\Livewire\Admin\WhitelistedIpIndex;
 use App\Livewire\ReportWorkspace;
 use App\Models\Department;
 use Illuminate\Http\Request;
@@ -233,6 +237,12 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::post('/settings/upload-policy', [SettingsController::class, 'updateUploadPolicy'])->name('settings.upload-policy.update');
     Route::post('/settings/password', [SettingsController::class, 'updatePassword'])->name('settings.password.update');
     Route::post('/settings/person-image-pin', [SettingsController::class, 'updateImagePin'])->name('settings.person-image-pin.update');
+    Route::middleware('auth:admin')->group(function (): void {
+        Route::get('/mail', MailCenter::class)->name('admin.mail.index');
+        Route::get('/mail/attachments/{attachment}', [AdminEmailAttachmentController::class, 'download'])
+            ->whereNumber('attachment')
+            ->name('admin.mail.attachments.download');
+    });
     Route::get('/staff', StaffManagement::class)->name('admin.staff.index');
     Route::get('/reports', ReportWorkspace::class)->name('admin.reports.index');
     Route::get('/reports/manage', ReportManagement::class)->name('admin.reports.manage');
@@ -248,6 +258,7 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
         ->whereNumber('department')
         ->name('admin.departments.staff');
     Route::middleware('security.read')->prefix('/auth-security')->name('admin.security.')->group(function (): void {
+        Route::get('/two-factor', TwoFactorSettings::class)->middleware('auth:admin')->name('two-factor');
         Route::get('/', AuthSecurityDashboard::class)->name('index');
         Route::get('/authentication-history', AuthHistory::class)->name('auth-history');
         Route::get('/authentication-history/{authEvent}', [AuthSecurityController::class, 'authEvent'])->whereNumber('authEvent')->name('auth-event');
@@ -256,6 +267,7 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
         Route::get('/brute-force', BruteForceIndex::class)->name('brute-force');
         Route::get('/brute-force/{bruteForceRecord}', [AuthSecurityController::class, 'bruteForce'])->whereNumber('bruteForceRecord')->name('brute-force-detail');
         Route::get('/blacklisted-ips', BlacklistedIpIndex::class)->name('blacklisted-ips');
+        Route::get('/whitelisted-ips', WhitelistedIpIndex::class)->name('whitelisted-ips');
     });
 });
 

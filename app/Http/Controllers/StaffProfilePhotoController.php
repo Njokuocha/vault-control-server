@@ -32,12 +32,8 @@ class StaffProfilePhotoController extends Controller
             404
         );
 
-        $disk = Storage::disk('vault');
-        abort_unless($disk->exists($path), 404);
+        abort_unless(Storage::disk('vault')->exists($path), 404);
 
-        return $disk->response($path, basename($path), [
-            'Cache-Control' => 'private, no-store',
-            'X-Content-Type-Options' => 'nosniff',
-        ], 'inline');
+        return app(FileController::class)->streamPrivatePath(request(), $path);
     }
 }

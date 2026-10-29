@@ -5,6 +5,8 @@ import './upload-transfer-uploader';
 import './record-form-submitter';
 import './video-uploader';
 import './report-system';
+import './admin-mail';
+import { openImageViewer } from './image-viewer.js';
 import { evaluateTriggerExpression } from './shell-math.mjs';
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
@@ -12,8 +14,9 @@ import Pusher from 'pusher-js';
 const pusherKey = import.meta.env.VITE_PUSHER_APP_KEY;
 const pusherCluster = import.meta.env.VITE_PUSHER_APP_CLUSTER;
 const applicationWorkspace = document.querySelector('meta[name="app-workspace"]')?.content;
+const broadcastConnection = document.querySelector('meta[name="broadcast-connection"]')?.content;
 
-if (pusherKey && pusherCluster && applicationWorkspace) {
+if (broadcastConnection === 'pusher' && pusherKey && pusherCluster && applicationWorkspace) {
     window.Pusher = Pusher;
     window.Echo = new Echo({
         broadcaster: 'pusher',
@@ -1079,6 +1082,16 @@ listenForPageEvent(window, 'vault-file-preview-ready', (event) => {
     const file = event.detail.file;
     if (!file) return;
 
+    if (file.mime?.startsWith('image/')) {
+        previewBackdrop.hidden = true;
+        openImageViewer({
+            src: file.stream_url ?? pathUrl(shellEndpoints.stream, file.path).toString(),
+            downloadUrl: file.download_url ?? pathUrl(shellEndpoints.download, file.path).toString(),
+            name: file.name,
+        });
+        return;
+    }
+
     previewTitle.textContent = file.name;
     previewMeta.textContent = `${file.mime.toUpperCase()} · ${formatBytes(file.size)}`;
     previewContent.replaceChildren(...makePreviewElement(file));
@@ -1102,6 +1115,14 @@ listenForPageEvent(window, 'archive-preview-ready', (event) => {
     const type = browser.querySelector('[data-full-archive-preview-type]');
     const download = browser.querySelector('[data-full-archive-preview-download]');
     if (!file || !previewView || !previewEmpty || !title || !meta || !type || !download) return;
+
+    if (file.mime?.startsWith('image/')) {
+        openImageViewer({
+            src: file.stream_url ?? pathUrl(shellEndpoints.stream, file.path).toString(),
+            downloadUrl: file.download_url ?? pathUrl(shellEndpoints.download, file.path).toString(),
+            name: file.name,
+        });
+    }
 
     title.textContent = file.name;
     meta.textContent = `${file.mime.toUpperCase()} · ${formatBytes(file.size)}`;
@@ -2010,15 +2031,6 @@ profileImageToggle?.addEventListener('click', () => {
     profileImageToggle.innerHTML = showImage ? 'VIEW 3D MODEL <span>↗</span>' : 'VIEW MAIN IMAGE <span>↗</span>';
 });
 
-const imageViewerDialog = document.querySelector('[data-image-viewer-dialog]');
-const imageViewer = imageViewerDialog?.querySelector('[data-image-viewer-image]');
-const imageViewerTitle = imageViewerDialog?.querySelector('[data-image-viewer-title]');
-const imageViewerDownload = imageViewerDialog?.querySelector('[data-image-viewer-download]');
-const imageViewerStage = imageViewerDialog?.querySelector('[data-image-viewer-stage]');
-const imageZoomIn = imageViewerDialog?.querySelector('[data-image-zoom-in]');
-const imageZoomOut = imageViewerDialog?.querySelector('[data-image-zoom-out]');
-const imageZoomLevel = imageViewerDialog?.querySelector('[data-image-zoom-level]');
-const imageGrayscaleToggle = imageViewerDialog?.querySelector('[data-image-grayscale]');
 const videoViewerDialog = document.querySelector('[data-video-viewer-dialog]');
 const videoViewerPlayer = videoViewerDialog?.querySelector('[data-video-viewer-player]');
 const videoViewerTitle = videoViewerDialog?.querySelector('[data-video-viewer-title]');
@@ -2052,121 +2064,6 @@ videoViewerDialog?.addEventListener('click', (event) => {
     if (event.target === videoViewerDialog) videoViewerDialog.close();
 });
 videoViewerDialog?.addEventListener('close', closeVideoViewer);
-let imageZoom = 1;
-let imagePanX = 0;
-let imagePanY = 0;
-let imageDragPointer = null;
-
-const updateImageViewerTransform = () => {
-    if (!imageViewer || !imageViewerStage) return;
-    const imageFitScale = imageViewer.naturalWidth && imageViewer.naturalHeight
-        ? Math.min(imageViewer.clientWidth / imageViewer.naturalWidth, imageViewer.clientHeight / imageViewer.naturalHeight)
-        : 0;
-    const displayedWidth = imageViewer.naturalWidth * imageFitScale;
-    const displayedHeight = imageViewer.naturalHeight * imageFitScale;
-    const stageStyle = getComputedStyle(imageViewerStage);
-    const stageWidth = imageViewerStage.clientWidth - parseFloat(stageStyle.paddingLeft) - parseFloat(stageStyle.paddingRight);
-    const stageHeight = imageViewerStage.clientHeight - parseFloat(stageStyle.paddingTop) - parseFloat(stageStyle.paddingBottom);
-    const maxX = Math.max(0, (displayedWidth * imageZoom - stageWidth) / 2);
-    const maxY = Math.max(0, (displayedHeight * imageZoom - stageHeight) / 2);
-    imagePanX = Math.max(-maxX, Math.min(maxX, imagePanX));
-    imagePanY = Math.max(-maxY, Math.min(maxY, imagePanY));
-    imageViewer.style.setProperty('--image-zoom', String(imageZoom));
-    imageViewer.style.setProperty('--image-pan-x', `${imagePanX}px`);
-    imageViewer.style.setProperty('--image-pan-y', `${imagePanY}px`);
-    imageViewerStage.classList.toggle('is-zoomed', imageZoom > 1);
-    if (imageZoomLevel) imageZoomLevel.textContent = `${Math.round(imageZoom * 100)}%`;
-    if (imageZoomIn instanceof HTMLButtonElement) imageZoomIn.disabled = imageZoom >= 5;
-    if (imageZoomOut instanceof HTMLButtonElement) imageZoomOut.disabled = imageZoom <= 1;
-};
-
-const resetImageViewer = () => {
-    imageZoom = 1;
-    imagePanX = 0;
-    imagePanY = 0;
-    imageDragPointer = null;
-    imageViewerStage?.classList.remove('is-dragging');
-    if (imageViewer) imageViewer.style.filter = '';
-    if (imageGrayscaleToggle instanceof HTMLInputElement) imageGrayscaleToggle.checked = false;
-    updateImageViewerTransform();
-};
-
-const updateImageGrayscale = () => {
-    if (imageViewer && imageGrayscaleToggle instanceof HTMLInputElement) {
-        imageViewer.style.filter = imageGrayscaleToggle.checked ? 'grayscale(1)' : '';
-    }
-};
-
-const downloadGrayscaleImage = async (event) => {
-    if (!(imageGrayscaleToggle instanceof HTMLInputElement) || !imageGrayscaleToggle.checked) return;
-    event.preventDefault();
-    if (!imageViewer?.src || !imageViewerDownload) return;
-
-    try {
-        await imageViewer.decode();
-        const canvas = document.createElement('canvas');
-        canvas.width = imageViewer.naturalWidth;
-        canvas.height = imageViewer.naturalHeight;
-        const context = canvas.getContext('2d');
-        if (!context) throw new Error('Could not prepare the grayscale image for download.');
-        context.filter = 'grayscale(1)';
-        context.drawImage(imageViewer, 0, 0);
-        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-        if (!blob) throw new Error('Could not create the grayscale image download.');
-
-        const objectUrl = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        const baseName = (imageViewerTitle?.textContent || 'image')
-            .replace(/\.[^.]+$/, '')
-            .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
-            .trim() || 'image';
-        anchor.href = objectUrl;
-        anchor.download = `${baseName}-grayscale.png`;
-        document.body.append(anchor);
-        anchor.click();
-        anchor.remove();
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-    } catch (error) {
-        showToast(error instanceof Error ? error.message : 'Could not prepare the grayscale image download.', 'error');
-    }
-};
-
-imageZoomIn?.addEventListener('click', () => {
-    imageZoom = Math.min(5, Math.round((imageZoom + 0.25) * 100) / 100);
-    updateImageViewerTransform();
-});
-imageZoomOut?.addEventListener('click', () => {
-    imageZoom = Math.max(1, Math.round((imageZoom - 0.25) * 100) / 100);
-    updateImageViewerTransform();
-});
-imageGrayscaleToggle?.addEventListener('change', updateImageGrayscale);
-imageViewerDownload?.addEventListener('click', downloadGrayscaleImage);
-imageViewer?.addEventListener('load', updateImageViewerTransform);
-imageViewerStage?.addEventListener('pointerdown', (event) => {
-    if (imageZoom <= 1 || event.target !== imageViewer || event.button !== 0) return;
-    imageDragPointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
-    imageViewerStage.setPointerCapture(event.pointerId);
-    imageViewerStage.classList.add('is-dragging');
-    event.preventDefault();
-});
-imageViewerStage?.addEventListener('pointermove', (event) => {
-    if (!imageDragPointer || event.pointerId !== imageDragPointer.id) return;
-    imagePanX += event.clientX - imageDragPointer.x;
-    imagePanY += event.clientY - imageDragPointer.y;
-    imageDragPointer.x = event.clientX;
-    imageDragPointer.y = event.clientY;
-    updateImageViewerTransform();
-});
-imageViewerStage?.addEventListener('pointerup', (event) => {
-    if (!imageDragPointer || event.pointerId !== imageDragPointer.id) return;
-    imageDragPointer = null;
-    imageViewerStage.classList.remove('is-dragging');
-    if (imageViewerStage.hasPointerCapture(event.pointerId)) imageViewerStage.releasePointerCapture(event.pointerId);
-});
-imageViewerStage?.addEventListener('pointercancel', () => {
-    imageDragPointer = null;
-    imageViewerStage.classList.remove('is-dragging');
-});
 
 listenForPageEvent(document, 'click', (event) => {
     const expandButton = event.target.closest('[data-expand-gallery]');
@@ -2198,7 +2095,7 @@ listenForPageEvent(document, 'click', (event) => {
     }
 
     const imageTrigger = event.target.closest('[data-image-viewer]');
-    if (!imageTrigger || !imageViewerDialog || !imageViewer) return;
+    if (!imageTrigger) return;
     event.preventDefault();
     const protectedImage = imageTrigger.matches('[data-protected-image]')
         ? imageTrigger
@@ -2211,27 +2108,14 @@ listenForPageEvent(document, 'click', (event) => {
     if (protectedImage) loadProtectedImage(protectedImage);
     const imageUrl = protectedImage?.src || imageTrigger.dataset.imageUrl;
     if (!imageUrl) return;
-    imageViewer.src = imageUrl;
-    imageViewer.alt = imageTrigger.dataset.imageTitle
-        ?? protectedImage?.alt
-        ?? imageTrigger.querySelector('img')?.alt
-        ?? 'Private image';
-    if (imageViewerTitle) imageViewerTitle.textContent = imageViewer.alt;
-    resetImageViewer();
-    if (imageViewerDownload) imageViewerDownload.href = imageTrigger.dataset.downloadUrl
-        ?? protectedImage?.dataset.downloadUrl
-        ?? '';
-    imageViewerDialog.showModal();
-});
-
-document.querySelector('[data-close-image-viewer]')?.addEventListener('click', () => imageViewerDialog?.close());
-imageViewerDialog?.addEventListener('click', (event) => {
-    if (event.target === imageViewerDialog) imageViewerDialog.close();
-});
-imageViewerDialog?.addEventListener('close', () => {
-    if (imageViewer) imageViewer.removeAttribute('src');
-    if (imageViewerDownload) imageViewerDownload.removeAttribute('href');
-    resetImageViewer();
+    openImageViewer({
+        src: imageUrl,
+        downloadUrl: imageTrigger.dataset.downloadUrl ?? protectedImage?.dataset.downloadUrl ?? imageUrl,
+        name: imageTrigger.dataset.imageTitle
+            ?? protectedImage?.alt
+            ?? imageTrigger.querySelector('img')?.alt
+            ?? 'Private image',
+    });
 });
 
 listenForPageEvent(window, 'pageshow', (event) => {
@@ -2750,13 +2634,23 @@ document.addEventListener('click', (event) => {
         }
 
         const dialog = document.querySelector('[data-fm-media-preview-dialog]');
-        const image = dialog?.querySelector('[data-fm-preview-image]');
         const video = dialog?.querySelector('[data-fm-preview-video]');
         const title = dialog?.querySelector('[data-fm-preview-title]');
         const download = dialog?.querySelector('[data-fm-preview-download]');
         const stage = dialog?.querySelector('[data-fm-preview-stage]');
         const mediaUrl = mediaTrigger.dataset.mediaUrl;
-        if (!(dialog instanceof HTMLDialogElement) || !mediaUrl || !(image instanceof HTMLImageElement) || !(video instanceof HTMLVideoElement)) return;
+        if (!mediaUrl) return;
+
+        const isVideo = mediaTrigger.dataset.mediaType === 'video';
+        if (!isVideo) {
+            openImageViewer({
+                src: mediaUrl,
+                downloadUrl: mediaTrigger.dataset.downloadUrl ?? mediaUrl,
+                name: mediaTrigger.dataset.mediaTitle ?? 'Private image',
+            });
+            return;
+        }
+        if (!(dialog instanceof HTMLDialogElement) || !(video instanceof HTMLVideoElement)) return;
 
         if (video.dataset.active === 'true') {
             video.pause();
@@ -2764,19 +2658,12 @@ document.addEventListener('click', (event) => {
             video.load();
             delete video.dataset.active;
         }
-        const isVideo = mediaTrigger.dataset.mediaType === 'video';
-        image.hidden = isVideo;
-        video.hidden = !isVideo;
-        if (isVideo) {
-            video.src = mediaUrl;
-            video.dataset.active = 'true';
-            video.load();
-        } else {
-            image.src = mediaUrl;
-        }
+        video.src = mediaUrl;
+        video.dataset.active = 'true';
+        video.load();
         if (title) title.textContent = mediaTrigger.dataset.mediaTitle ?? 'Private media';
         if (download instanceof HTMLAnchorElement) download.href = mediaTrigger.dataset.downloadUrl ?? mediaUrl;
-        stage?.classList.toggle('is-video', isVideo);
+        stage?.classList.add('is-video');
         dialog.showModal();
         return;
     }
@@ -2875,6 +2762,4 @@ document.addEventListener('close', (event) => {
         video.load();
         delete video.dataset.active;
     }
-    const image = closedDialog instanceof HTMLDialogElement ? closedDialog.querySelector('[data-fm-preview-image]') : null;
-    if (image instanceof HTMLImageElement) image.removeAttribute('src');
 }, true);

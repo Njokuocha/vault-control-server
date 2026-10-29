@@ -2,15 +2,15 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use App\Support\VersionedCache;
+use Illuminate\Database\Eloquent\Model;
 
 class Setting extends Model
 {
     protected static function booted(): void
     {
-        static::saved(fn (): mixed => app(VersionedCache::class)->bump('settings'));
-        static::deleted(fn (): mixed => app(VersionedCache::class)->bump('settings'));
+        static::saved(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('settings'));
+        static::deleted(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('settings'));
     }
 
     protected $primaryKey = 'key';

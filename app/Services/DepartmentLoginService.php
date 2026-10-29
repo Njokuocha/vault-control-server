@@ -21,10 +21,10 @@ class DepartmentLoginService
             ->first();
         $security = app(AuthSecurityService::class);
 
-        if ($security->isBlacklisted($ipAddress)) {
-            $security->recordAttempt('web', null, $user, $ipAddress, $this->elapsedMilliseconds($startedAt), false, 'Source IP is blacklisted.', request()->userAgent());
+        if (! $security->isIpAllowed($ipAddress)) {
+            $security->recordAttempt('web', null, $user, $ipAddress, $this->elapsedMilliseconds($startedAt), false, 'Source IP is restricted by the security policy.', request()->userAgent());
             throw ValidationException::withMessages([
-                'username' => 'This network is temporarily blocked from authentication. Contact an administrator.',
+                'username' => 'Due to a system-level authentication algorithm, you are unable to log in.',
             ]);
         }
 

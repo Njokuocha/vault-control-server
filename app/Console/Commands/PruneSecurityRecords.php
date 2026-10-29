@@ -24,7 +24,7 @@ class PruneSecurityRecords extends Command
 
         ActivityLog::query()->where('occurred_at', '<', $logsBefore)->delete();
         BruteForceRecord::query()->where('detected_at', '<', $securityBefore)->delete();
-        BlacklistedIp::query()->where('triggered_at', '<', $securityBefore)->delete();
+        BlacklistedIp::query()->whereNotNull('triggered_at')->where('triggered_at', '<', $securityBefore)->delete();
         AuthEvent::query()->where('occurred_at', '<', $securityBefore)->delete();
         SecuritySessionPresence::query()->where('last_seen_at', '<', now()->subDay())->delete();
         $sessionTable = (string) config('session.table', 'sessions');
