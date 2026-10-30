@@ -17,6 +17,9 @@ function clearAllPreviewUrls() {
     for (const url of activeObjectUrls) URL.revokeObjectURL(url);
     activeObjectUrls.clear();
     document.querySelectorAll('[data-report-previews]').forEach((area) => area.replaceChildren());
+    document.querySelectorAll('[data-report-files]').forEach((input) => {
+        if (input instanceof HTMLInputElement) input.value = '';
+    });
 }
 
 function renderUploadPreviews(input) {
@@ -198,8 +201,18 @@ document.addEventListener('change', (event) => {
     }
 });
 
+document.addEventListener('report-composer-closed', clearAllPreviewUrls);
+
 document.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;
+
+    const stagedMediaButton = event.target.closest('[data-report-media-toggle]');
+    if (stagedMediaButton instanceof HTMLButtonElement) {
+        stagedMediaButton.classList.toggle('is-marked-remove');
+    }
+
+    const composerCloseButton = event.target.closest('[data-report-composer-close]');
+    if (composerCloseButton instanceof HTMLElement) clearAllPreviewUrls();
 
     const replyButton = event.target.closest('[data-report-reply-open]');
     if (replyButton instanceof HTMLElement) {
@@ -277,9 +290,3 @@ document.addEventListener('livewire:navigating', () => {
     clearAllPreviewUrls();
     closeReportModals();
 });
-
-const composerObserver = new MutationObserver(() => {
-    if (!document.querySelector('[data-report-composer]')) clearAllPreviewUrls();
-});
-
-composerObserver.observe(document.body, { childList: true, subtree: true });

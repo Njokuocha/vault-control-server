@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Admin;
 use App\Models\CaseCategory;
 use App\Models\CaseImage;
 use App\Models\File;
@@ -48,14 +49,15 @@ class InvestigationCaseController extends Controller
         RecordUploadAttachmentService $attachments,
     ): RedirectResponse|JsonResponse {
         $validated = $this->validateCase($request);
-        $user = $request->user();
-        abort_unless($user instanceof User, 401);
+        $actor = $request->user('admin') ?? $request->user('web');
+        abort_unless($actor instanceof User || $actor instanceof Admin, 401);
+        $uploadOwner = $actor;
         $storedPaths = [];
 
         try {
-            $caseFile = DB::transaction(function () use ($validated, $ids, $attachments, $user, $request, &$storedPaths): InvestigationCase {
+            $caseFile = DB::transaction(function () use ($validated, $ids, $attachments, $actor, $uploadOwner, $request, &$storedPaths): InvestigationCase {
                 $caseFile = InvestigationCase::query()->create([
-                    'created_by_user_id' => $user->getKey(),
+                    'created_by_user_id' => $actor instanceof User ? $actor->getKey() : null,
                     'public_id' => $ids->generate(InvestigationCase::class, 'CSE'),
                     'title' => $this->unknown($validated['title'] ?? null),
                     'classification' => $validated['classification'] ?? 'CLASSIFIED',
@@ -68,7 +70,7 @@ class InvestigationCaseController extends Controller
                     $validated['categories'] ?? [],
                     $storedPaths,
                     $attachments,
-                    $user,
+                    $uploadOwner,
                     $validated['record_upload_draft_token'] ?? null,
                 );
                 app(ActivityLogger::class)->record(
@@ -82,7 +84,7 @@ class InvestigationCaseController extends Controller
                         'classification' => $caseFile->classification,
                         'category_count' => $caseFile->categories()->count(),
                     ],
-                    $user,
+                    $actor,
                     $request,
                 );
 
@@ -110,7 +112,7 @@ class InvestigationCaseController extends Controller
     public function show(InvestigationCase $caseFile): View
     {
         $isCaseManager = request()->routeIs('cfm.*');
-        $relations = ['categories.images', 'creator'];
+        $relations = ['categories.images.file', 'creator'];
         if (! $isCaseManager) {
             $relations[] = 'people';
         }
@@ -121,6 +123,7 @@ class InvestigationCaseController extends Controller
             now()->addSeconds(30),
             fn (): InvestigationCase => $caseFile->load($relations),
         );
+        $caseFile->loadMissing('categories.images.file');
 
         return view('cases.show', [
             'caseFile' => $caseFile,
@@ -130,7 +133,7 @@ class InvestigationCaseController extends Controller
 
     public function edit(InvestigationCase $caseFile, SettingService $settings): View
     {
-        $caseFile->load('categories.images');
+        $caseFile->load('categories.images.file');
 
         return view('cases.form', [
             'caseFile' => $caseFile,
@@ -145,15 +148,16 @@ class InvestigationCaseController extends Controller
         RecordUploadAttachmentService $attachments,
     ): RedirectResponse|JsonResponse {
         $validated = $this->validateCase($request);
-        $user = $request->user();
-        abort_unless($user instanceof User, 401);
+        $actor = $request->user('admin') ?? $request->user('web');
+        abort_unless($actor instanceof User || $actor instanceof Admin, 401);
+        $uploadOwner = $actor;
         $storedPaths = [];
         $deletedPaths = [];
         $deletedFileIds = [];
         $deletedUploadIds = [];
         $deletedTransferTokens = [];
         try {
-            DB::transaction(function () use ($validated, $caseFile, $attachments, $user, $request, &$storedPaths, &$deletedPaths, &$deletedFileIds, &$deletedUploadIds, &$deletedTransferTokens): void {
+            DB::transaction(function () use ($validated, $caseFile, $attachments, $actor, $uploadOwner, $request, &$storedPaths, &$deletedPaths, &$deletedFileIds, &$deletedUploadIds, &$deletedTransferTokens): void {
                 $caseFile->update([
                     'title' => $this->unknown($validated['title'] ?? null),
                     'classification' => $validated['classification'] ?? 'CLASSIFIED',
@@ -188,7 +192,7 @@ class InvestigationCaseController extends Controller
                     $validated['categories'] ?? [],
                     $storedPaths,
                     $attachments,
-                    $user,
+                    $uploadOwner,
                     $validated['record_upload_draft_token'] ?? null,
                 );
                 app(ActivityLogger::class)->record(
@@ -203,7 +207,7 @@ class InvestigationCaseController extends Controller
                         'classification' => $caseFile->classification,
                         'category_count' => $caseFile->categories()->count(),
                     ],
-                    $user,
+                    $actor,
                     $request,
                 );
             });
@@ -316,7 +320,9 @@ class InvestigationCaseController extends Controller
             $file = $image->file;
             abort_unless($file instanceof File, 404);
 
-            return app(FileController::class)->download($file);
+            return $download
+                ? app(FileController::class)->download($file)
+                : app(FileController::class)->stream(request(), $file);
         }
         abort_unless(Storage::disk(config('vault.upload_disk'))->exists($image->path), 404);
 
@@ -336,8 +342,9 @@ class InvestigationCaseController extends Controller
     {
         $image = $this->evidenceImage($caseFile, $file);
         $preview = app(FileController::class)->preview($file)->getData(true);
-        $preview['stream_url'] = route('cfm.cases.evidence-stream', ['caseFile' => $caseFile, 'file' => $file->uuid]);
-        $preview['download_url'] = route('cfm.cases.images.download', ['caseFile' => $caseFile, 'image' => $image]);
+        $routePrefix = request()->routeIs('cfm.*') ? 'cfm.' : '';
+        $preview['stream_url'] = route($routePrefix.'cases.evidence-stream', ['caseFile' => $caseFile, 'file' => $file->uuid]);
+        $preview['download_url'] = route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]);
 
         return response()->json($preview);
     }
@@ -356,10 +363,14 @@ class InvestigationCaseController extends Controller
     {
         abort_unless($image->category()->where('case_file_id', $caseFile->id)->exists(), 404);
         abort_unless($image->type === 'video', 404);
-        $file = $image->file;
-        abort_unless($file instanceof File, 404);
+        $disk = Storage::disk(config('vault.upload_disk'));
+        $posterPath = collect([$image->poster_path, $image->file?->video_poster_path])
+            ->first(fn ($path): bool => is_string($path) && $disk->exists($path));
+        abort_unless(is_string($posterPath), 404);
 
-        return app(FileController::class)->videoPoster($file);
+        $fileName = pathinfo($image->original_name, PATHINFO_FILENAME).'-poster.jpg';
+
+        return app(FileController::class)->streamPrivatePath(request(), $posterPath, 'image/jpeg', $fileName);
     }
 
     public function destroyImage(InvestigationCase $caseFile, CaseImage $image): JsonResponse
@@ -418,7 +429,7 @@ class InvestigationCaseController extends Controller
         array $categories,
         array &$storedPaths,
         RecordUploadAttachmentService $attachments,
-        User $user,
+        User|Admin $user,
         ?string $draftToken,
     ): void {
         foreach ($categories as $index => $categoryData) {

@@ -146,6 +146,84 @@ test('case create and update return SPA destinations for JSON submissions', func
         ->assertJsonPath('redirect_url', route('cases.show', $caseFile));
 });
 
+test('administrator can save case edits using the administrator guard', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Case Administrator',
+        'email' => 'case-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $caseFile = InvestigationCase::query()->create([
+        'public_id' => 'CSE-ADMIN-EDIT',
+        'title' => 'Original case title',
+    ]);
+    $category = $caseFile->categories()->create(['title' => 'Original evidence']);
+
+    $this->actingAs($admin, 'admin')
+        ->putJson(route('cases.update', $caseFile), [
+            'title' => 'Updated by administrator',
+            'narrative' => 'Administrator case update.',
+            'categories' => [[
+                'id' => $category->id,
+                'title' => 'Updated evidence',
+                'description' => 'Updated by administrator.',
+            ]],
+        ])
+        ->assertOk()
+        ->assertJsonPath('message', 'Case file updated.')
+        ->assertJsonPath('redirect_url', route('cases.show', $caseFile));
+
+    expect($caseFile->fresh()->title)->toBe('Updated by administrator')
+        ->and($caseFile->fresh()->narrative)->toBe('Administrator case update.')
+        ->and($category->fresh()->title)->toBe('Updated evidence');
+});
+
+test('administrator can create a case without assigning an admin id to the staff creator foreign key', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Case Creator',
+        'email' => 'case-creator@example.test',
+        'password' => 'a-secure-password',
+    ]);
+
+    $response = $this->actingAs($admin, 'admin')
+        ->postJson(route('cases.store'), [
+            'title' => 'Admin-created case',
+            'record_upload_draft_token' => (string) Str::uuid(),
+        ])
+        ->assertOk()
+        ->assertJsonPath('message', 'Case file created.');
+
+    $caseFile = InvestigationCase::query()->findOrFail($response->json('record_id'));
+    expect($caseFile->title)->toBe('Admin-created case')
+        ->and($caseFile->created_by_user_id)->toBeNull();
+});
+
+test('administrator can create and update profiles through the central workspace', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Profile Administrator',
+        'email' => 'profile-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+
+    $response = $this->actingAs($admin, 'admin')
+        ->postJson(route('people.store'), [
+            'name' => 'Admin-created profile',
+            'record_upload_draft_token' => (string) Str::uuid(),
+        ])
+        ->assertOk()
+        ->assertJsonPath('message', 'Person profile created.');
+    $person = Person::query()->findOrFail($response->json('record_id'));
+
+    $this->putJson(route('people.update', $person), [
+        'name' => 'Admin-updated profile',
+        'record_upload_draft_token' => (string) Str::uuid(),
+    ])
+        ->assertOk()
+        ->assertJsonPath('message', 'Person profile updated.')
+        ->assertJsonPath('record_id', $person->id);
+
+    expect($person->fresh()->name)->toBe('Admin-updated profile');
+});
+
 test('case managers can manage case records without seeing profile details or deleting cases', function () {
     $caseManager = User::factory()->create([
         'department' => 'cfm',

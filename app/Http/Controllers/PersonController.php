@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Admin;
 use App\Models\File;
 use App\Models\InvestigationCase;
 use App\Models\Person;
@@ -62,14 +63,14 @@ class PersonController extends Controller
     public function store(Request $request, PublicRecordId $ids, RecordUploadAttachmentService $attachments): RedirectResponse|JsonResponse
     {
         $validated = $this->validatePerson($request);
-        $user = $request->user();
-        abort_unless($user instanceof User, 401);
+        $actor = $request->user('admin') ?? $request->user('web');
+        abort_unless($actor instanceof User || $actor instanceof Admin, 401);
         $mainImage = $request->file('main_image');
         $otherImages = $request->file('other_images', []);
         $storedPaths = [];
 
         try {
-            $person = DB::transaction(function () use ($validated, $mainImage, $otherImages, $ids, $attachments, $user, $request, &$storedPaths): Person {
+            $person = DB::transaction(function () use ($validated, $mainImage, $otherImages, $ids, $attachments, $actor, $request, &$storedPaths): Person {
                 $attributes = $this->personAttributes($validated);
                 $attributes['public_id'] = $ids->generate(Person::class, 'USR');
                 $attributes['avatar_group'] = $validated['avatar_group'] ?? $this->avatarGroup($attributes['gender']);
@@ -91,7 +92,7 @@ class PersonController extends Controller
                 }
                 $this->attachVideosToPerson($person, $validated['video_upload_tokens'] ?? []);
                 $attachments->commitPersonUploads(
-                    $user,
+                    $actor,
                     $person,
                     $validated['record_upload_draft_token'] ?? null,
                     $validated['main_image_upload_token'] ?? null,
@@ -107,7 +108,7 @@ class PersonController extends Controller
                         'gallery_items_submitted' => count($otherImages) + count($validated['gallery_upload_tokens'] ?? []),
                         'has_primary_image' => $mainImage instanceof UploadedFile || ! empty($validated['main_image_upload_token']),
                     ],
-                    $user,
+                    $actor,
                     $request,
                 );
 
@@ -139,9 +140,10 @@ class PersonController extends Controller
             ($profileManagement ? 'pm:' : '').'profile:'.$person->getKey(),
             now()->addSeconds(30),
             fn (): Person => $profileManagement
-                ? $person->load('images')
-                : $person->load(['images', 'cases' => fn ($query) => $query->latest()]),
+                ? $person->load('images.file')
+                : $person->load(['images.file', 'cases' => fn ($query) => $query->latest()]),
         );
+        $person->loadMissing('images.file');
         $linkedReports = $reportAccess->visibleQuery()
             ->whereHas('people', fn ($query) => $query->whereKey($person->id))
             ->withCount('comments')
@@ -180,8 +182,8 @@ class PersonController extends Controller
     public function update(Request $request, Person $person, RecordUploadAttachmentService $attachments): RedirectResponse|JsonResponse
     {
         $validated = $this->validatePerson($request);
-        $user = $request->user();
-        abort_unless($user instanceof User, 401);
+        $actor = $request->user('admin') ?? $request->user('web');
+        abort_unless($actor instanceof User || $actor instanceof Admin, 401);
         $mainImage = $request->file('main_image');
         $otherImages = $request->file('other_images', []);
         $storedPaths = [];
@@ -189,7 +191,7 @@ class PersonController extends Controller
         $removeMainImage = (bool) ($validated['remove_main_image'] ?? false);
 
         try {
-            DB::transaction(function () use ($validated, $mainImage, $otherImages, $person, $removeMainImage, $attachments, $user, $request, &$storedPaths): void {
+            DB::transaction(function () use ($validated, $mainImage, $otherImages, $person, $removeMainImage, $attachments, $actor, $request, &$storedPaths): void {
                 $attributes = $this->personAttributes($validated);
                 $attributes['avatar_group'] = $validated['avatar_group'] ?? $this->avatarGroup($attributes['gender']);
 
@@ -213,7 +215,7 @@ class PersonController extends Controller
                 }
                 $this->attachVideosToPerson($person, $validated['video_upload_tokens'] ?? []);
                 $attachments->commitPersonUploads(
-                    $user,
+                    $actor,
                     $person,
                     $validated['record_upload_draft_token'] ?? null,
                     $validated['main_image_upload_token'] ?? null,
@@ -230,7 +232,7 @@ class PersonController extends Controller
                         'gallery_items_submitted' => count($otherImages) + count($validated['gallery_upload_tokens'] ?? []),
                         'has_primary_image' => $mainImage instanceof UploadedFile || ! empty($validated['main_image_upload_token']),
                     ],
-                    $user,
+                    $actor,
                     $request,
                 );
             });
@@ -324,10 +326,14 @@ class PersonController extends Controller
     {
         abort_unless(request()->session()->get('unlocked_person_images') === $person->getKey(), 403);
         abort_unless($image->person_id === $person->id && $image->type === 'video', 404);
-        $file = $image->file;
-        abort_unless($file instanceof File, 404);
+        $disk = Storage::disk(config('vault.upload_disk'));
+        $posterPath = collect([$image->poster_path, $image->file?->video_poster_path])
+            ->first(fn ($path): bool => is_string($path) && $disk->exists($path));
+        abort_unless(is_string($posterPath), 404);
 
-        return app(FileController::class)->videoPoster($file);
+        $fileName = pathinfo($image->original_name, PATHINFO_FILENAME).'-poster.jpg';
+
+        return app(FileController::class)->streamPrivatePath(request(), $posterPath, 'image/jpeg', $fileName);
     }
 
     public function destroyImage(Person $person, PersonImage $image): JsonResponse

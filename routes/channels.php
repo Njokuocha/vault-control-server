@@ -27,7 +27,11 @@ Broadcast::channel('fm.vault', function ($user): bool {
 });
 
 Broadcast::channel('uploads.{userId}', function ($user, int $userId): bool {
-    return (int) $user->getAuthIdentifier() === $userId;
+    return $user instanceof User && (int) $user->getAuthIdentifier() === $userId;
+});
+
+Broadcast::channel('admin.uploads.{adminId}', function ($user, int $adminId): bool {
+    return $user instanceof Admin && (int) $user->getAuthIdentifier() === $adminId;
 });
 
 Broadcast::channel('reports.agency', function ($user): bool {

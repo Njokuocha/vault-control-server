@@ -21,6 +21,7 @@ class CaseImage extends Model
             $cache = app(VersionedCache::class);
             $cache->bumpAfterCommit('media');
             $cache->bumpAfterCommit('cases');
+            $cache->bumpAfterCommit('files');
         };
         static::saved($invalidate);
         static::deleted($invalidate);

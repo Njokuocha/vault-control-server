@@ -60,14 +60,27 @@
                         @foreach ($category->images as $image)
                             @if ($image->type === 'video')
                                 <button class="evidence-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-title="{{ $image->original_name }}" aria-label="Play {{ $image->original_name }}" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
-                                    @if ($image->poster_path)<img src="{{ route($routePrefix.'cases.images.poster', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="" loading="lazy" decoding="async">@endif
+                                    @if ($image->poster_path || $image->file?->video_poster_path)
+                                        <img src="{{ route($routePrefix.'cases.images.poster', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="" loading="lazy" decoding="async" onerror="this.remove()">
+                                    @else
+                                        <video class="case-gallery-video-thumbnail" data-case-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
+                                    @endif
                                     <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                                     @if ($loop->index === 3 && $category->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>@endif
                                 </button>
                             @elseif (in_array($image->type, ['document', 'audio'], true))
-                                <a class="evidence-gallery-tile evidence-gallery-document" href="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" aria-label="Download {{ $image->original_name }}" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
-                                    <strong>{{ strtoupper(pathinfo($image->original_name, PATHINFO_EXTENSION)) }}</strong>
-                                    <span title="{{ $image->original_name }}">{{ $image->original_name }}</span>
+                                @php($extension = strtoupper(pathinfo($image->original_name, PATHINFO_EXTENSION)) ?: 'FILE')
+                                @php($documentIcon = match (strtolower($extension)) {
+                                    'pdf' => 'ri-file-pdf-2-line',
+                                    'doc', 'docx' => 'ri-file-word-2-line',
+                                    'txt', 'rtf' => 'ri-file-text-line',
+                                    'mp3', 'wav', 'm4a', 'ogg' => 'ri-music-2-line',
+                                    default => 'ri-file-text-line',
+                                })
+                                <a class="evidence-gallery-tile evidence-gallery-document" href="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" target="_blank" rel="noopener" aria-label="View {{ $image->original_name }}" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
+                                    <i class="ri {{ $documentIcon }} evidence-gallery-document__watermark" aria-hidden="true"></i>
+                                    <strong>{{ $extension }}</strong>
+                                    <span title="{{ $image->original_name }}">{{ \Illuminate\Support\Str::limit(pathinfo($image->original_name, PATHINFO_FILENAME), 22, '...') }}</span>
                                     @if ($loop->index === 3 && $category->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>@endif
                                 </a>
                             @else

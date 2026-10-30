@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\User;
+use App\Services\StaffAccountStatusService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
@@ -35,16 +36,28 @@ class DepartmentLoginService
             ]);
         }
 
-        $authenticated = $user !== null
+        $credentialsMatch = $user !== null
             && $user->department === $department
-            && $user->account_status === 'active'
             && Hash::check($password, $user->password);
-        if (! $authenticated) {
+        if (! $credentialsMatch) {
             RateLimiter::hit($key, 60);
             $security->recordAttempt('web', null, $user, $ipAddress, $this->elapsedMilliseconds($startedAt), false, 'Invalid department credentials or inactive account.', request()->userAgent());
 
             throw ValidationException::withMessages([
                 'username' => 'Access denied. Check your username and access code.',
+            ]);
+        }
+
+        $user = app(StaffAccountStatusService::class)->expireIfDue($user);
+        if ($user->account_status !== 'active') {
+            RateLimiter::hit($key, 60);
+            $status = $user->account_status === 'frozen' ? 'frozen' : 'disabled';
+            $security->recordAttempt('web', null, $user, $ipAddress, $this->elapsedMilliseconds($startedAt), false, 'Credentials matched an inactive staff account.', request()->userAgent());
+
+            throw ValidationException::withMessages([
+                'username' => $status === 'frozen'
+                    ? 'This account has been frozen. Contact your admin.'
+                    : 'This account has been disabled. Contact your admin.',
             ]);
         }
 

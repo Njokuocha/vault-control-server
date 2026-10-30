@@ -105,6 +105,8 @@ test('staff profile includes staff-scoped audit previews and full history routes
         ->assertSee('Profile Officer')
         ->assertSee('profile.officer')
         ->assertSee('Authentication history')
+        ->assertSee('x-show="open"', false)
+        ->assertSee('agency-staff-status-select', false)
         ->assertSee('Activity log')
         ->assertSee('Created a new case record.')
         ->assertSee(route('admin.staff.history', [$staff, 'authentication-history']), false)
@@ -150,6 +152,37 @@ test('staff avatars open their profiles and manage account opens a username-filt
         ->assertSet('search', $staff->username)
         ->assertSee($staff->name)
         ->assertDontSee('Unrelated Officer');
+});
+
+test('agency account status indicators and profile photo placeholder use the updated design', function () {
+    User::factory()->create(['department' => 'cfm', 'account_status' => 'active']);
+    User::factory()->create(['department' => 'pm', 'account_status' => 'frozen']);
+    User::factory()->create(['department' => 'fm', 'account_status' => 'disabled']);
+
+    $this->actingAs(createDirectoryAdmin(), 'admin')
+        ->get(route('admin.staff.index'))
+        ->assertOk()
+        ->assertSee('staff-status-indicator staff-status-indicator--active', false)
+        ->assertSee('staff-status-indicator staff-status-indicator--frozen', false)
+        ->assertSee('staff-status-indicator staff-status-indicator--disabled', false)
+        ->assertSee('staff-status-indicator__dot', false)
+        ->assertSee('agency-staff-photo-preview-frame', false)
+        ->assertSee('x-show="deleteModalOpen"', false)
+        ->assertSee('x-show="passwordModalOpen"', false)
+        ->assertSee('wire:target="edit(', false)
+        ->assertSee('agency-staff-photo-preview-placeholder', false)
+        ->assertDontSee('NO IMAGE SELECTED');
+});
+
+test('staff profile photos are staged locally and uploaded only when the account form is submitted', function () {
+    $this->actingAs(createDirectoryAdmin(), 'admin')
+        ->get(route('admin.staff.index'))
+        ->assertOk()
+        ->assertSee('data-staff-account-form', false)
+        ->assertSee('held until account save')
+        ->assertSee('data-staff-photo-input', false)
+        ->assertDontSee('wire:model="profilePhoto"', false)
+        ->assertDontSee('Uploading image… 100%', false);
 });
 
 test('admin and department login screens expose working password visibility controls', function () {

@@ -149,7 +149,7 @@ class DashboardArchive extends Component
                     'files',
                     'archive-years',
                     now()->addMinutes(5),
-                    fn (): array => File::query()->selectRaw($yearExpression.' as year')
+                    fn (): array => File::query()->standaloneArchive()->selectRaw($yearExpression.' as year')
                         ->distinct()->orderByDesc('year')->pluck('year')->map(fn ($year): string => (string) $year)->all(),
                 );
             }
@@ -158,9 +158,9 @@ class DashboardArchive extends Component
                 'archive-extensions',
                 now()->addMinutes(5),
                 function (): array {
-                    $extensions = File::query()->whereNotNull('extension')->where('extension', '!=', '')
+                    $extensions = File::query()->standaloneArchive()->whereNotNull('extension')->where('extension', '!=', '')
                         ->distinct()->orderBy('extension')->pluck('extension')->map(fn ($extension): string => (string) $extension)->all();
-                    if (File::query()->whereNull('extension')->exists()) {
+                    if (File::query()->standaloneArchive()->whereNull('extension')->exists()) {
                         $extensions[] = '__none__';
                     }
 
@@ -179,7 +179,7 @@ class DashboardArchive extends Component
 
     private function filteredFiles(array $filters)
     {
-        return File::query()
+        return File::query()->standaloneArchive()
             ->select(['id', 'uuid', 'original_name', 'extension', 'mime_type', 'category', 'upload_method', 'size', 'created_at'])
             ->when($filters['q'] !== '', function ($query) use ($filters): void {
                 $query->where(function ($query) use ($filters): void {

@@ -34,9 +34,9 @@ class FileManagerController extends Controller
     {
         $person->setVisible(['id', 'main_image_path', 'main_image_file_id']);
         $person->load(['images' => fn ($images) => $images
-            ->select(['id', 'person_id', 'type', 'poster_path'])
+            ->select(['id', 'person_id', 'type', 'poster_path', 'file_id'])
             ->where(fn ($query) => $query->whereNull('type')->orWhereIn('type', ['image', 'video']))
-            ->orderBy('id')]);
+            ->orderBy('id'), 'images.file' => fn ($files) => $files->select(['id', 'video_poster_path'])]);
 
         abort_if(! $person->main_image_path && ! $person->main_image_file_id && $person->images->isEmpty(), 404);
 

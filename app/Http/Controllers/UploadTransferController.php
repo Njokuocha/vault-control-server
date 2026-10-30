@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\FinalizeUploadTransferJob;
+use App\Models\Admin;
 use App\Models\UploadTransfer;
 use App\Models\User;
 use App\Services\FileUploadService;
@@ -23,22 +24,21 @@ class UploadTransferController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $user = $request->user();
-        abort_unless($user instanceof User, 401);
+        $user = $this->authenticatedOwner($request);
 
-        $transfers = $user->uploadTransfers();
+        $transfers = UploadTransfer::query()->ownedBy($user);
         $totalUploads = (clone $transfers)->count();
         $pendingUploads = (clone $transfers)->whereIn('status', ['uploading', 'pending', 'processing'])->count();
         $active = (clone $transfers)
             ->whereIn('status', ['uploading', 'pending', 'processing'])
             ->latest('id')
-            ->with(['file:id,uuid,extension,mime_type', 'user:id,department'])
+            ->with(['file:id,uuid,extension,mime_type', 'user:id,department', 'admin:id'])
             ->get();
         $recent = (clone $transfers)
             ->whereNotIn('status', ['uploading', 'pending', 'processing'])
             ->latest('id')
             ->limit(100)
-            ->with(['file:id,uuid,extension,mime_type', 'user:id,department'])
+            ->with(['file:id,uuid,extension,mime_type', 'user:id,department', 'admin:id'])
             ->get();
 
         return response()->json([
@@ -72,8 +72,7 @@ class UploadTransferController extends Controller
         ]);
         $uploads->assertUploadsAllowed();
 
-        $user = $request->user();
-        abort_unless($user instanceof User, 401);
+        $user = $this->authenticatedOwner($request);
         $attachmentIntent = isset($validated['attachment'])
             ? $attachments->validateIntent($user, $validated['attachment'])
             : [];
@@ -180,7 +179,7 @@ class UploadTransferController extends Controller
 
         $claimed = UploadTransfer::query()
             ->whereKey($upload->id)
-            ->where('user_id', $upload->user_id)
+            ->ownedBy($this->authenticatedOwner($request))
             ->where('status', 'uploading')
             ->update(['status' => 'pending', 'updated_at' => now()]);
 
@@ -202,7 +201,7 @@ class UploadTransferController extends Controller
         $upload = $this->ownedTransfer($request, $token);
         $updated = UploadTransfer::query()
             ->whereKey($upload->id)
-            ->where('user_id', $upload->user_id)
+            ->ownedBy($this->authenticatedOwner($request))
             ->whereIn('status', ['uploading', 'pending'])
             ->update(['status' => 'cancelled', 'updated_at' => now()]);
 
@@ -220,10 +219,11 @@ class UploadTransferController extends Controller
     public function retry(Request $request, string $token): JsonResponse
     {
         $upload = $this->ownedTransfer($request, $token);
-        $updated = DB::transaction(function () use ($upload): int {
+        $owner = $this->authenticatedOwner($request);
+        $updated = DB::transaction(function () use ($upload, $owner): int {
             return UploadTransfer::query()
                 ->whereKey($upload->id)
-                ->where('user_id', $upload->user_id)
+                ->ownedBy($owner)
                 ->whereIn('status', ['failed', 'cancelled'])
                 ->update([
                     'status' => 'uploading',
@@ -260,10 +260,17 @@ class UploadTransferController extends Controller
 
     private function ownedTransfer(Request $request, string $token): UploadTransfer
     {
-        $user = $request->user();
-        abort_unless($user instanceof User, 401);
+        $user = $this->authenticatedOwner($request);
 
-        return $user->uploadTransfers()->where('token', $token)->firstOrFail();
+        return UploadTransfer::query()->ownedBy($user)->where('token', $token)->firstOrFail();
+    }
+
+    private function authenticatedOwner(Request $request): User|Admin
+    {
+        $owner = $request->user('admin') ?? $request->user('web');
+        abort_unless($owner instanceof User || $owner instanceof Admin, 401);
+
+        return $owner;
     }
 
     private function serialize(UploadTransfer $upload): array
@@ -274,11 +281,11 @@ class UploadTransferController extends Controller
         if (
             $file?->uuid
             && $upload->attachment_purpose === RecordAttachmentTypes::CASE_EVIDENCE
-            && $upload->user?->department === 'cfm'
             && $upload->attached_at !== null
             && $upload->record_id !== null
         ) {
-            $previewUrl = route('cfm.cases.evidence-preview', [
+            $caseRoutePrefix = $upload->user?->department === 'cfm' ? 'cfm.' : '';
+            $previewUrl = route($caseRoutePrefix.'cases.evidence-preview', [
                 'caseFile' => $upload->record_id,
                 'file' => $file->uuid,
             ]);

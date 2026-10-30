@@ -49,9 +49,6 @@ class TwoFactorSettings extends Component
     {
         return view('livewire.admin.two-factor-settings', [
             'adminEmail' => Auth::guard('admin')->user()?->email,
-        ])->extends('layouts.app', [
-            'page_title' => 'Two-Factor Authentication — '.config('app.name'),
-            'page_label' => 'TWO-FACTOR AUTHENTICATION',
-        ])->section('content');
+        ]);
     }
 }

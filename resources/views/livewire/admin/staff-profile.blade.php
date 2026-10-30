@@ -18,7 +18,7 @@
                 <div class="agency-staff-profile-photo agency-staff-profile-photo--initial">{{ strtoupper(substr($staff->name, 0, 1)) }}</div>
             @endif
             <div class="agency-staff-profile-identity">
-                <span class="section-kicker">{{ $department?->rank_short ?? strtoupper($staff->department) }} · {{ strtoupper($staff->account_status ?? 'active') }}</span>
+                <span class="section-kicker">{{ $department?->rank_short ?? strtoupper($staff->department) }} · {{ strtoupper($staff->account_status === 'suspended' ? 'disabled' : ($staff->account_status ?? 'active')) }}</span>
                 <h2>{{ $staff->name }}</h2>
                 <p>{{ $department?->name ?? $staff->department }} · {{ $department?->rank ?? 'Agency staff' }}</p>
             </div>
@@ -28,7 +28,14 @@
         <section class="agency-staff-profile-facts" aria-label="Staff account details">
             <article class="glass-panel"><span>USERNAME</span><strong>{{ $staff->username ?: 'Not set' }}</strong></article>
             <article class="glass-panel"><span>EMAIL ADDRESS</span><strong>{{ $staff->email }}</strong></article>
-            <article class="glass-panel"><span>ACCOUNT STATUS</span><strong>{{ strtoupper($staff->account_status ?? 'active') }}</strong></article>
+            <article class="glass-panel agency-staff-status-fact">
+                <span>ACCOUNT STATUS</span>
+                <strong><span class="staff-status-chip staff-status-chip--{{ $staff->account_status === 'suspended' ? 'disabled' : $staff->account_status }}">{{ strtoupper($staff->account_status === 'suspended' ? 'disabled' : $staff->account_status) }}</span></strong>
+                @if ($staff->account_status === 'frozen' && $staff->frozen_until)
+                    <small class="staff-freeze-countdown" data-freeze-until="{{ $staff->frozen_until->getTimestamp() * 1000 }}" data-freeze-refresh-method="refreshFreezeExpiry">TIME REMAINING: <span data-freeze-countdown>CALCULATING…</span></small>
+                @endif
+                <button class="button-secondary" type="button" data-status="{{ $staff->account_status === 'suspended' ? 'disabled' : ($staff->account_status ?? 'active') }}" data-freeze-hours="{{ $staff->account_status === 'frozen' && $staff->frozen_until?->isFuture() ? max(0.1, ceil(now()->diffInSeconds($staff->frozen_until) / 36) / 100) : 1 }}" x-on:click="$dispatch('staff-status-open', { status: $el.dataset.status, freezeHours: $el.dataset.freezeHours })" wire:click="openStatusModal">CHANGE ACCOUNT STATUS</button>
+            </article>
             <article class="glass-panel"><span>LAST AUTHENTICATED</span><strong>{{ $lastAuthenticatedAt ? \Illuminate\Support\Carbon::parse($lastAuthenticatedAt)->diffForHumans() : 'No successful login recorded' }}</strong></article>
             <article class="glass-panel"><span>ACCOUNT CREATED</span><strong>{{ $staff->created_at?->format('M d, Y · H:i') ?? 'Unknown' }}</strong></article>
             <article class="glass-panel"><span>LAST UPDATED</span><strong>{{ $staff->updated_at?->format('M d, Y · H:i') ?? 'Unknown' }}</strong></article>
@@ -114,4 +121,5 @@
             @endif
         </section>
     @endif
+    @include('livewire.admin._staff-status-modal')
 </div>

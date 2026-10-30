@@ -13,7 +13,7 @@ class UploadTransferStatusChanged implements ShouldBroadcast
     use SerializesModels;
 
     public function __construct(
-        public readonly int $userId,
+        public readonly ?int $userId,
         public readonly int $uploadId,
         public readonly string $name,
         public readonly int $size,
@@ -21,12 +21,19 @@ class UploadTransferStatusChanged implements ShouldBroadcast
         public readonly int $totalUploads,
         public readonly int $pendingUploads,
         public readonly ?string $fileUuid = null,
-    ) {
-    }
+        public readonly ?int $adminId = null,
+    ) {}
 
     public function broadcastOn(): array
     {
-        return [new PrivateChannel('uploads.'.$this->userId)];
+        $ownerId = $this->adminId ?? $this->userId;
+        if ($ownerId === null) {
+            throw new \LogicException('Upload transfer updates require an authenticated owner.');
+        }
+
+        return [new PrivateChannel($this->adminId === null
+            ? 'uploads.'.$ownerId
+            : 'admin.uploads.'.$ownerId)];
     }
 
     public function broadcastAs(): string

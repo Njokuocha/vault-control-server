@@ -4,10 +4,8 @@ namespace App\Livewire;
 
 use App\Http\Controllers\FileController;
 use App\Models\File;
-use App\Support\FormatBytes;
 use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
@@ -69,23 +67,17 @@ class DashboardLatestFiles extends Component
     public function render(): View
     {
         $cache = app(VersionedCache::class);
-        $metrics = $cache->remember('files', 'dashboard-metrics', now()->addSeconds(30), function (): array {
-            $monthStart = Carbon::now()->startOfMonth();
-
-            return [
-                'fileCount' => File::query()->count(),
-                'storageLabel' => FormatBytes::format((int) File::query()->sum('size')),
-                'uploadedThisMonth' => File::query()->where('created_at', '>=', $monthStart)->count(),
-                'lastActivity' => File::query()->latest()->value('created_at'),
-                'documentCount' => File::query()->whereIn('category', ['pdf', 'text', 'code'])->count(),
-                'mediaCount' => File::query()->whereIn('category', ['image', 'video', 'audio'])->count(),
-            ];
-        });
+        $archiveMetrics = $cache->remember('files', 'dashboard-archive-metrics', now()->addSeconds(30), fn (): array => [
+            'fileCount' => File::query()->standaloneArchive()->count(),
+            'documentCount' => File::query()->standaloneArchive()->whereIn('category', ['pdf', 'text', 'code'])->count(),
+            'mediaCount' => File::query()->standaloneArchive()->whereIn('category', ['image', 'video', 'audio'])->count(),
+        ]);
         $latestFiles = $cache->remember(
             'files',
             'dashboard-latest',
             now()->addSeconds(30),
             fn (): Collection => File::query()
+                ->standaloneArchive()
                 ->select(['id', 'uuid', 'original_name', 'extension', 'mime_type', 'category', 'upload_method', 'size', 'created_at'])
                 ->latest()->limit(20)->get(),
         );
@@ -104,7 +96,7 @@ class DashboardLatestFiles extends Component
             'groupLabels' => $files->mapWithKeys(fn (File $file): array => [
                 $file->created_at->format('Y-m') => $file->created_at->format('F Y'),
             ])->all(),
-            ...$metrics,
+            ...$archiveMetrics,
             'visibleCount' => $files->count(),
             'groupCount' => $files->groupBy(fn (File $file): string => $file->created_at->format('Y-m'))->count(),
             'fileRoutePrefix' => $this->fileRoutePrefix,

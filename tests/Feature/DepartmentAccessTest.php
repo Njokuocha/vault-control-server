@@ -57,24 +57,46 @@ test('a staff account can only authenticate into its assigned department', funct
     $this->get(route('admin.staff.index'))->assertForbidden();
 });
 
-test('suspended or disabled staff accounts cannot authenticate', function () {
-    foreach (['suspended', 'disabled'] as $status) {
+test('frozen and disabled staff accounts cannot authenticate', function () {
+    foreach (['frozen', 'disabled'] as $status) {
         User::factory()->create([
             'username' => 'staff.'.$status,
             'department' => 'pm',
             'account_status' => $status,
+            'frozen_until' => $status === 'frozen' ? now()->addMinutes(30) : null,
             'password' => 'profile-manager-password',
         ]);
 
         Livewire::test(DepartmentLoginForm::class, ['department' => 'pm'])
             ->call('authenticate', 'staff.'.$status, 'profile-manager-password', false)
-            ->assertHasErrors('username');
+            ->assertHasErrors('username')
+            ->assertSee($status === 'frozen'
+                ? 'This account has been frozen. Contact your admin.'
+                : 'This account has been disabled. Contact your admin.');
 
         $this->assertGuest('web');
     }
 });
 
-test('the central admin can create, suspend, reset, and delete department accounts', function () {
+test('an expired staff freeze is cleared during login and normal access resumes', function () {
+    $staff = User::factory()->create([
+        'username' => 'staff.expired-freeze',
+        'department' => 'pm',
+        'account_status' => 'frozen',
+        'frozen_until' => now()->subSecond(),
+        'password' => 'profile-manager-password',
+    ]);
+
+    Livewire::test(DepartmentLoginForm::class, ['department' => 'pm'])
+        ->call('authenticate', 'staff.expired-freeze', 'profile-manager-password', false)
+        ->assertHasNoErrors();
+
+    $this->assertAuthenticatedAs($staff, 'web');
+    expect($staff->fresh()->account_status)->toBe('active')
+        ->and($staff->fresh()->frozen_until)->toBeNull();
+});
+
+test('the central admin can create, update, reset, and delete department accounts', function () {
     $legacy = User::factory()->create(['email' => 'admin@example.test']);
     config(['vault.admin.email' => $legacy->email]);
     $admin = Admin::query()->create([
@@ -107,10 +129,13 @@ test('the central admin can create, suspend, reset, and delete department accoun
         ->assertSee('RESET PASSWORD');
 
     $component->call('edit', $staff->id)
-        ->set('accountStatus', 'suspended')
+        ->set('name', 'Updated Case Manager')
         ->call('save')
         ->assertHasNoErrors();
-    expect($staff->fresh()->account_status)->toBe('suspended');
+    expect($staff->fresh()->name)->toBe('Updated Case Manager')
+        ->and($staff->fresh()->account_status)->toBe('active');
+
+    expect($staff->fresh()->account_status)->toBe('active');
 
     $component->call('openPasswordReset', $staff->id)
         ->assertSee('Set a new password')

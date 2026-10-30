@@ -177,5 +177,38 @@
 @keyframes mail-modal-enter { from { opacity: 0; } to { opacity: 1; } }
 @keyframes mail-panel-enter { from { transform: translateY(12px) scale(.98); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
 @keyframes mail-emblem-pop { from { transform: scale(.65); opacity: .3; } to { transform: scale(1); opacity: 1; } }
+.admin-mail-page .section-kicker { font-size: 10px; }
+.mail-page-heading p { color: var(--text-secondary); font-size: 13px; }
+.mail-transport-badge small { font-size: 10px; }
+.mail-view-switch button { font-size: 10px; }
+.mail-view-switch button > span { min-width: 21px; height: 21px; font-size: 10px; }
+.mail-field { font-size: 10px; }
+.mail-field em, .mail-field span small { font-size: 9px; }
+.mail-field > small, .mail-field > b { font-size: 11px; }
+.mail-editor-label { font-size: 10px; }
+.mail-editor-label small, .mail-attachment-field > label small { font-size: 9px; }
+.mail-attachment-field > label { font-size: 10px; }
+.mail-attachment-field input { font-size: 11px; }
+.mail-staged-files li { font-size: 11px; }
+.mail-staged-files li > small, .mail-attachment-field > p { font-size: 9px; }
+.mail-compose-footer > span { font-size: 9px; }
+.mail-primary-button, .mail-secondary-button, .mail-danger-button { font-size: 10px; }
+.mail-sidecard p strong { font-size: 12px; }
+.mail-sidecard p small, .mail-sidecard--note p { color: var(--text-secondary); font-size: 11px; }
+.mail-search input { font-size: 11px; }
+.mail-list-row__copy strong { font-size: 12px; }
+.mail-list-row__copy small { font-size: 9px; }
+.mail-empty-register strong { font-size: 12px; }
+.mail-empty-register span { font-size: 11px; }
+.mail-pagination nav a, .mail-pagination nav span { font-size: 10px; }
+.mail-message-heading small { font-size: 10px; }
+.mail-message-recipients dt { font-size: 10px; }
+.mail-message-recipients dd { color: var(--text-primary); font-size: 12px; }
+.mail-message-attachments a { font-size: 11px; }
+.mail-message-attachments a small { font-size: 9px; }
+.mail-message-body { font-size: 14px; }
+.mail-delivery-failure { font-size: 12px; }
+.mail-message-empty p { color: var(--text-secondary); font-size: 12px; }
+.mail-confirm-modal > p { color: var(--text-secondary); font-size: 13px; }
 @media (max-width: 920px) { .mail-compose-layout { grid-template-columns: minmax(0, 1fr); }.mail-compose-aside { grid-template-columns: repeat(2, minmax(0, 1fr)); }.mail-sent-layout { grid-template-columns: minmax(220px, .8fr) minmax(0, 1.3fr); } }
 @media (max-width: 680px) { .mail-page-heading { align-items: flex-start; flex-direction: column; }.mail-transport-badge { min-width: 100%; }.mail-compose-aside { grid-template-columns: minmax(0, 1fr); }.mail-sent-layout { grid-template-columns: minmax(0, 1fr); }.mail-list-panel { min-height: 280px; max-height: 400px; }.mail-message-panel { min-height: 420px; }.mail-message-empty { min-height: 340px; }.mail-recipient-grid { grid-template-columns: minmax(0, 1fr); }.mail-field-wide { grid-column: auto; }.mail-compose-footer { align-items: flex-start; flex-direction: column; }.mail-compose-footer .mail-primary-button { width: 100%; }.two-factor-panel { grid-template-columns: 45px minmax(0, 1fr); }.two-factor-panel__icon { width: 41px; height: 41px; }.two-factor-panel .mail-toggle { grid-column: 2; justify-self: start; }.mail-editor-label { flex-direction: column; } }

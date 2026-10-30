@@ -15,3 +15,4 @@ Schedule::command('security:snapshot-sessions')
     ->withoutOverlapping()
     ->createMutexNameUsing('framework/schedule-security-snapshot-v2');
 Schedule::command('security:prune-records')->daily()->withoutOverlapping();
+Schedule::command('staff:expire-freezes')->everyMinute()->withoutOverlapping();

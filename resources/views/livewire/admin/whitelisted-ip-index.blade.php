@@ -23,12 +23,12 @@
                 <label for="whitelist-ip-address">IP ADDRESS</label>
                 <input id="whitelist-ip-address" type="text" inputmode="url" autocomplete="off" placeholder="203.0.113.10 or IPv6" wire:model="ipAddress">
                 @error('ipAddress')<small class="field-error">{{ $message }}</small>@enderror
-                <div class="agency-modal__actions"><button class="button-secondary" type="button" wire:click="closeAddModal">CANCEL</button><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="add">ADD IP</button></div>
+                <div class="agency-modal__actions"><button class="button-secondary" type="button" wire:click="closeAddModal" wire:loading.attr="disabled" wire:target="add">CANCEL</button><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="add"><span wire:loading.remove wire:target="add">ADD IP</span><span wire:loading wire:target="add"><i class="ri ri-loader-4-line" aria-hidden="true"></i> ADDING…</span></button></div>
             </form>
         </section></div>
     @endif
 
     @if ($removeTarget)
-        <div class="agency-modal-backdrop"><section class="agency-modal" role="dialog" aria-modal="true" aria-labelledby="remove-whitelist-ip-title"><span class="section-kicker">TRUSTED SOURCE CONTROL</span><h2 id="remove-whitelist-ip-title">Remove trusted IP?</h2><p>{{ $removeTarget->ip_address }} will no longer be on the whitelist.</p><div class="agency-modal__actions"><button class="button-secondary" wire:click="cancelRemove">CANCEL</button><button class="button-danger" wire:click="remove({{ $removeTarget->id }})">REMOVE IP</button></div></section></div>
+        <div class="agency-modal-backdrop"><section class="agency-modal" role="dialog" aria-modal="true" aria-labelledby="remove-whitelist-ip-title"><span class="section-kicker">TRUSTED SOURCE CONTROL</span><h2 id="remove-whitelist-ip-title">Remove trusted IP?</h2><p>{{ $removeTarget->ip_address }} will no longer be on the whitelist.</p><div class="agency-modal__actions"><button class="button-secondary" type="button" wire:click="cancelRemove" wire:loading.attr="disabled" wire:target="remove">CANCEL</button><button class="button-danger" type="button" wire:click="remove({{ $removeTarget->id }})" wire:loading.attr="disabled" wire:target="remove"><span wire:loading.remove wire:target="remove">REMOVE IP</span><span wire:loading wire:target="remove"><i class="ri ri-loader-4-line" aria-hidden="true"></i> REMOVING…</span></button></div></section></div>
     @endif
 </div>

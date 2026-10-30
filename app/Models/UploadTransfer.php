@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -10,6 +11,7 @@ class UploadTransfer extends Model
     protected $fillable = [
         'token',
         'user_id',
+        'admin_id',
         'attachment_purpose',
         'record_type',
         'record_id',
@@ -32,6 +34,7 @@ class UploadTransfer extends Model
     {
         return [
             'user_id' => 'integer',
+            'admin_id' => 'integer',
             'record_id' => 'integer',
             'target_id' => 'integer',
             'total_size' => 'integer',
@@ -57,5 +60,18 @@ class UploadTransfer extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function admin(): BelongsTo
+    {
+        return $this->belongsTo(Admin::class);
+    }
+
+    public function scopeOwnedBy(Builder $query, User|Admin $owner): Builder
+    {
+        return $query->where(
+            $owner instanceof Admin ? 'admin_id' : 'user_id',
+            $owner->getAuthIdentifier(),
+        );
     }
 }

@@ -16,6 +16,9 @@
 
     <livewire:settings-image-pin />
     <livewire:settings-password />
+    @if (auth('admin')->check())
+        <livewire:admin.two-factor-settings />
+    @endif
     <livewire:security-settings />
 
     <footer class="page-footer"><span>{{ strtoupper(config('app.name')) }}</span><span>PRIVATE BY DESIGN <i>·</i> ACCESS CONTROLLED</span></footer>

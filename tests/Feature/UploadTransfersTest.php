@@ -3,6 +3,7 @@
 use App\Events\UploadTransferStatusChanged;
 use App\Jobs\FinalizeUploadTransferJob;
 use App\Livewire\CaseDossier;
+use App\Models\Admin;
 use App\Models\File as VaultFile;
 use App\Models\InvestigationCase;
 use App\Models\Person;
@@ -243,36 +244,36 @@ test('record attachment intents are limited to the assigned department', functio
     $profileManager = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
 
     $this->actingAs($caseManager)->postJson(route('upload-transfers.initialize'), [
-    'name' => 'portrait.jpg',
-    'size' => 20,
-    'attachment' => [
-        'purpose' => RecordAttachmentTypes::PERSON_GALLERY,
-        'draft_token' => (string) Str::uuid(),
-    ],
+        'name' => 'portrait.jpg',
+        'size' => 20,
+        'attachment' => [
+            'purpose' => RecordAttachmentTypes::PERSON_GALLERY,
+            'draft_token' => (string) Str::uuid(),
+        ],
     ])->assertForbidden();
 
     $this->actingAs($profileManager)->postJson(route('upload-transfers.initialize'), [
-    'name' => 'evidence.pdf',
-    'size' => 20,
-    'attachment' => [
-        'purpose' => RecordAttachmentTypes::CASE_EVIDENCE,
-        'draft_token' => (string) Str::uuid(),
-        'target_key' => (string) Str::uuid(),
-    ],
+        'name' => 'evidence.pdf',
+        'size' => 20,
+        'attachment' => [
+            'purpose' => RecordAttachmentTypes::CASE_EVIDENCE,
+            'draft_token' => (string) Str::uuid(),
+            'target_key' => (string) Str::uuid(),
+        ],
     ])->assertForbidden();
 });
 
 test('only file managers and administrators can initialize standalone archive uploads', function () {
     foreach (['cfm', 'pm'] as $department) {
-    $staff = User::factory()->create([
-        'department' => $department,
-        'account_status' => 'active',
-    ]);
+        $staff = User::factory()->create([
+            'department' => $department,
+            'account_status' => 'active',
+        ]);
 
-    $this->actingAs($staff)->postJson(route('upload-transfers.initialize'), [
-        'name' => 'unattached.pdf',
-        'size' => 20,
-    ])->assertForbidden();
+        $this->actingAs($staff)->postJson(route('upload-transfers.initialize'), [
+            'name' => 'unattached.pdf',
+            'size' => 20,
+        ])->assertForbidden();
     }
 
     $fileManager = User::factory()->create([
@@ -362,6 +363,189 @@ test('a committed case evidence transfer finalizes and attaches the detected doc
         ->and($attachment->file_id)->toBe($file->id)
         ->and($file->mime_type)->toBe('application/pdf')
         ->and($file->category)->toBe('pdf');
+});
+
+test('administrator uploads can be attached to case evidence and remain visible in the upload tracker', function () {
+    Queue::fake();
+    Event::fake([UploadTransferStatusChanged::class]);
+    $admin = Admin::query()->create([
+        'name' => 'Case Administrator',
+        'email' => 'case-transfer-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $caseFile = InvestigationCase::query()->create([
+        'public_id' => 'CSE-ADMIN-UPLOAD',
+        'title' => 'Admin upload case',
+    ]);
+    $category = $caseFile->categories()->create(['title' => 'Admin evidence']);
+    $contents = "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n";
+    $this->actingAs($admin, 'admin');
+
+    $transfer = $this->postJson(route('upload-transfers.initialize'), [
+        'name' => 'admin-evidence.pdf',
+        'size' => strlen($contents),
+        'attachment' => [
+            'purpose' => RecordAttachmentTypes::CASE_EVIDENCE,
+            'record_id' => $caseFile->id,
+            'target_id' => $category->id,
+            'commit_immediately' => true,
+        ],
+    ])->assertCreated()
+        ->assertJsonPath('status', 'uploading')
+        ->json();
+
+    expect(UploadTransfer::query()->where('token', $transfer['token'])->value('admin_id'))
+        ->toBe($admin->id)
+        ->and(UploadTransfer::query()->where('token', $transfer['token'])->value('user_id'))
+        ->toBeNull();
+
+    $this->post(route('upload-transfers.chunk', ['token' => $transfer['token'], 'index' => 0]), [
+        'chunk' => UploadedFile::fake()->createWithContent('chunk.part', $contents),
+    ])->assertOk()->assertJsonPath('status', 'pending');
+
+    $upload = UploadTransfer::query()->where('token', $transfer['token'])->firstOrFail();
+    (new FinalizeUploadTransferJob($upload->id))->handle(
+        app(FileUploadService::class),
+        app(VideoProcessingService::class),
+        app(UploadTransferStatus::class),
+        app(RecordAttachmentTypes::class),
+        app(RecordUploadAttachmentService::class),
+    );
+
+    $upload->refresh();
+    $image = $category->images()->where('file_id', $upload->file_id)->firstOrFail();
+    expect($upload->status)->toBe('done')
+        ->and($upload->attached_at)->not->toBeNull()
+        ->and($image->type)->toBe('document');
+
+    $this->getJson(route('upload-transfers.index'))
+        ->assertOk()
+        ->assertJsonPath('total_uploads', 1)
+        ->assertJsonPath('uploads.0.token', $transfer['token'])
+        ->assertJsonPath('uploads.0.status', 'done')
+        ->assertJsonPath('uploads.0.preview_url', route('cases.evidence-preview', [
+            'caseFile' => $caseFile,
+            'file' => $upload->file->uuid,
+        ]));
+
+    $this->getJson(route('cases.evidence-preview', [
+        'caseFile' => $caseFile,
+        'file' => $upload->file->uuid,
+    ]))
+        ->assertOk()
+        ->assertJsonPath('stream_url', route('cases.evidence-stream', [
+            'caseFile' => $caseFile,
+            'file' => $upload->file->uuid,
+        ]))
+        ->assertJsonPath('download_url', route('cases.images.download', [
+            'caseFile' => $caseFile,
+            'image' => $image,
+        ]));
+});
+
+test('administrator can use the central manual upload page and own standalone transfers', function () {
+    Queue::fake();
+    $admin = Admin::query()->create([
+        'name' => 'Archive Administrator',
+        'email' => 'archive-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $this->actingAs($admin, 'admin')
+        ->get(route('uploads.create'))
+        ->assertOk()
+        ->assertSee('ADMINISTRATOR INGESTION');
+
+    $contents = 'central archive upload';
+    $transfer = $this->postJson(route('upload-transfers.initialize'), [
+        'name' => 'archive-note.txt',
+        'size' => strlen($contents),
+    ])->assertCreated()->json();
+
+    $this->post(route('upload-transfers.chunk', ['token' => $transfer['token'], 'index' => 0]), [
+        'chunk' => UploadedFile::fake()->createWithContent('chunk.part', $contents),
+    ])->assertOk()->assertJsonPath('status', 'pending');
+
+    $upload = UploadTransfer::query()->where('token', $transfer['token'])->firstOrFail();
+    (new FinalizeUploadTransferJob($upload->id))->handle(
+        app(FileUploadService::class),
+        app(VideoProcessingService::class),
+        app(UploadTransferStatus::class),
+        app(RecordAttachmentTypes::class),
+        app(RecordUploadAttachmentService::class),
+    );
+
+    expect($upload->fresh()->admin_id)->toBe($admin->id)
+        ->and($upload->fresh()->user_id)->toBeNull()
+        ->and($upload->fresh()->status)->toBe('done')
+        ->and(VaultFile::query()->whereKey($upload->fresh()->file_id)->exists())->toBeTrue();
+});
+
+test('administrator can upload and attach profile main images and gallery media in the central workspace', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Profile Upload Administrator',
+        'email' => 'profile-upload-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $person = Person::query()->create([
+        'public_id' => 'USR-ADMIN-GALLERY',
+        'name' => 'Admin-managed profile',
+    ]);
+    $contents = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', true);
+    expect($contents)->toBeString();
+    $this->actingAs($admin, 'admin');
+
+    $transfer = $this->postJson(route('upload-transfers.initialize'), [
+        'name' => 'profile-evidence.png',
+        'size' => strlen($contents),
+        'attachment' => [
+            'purpose' => RecordAttachmentTypes::PERSON_GALLERY,
+            'record_id' => $person->id,
+            'commit_immediately' => true,
+        ],
+    ])->assertCreated()->json();
+
+    $this->post(route('upload-transfers.chunk', ['token' => $transfer['token'], 'index' => 0]), [
+        'chunk' => UploadedFile::fake()->createWithContent('chunk.part', $contents),
+    ])->assertOk()->assertJsonPath('status', 'pending');
+
+    $upload = UploadTransfer::query()->where('token', $transfer['token'])->firstOrFail();
+    (new FinalizeUploadTransferJob($upload->id))->handle(
+        app(FileUploadService::class),
+        app(VideoProcessingService::class),
+        app(UploadTransferStatus::class),
+        app(RecordAttachmentTypes::class),
+        app(RecordUploadAttachmentService::class),
+    );
+
+    expect($upload->fresh()->admin_id)->toBe($admin->id)
+        ->and($upload->fresh()->status)->toBe('done')
+        ->and($person->images()->where('file_id', $upload->fresh()->file_id)->value('type'))->toBe('image');
+
+    $mainImageTransfer = $this->postJson(route('upload-transfers.initialize'), [
+        'name' => 'profile-main.png',
+        'size' => strlen($contents),
+        'attachment' => [
+            'purpose' => RecordAttachmentTypes::PERSON_MAIN_IMAGE,
+            'record_id' => $person->id,
+            'commit_immediately' => true,
+        ],
+    ])->assertCreated()->json();
+
+    $this->post(route('upload-transfers.chunk', ['token' => $mainImageTransfer['token'], 'index' => 0]), [
+        'chunk' => UploadedFile::fake()->createWithContent('chunk.part', $contents),
+    ])->assertOk()->assertJsonPath('status', 'pending');
+
+    $mainImageUpload = UploadTransfer::query()->where('token', $mainImageTransfer['token'])->firstOrFail();
+    (new FinalizeUploadTransferJob($mainImageUpload->id))->handle(
+        app(FileUploadService::class),
+        app(VideoProcessingService::class),
+        app(UploadTransferStatus::class),
+        app(RecordAttachmentTypes::class),
+        app(RecordUploadAttachmentService::class),
+    );
+
+    expect($mainImageUpload->fresh()->admin_id)->toBe($admin->id)
+        ->and($person->fresh()->main_image_file_id)->toBe($mainImageUpload->fresh()->file_id);
 });
 
 test('uploads started after case creation appear in the saved evidence category', function () {
@@ -778,12 +962,24 @@ test('expired incomplete transfers are marked failed and their chunks are pruned
 test('upload transfer broadcasts are private to the matching authenticated user', function () {
     $user = User::factory()->create();
     $otherUser = User::factory()->create();
+    $admin = Admin::query()->create([
+        'name' => 'Upload Administrator',
+        'email' => 'upload-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $otherAdmin = Admin::query()->create([
+        'name' => 'Other Upload Administrator',
+        'email' => 'other-upload-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
     $channels = app(BroadcastManager::class)
         ->connection()
         ->getChannels();
 
     expect($channels['uploads.{userId}']($user, $user->id))->toBeTrue()
-        ->and($channels['uploads.{userId}']($user, $otherUser->id))->toBeFalse();
+        ->and($channels['uploads.{userId}']($user, $otherUser->id))->toBeFalse()
+        ->and($channels['admin.uploads.{adminId}']($admin, $admin->id))->toBeTrue()
+        ->and($channels['admin.uploads.{adminId}']($admin, $otherAdmin->id))->toBeFalse();
 
     $event = new UploadTransferStatusChanged(
         userId: $user->id,
@@ -802,4 +998,16 @@ test('upload transfer broadcasts are private to the matching authenticated user'
             'total_uploads' => 4,
             'pending_uploads' => 2,
         ]);
+
+    $adminEvent = new UploadTransferStatusChanged(
+        userId: null,
+        uploadId: 8,
+        name: 'admin-record.txt',
+        size: 20,
+        status: 'done',
+        totalUploads: 1,
+        pendingUploads: 0,
+        adminId: $admin->id,
+    );
+    expect($adminEvent->broadcastOn()[0]->name)->toBe('private-admin.uploads.'.$admin->id);
 });

@@ -6,6 +6,8 @@ import './record-form-submitter';
 import './video-uploader';
 import './report-system';
 import './admin-mail';
+import './staff-status';
+import './case-media-previews';
 import { openImageViewer } from './image-viewer.js';
 import { evaluateTriggerExpression } from './shell-math.mjs';
 import Echo from 'laravel-echo';
@@ -101,6 +103,13 @@ if (broadcastConnection === 'pusher' && pusherKey && pusherCluster && applicatio
     const uploadUserId = document.querySelector('meta[name="upload-user-id"]')?.content;
     if (uploadUserId) {
         window.Echo.private(`uploads.${uploadUserId}`)
+            .listen('.upload.transfer.status-changed', (event) => {
+                window.dispatchEvent(new CustomEvent('vault:upload-transfer-status', { detail: event }));
+            });
+    }
+    const uploadAdminId = document.querySelector('meta[name="upload-admin-id"]')?.content;
+    if (uploadAdminId) {
+        window.Echo.private(`admin.uploads.${uploadAdminId}`)
             .listen('.upload.transfer.status-changed', (event) => {
                 window.dispatchEvent(new CustomEvent('vault:upload-transfer-status', { detail: event }));
             });
@@ -1033,7 +1042,7 @@ const refreshDashboardSnapshot = async () => {
         });
 
         const summary = document.querySelector('[data-dashboard-record-summary]');
-        if (summary) summary.textContent = `${snapshot.files.length} LATEST OF ${Number(metrics.fileCount).toLocaleString()} RECORDS · ${groups.size} GROUPS`;
+        if (summary) summary.textContent = `${snapshot.files.length} LATEST OF ${Number(snapshot.archive_total ?? metrics.fileCount).toLocaleString()} RECORDS · ${groups.size} GROUPS`;
         filterArchive();
         if (archiveBrowser && !archiveBrowser.hidden) window.Livewire?.dispatch('refresh-archive');
     } catch (error) {
@@ -1930,6 +1939,9 @@ const activatePersonViewables = () => {
         if (!image.closest('[hidden]')) loadProtectedImage(image);
         image.closest('[data-image-viewer]')?.querySelector('[data-image-lock-placeholder]')?.remove();
     });
+    document.querySelectorAll('[data-protected-video-thumbnail]').forEach((video) => {
+        window.vaultLoadVideoThumbnail?.(video);
+    });
     document.querySelector('[data-profile-gallery]')?.classList.remove('is-locked');
     document.querySelectorAll('[data-video-viewer][data-video-pin-required]').forEach((video) => {
         video.querySelector('[data-image-lock-placeholder]')?.remove();
@@ -2074,7 +2086,14 @@ listenForPageEvent(document, 'click', (event) => {
         gallery?.querySelectorAll('[data-gallery-extra]').forEach((image) => {
             image.hidden = false;
             if (personViewablesUnlocked) {
-                loadProtectedImage(image.matches('[data-protected-image]') ? image : image.querySelector('[data-protected-image]'));
+                const protectedImage = image.matches('[data-protected-image]')
+                    ? image
+                    : image.querySelector('[data-protected-image]');
+                const protectedVideo = image.matches('[data-protected-video-thumbnail]')
+                    ? image
+                    : image.querySelector('[data-protected-video-thumbnail]');
+                loadProtectedImage(protectedImage);
+                if (protectedVideo) window.vaultLoadVideoThumbnail?.(protectedVideo);
             }
         });
         gallery?.classList.add('is-expanded');
@@ -2712,6 +2731,9 @@ document.addEventListener('submit', async (event) => {
             image.hidden = false;
             const imageUrl = image.dataset.imageUrl;
             if (imageUrl && !image.getAttribute('src')) image.src = imageUrl;
+        });
+        mediaPage?.querySelectorAll('[data-fm-protected-video-thumbnail]').forEach((video) => {
+            window.vaultLoadVideoThumbnail?.(video);
         });
         mediaPage?.querySelectorAll('[data-fm-lock-placeholder]').forEach((placeholder) => placeholder.remove());
         dialog.close();

@@ -26,7 +26,11 @@
                 @if ($image->type === 'video')
                     <button class="profile-gallery-tile video-gallery-tile" type="button" data-fm-media-preview data-media-type="video" data-media-url="{{ route('fm.person-media.image', ['person' => $person->id, 'image' => $image->id]) }}" data-download-url="{{ route('fm.person-media.download', ['person' => $person->id, 'image' => $image->id]) }}" data-media-title="Protected video" aria-label="Locked video. Unlock viewables to preview.">
                         <span class="image-lock-placeholder" data-fm-lock-placeholder>?</span>
-                        @if ($image->poster_path)<img data-fm-protected-image data-image-url="{{ route('fm.person-media.poster', ['person' => $person->id, 'image' => $image->id]) }}" alt="" loading="lazy" hidden>@endif
+                        @if ($image->poster_path || $image->file?->video_poster_path)
+                            <img data-fm-protected-image data-image-url="{{ route('fm.person-media.poster', ['person' => $person->id, 'image' => $image->id]) }}" alt="" loading="lazy" hidden>
+                        @else
+                            <video class="profile-gallery-video-thumbnail" data-fm-protected-video-thumbnail data-thumbnail-url="{{ route('fm.person-media.image', ['person' => $person->id, 'image' => $image->id]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
+                        @endif
                         <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                     </button>
                 @else

@@ -25,11 +25,11 @@ use App\Livewire\Admin\BlacklistedIpIndex;
 use App\Livewire\Admin\BruteForceIndex;
 use App\Livewire\Admin\DepartmentManagement;
 use App\Livewire\Admin\DepartmentStaffDirectory;
+use App\Livewire\Admin\InactiveStaffIndex;
 use App\Livewire\Admin\MailCenter;
 use App\Livewire\Admin\ReportManagement;
 use App\Livewire\Admin\StaffManagement;
 use App\Livewire\Admin\StaffProfile;
-use App\Livewire\Admin\TwoFactorSettings;
 use App\Livewire\Admin\WhitelistedIpIndex;
 use App\Livewire\ReportWorkspace;
 use App\Models\Department;
@@ -211,6 +211,8 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::get('/cases/{caseFile}/edit', [InvestigationCaseController::class, 'edit'])->name('cases.edit');
     Route::put('/cases/{caseFile}', [InvestigationCaseController::class, 'update'])->name('cases.update');
     Route::delete('/cases/{caseFile}', [InvestigationCaseController::class, 'destroy'])->name('cases.destroy');
+    Route::get('/cases/{caseFile}/evidence/{file:uuid}/preview', [InvestigationCaseController::class, 'previewEvidence'])->withoutScopedBindings()->name('cases.evidence-preview');
+    Route::get('/cases/{caseFile}/evidence/{file:uuid}/stream', [InvestigationCaseController::class, 'streamEvidence'])->withoutScopedBindings()->name('cases.evidence-stream');
     Route::get('/cases/{caseFile}/images/{image}', [InvestigationCaseController::class, 'image'])->name('cases.image');
     Route::get('/cases/{caseFile}/images/{image}/download', [InvestigationCaseController::class, 'image'])->defaults('download', true)->name('cases.images.download');
     Route::get('/cases/{caseFile}/images/{image}/poster', [InvestigationCaseController::class, 'imagePoster'])->name('cases.images.poster');
@@ -244,6 +246,7 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
             ->name('admin.mail.attachments.download');
     });
     Route::get('/staff', StaffManagement::class)->name('admin.staff.index');
+    Route::get('/staff/non-active', InactiveStaffIndex::class)->name('admin.staff.inactive');
     Route::get('/reports', ReportWorkspace::class)->name('admin.reports.index');
     Route::get('/reports/manage', ReportManagement::class)->name('admin.reports.manage');
     Route::get('/staff/{user}/{section}', StaffProfile::class)
@@ -258,7 +261,6 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
         ->whereNumber('department')
         ->name('admin.departments.staff');
     Route::middleware('security.read')->prefix('/auth-security')->name('admin.security.')->group(function (): void {
-        Route::get('/two-factor', TwoFactorSettings::class)->middleware('auth:admin')->name('two-factor');
         Route::get('/', AuthSecurityDashboard::class)->name('index');
         Route::get('/authentication-history', AuthHistory::class)->name('auth-history');
         Route::get('/authentication-history/{authEvent}', [AuthSecurityController::class, 'authEvent'])->whereNumber('authEvent')->name('auth-event');

@@ -194,6 +194,8 @@ const createRecordFilePreview = (file, onRemove, purpose) => {
     const extension = rawExtension.toUpperCase() || 'FILE';
     const objectUrl = URL.createObjectURL(file);
     wrapper.dataset.previewUrl = objectUrl;
+    const isDocument = !file.type.startsWith('image/') && !imageExtensions.has(rawExtension)
+        && !file.type.startsWith('video/') && !videoExtensions.has(rawExtension);
     if (file.type.startsWith('image/') || imageExtensions.has(rawExtension)) {
         const preview = document.createElement('img');
         preview.src = objectUrl;
@@ -210,14 +212,32 @@ const createRecordFilePreview = (file, onRemove, purpose) => {
             if (preview.duration > 0) preview.currentTime = Math.min(0.1, preview.duration / 2);
         }, { once: true });
         wrapper.append(preview);
+        if (purpose === 'case-evidence') {
+            const mark = document.createElement('span');
+            mark.className = 'case-evidence-video-mark case-evidence-video-mark--centered';
+            mark.setAttribute('aria-hidden', 'true');
+            const playIcon = document.createElement('i');
+            playIcon.className = 'ri ri-play-fill';
+            mark.append(playIcon);
+            wrapper.append(mark);
+        }
     } else {
         const badge = document.createElement('span');
         badge.className = 'case-evidence-document';
-        badge.textContent = `[${extension}]`;
+        const icon = document.createElement('i');
+        icon.className = `ri ${rawExtension === 'pdf' ? 'ri-file-pdf-2-line' : ['doc', 'docx'].includes(rawExtension) ? 'ri-file-word-2-line' : 'ri-file-text-line'} case-evidence-document__watermark`;
+        icon.setAttribute('aria-hidden', 'true');
+        const type = document.createElement('strong');
+        type.textContent = extension;
+        const baseName = file.name.replace(/\.[^.]+$/, '');
+        const name = document.createElement('span');
+        name.textContent = baseName.slice(0, 15) + (baseName.length > 15 ? '...' : '');
+        name.title = file.name;
+        badge.append(icon, type, name);
         wrapper.append(badge);
     }
 
-    if (galleryPreview) {
+    if (galleryPreview && !isDocument) {
         const name = document.createElement('span');
         name.textContent = file.name;
         wrapper.append(name);
@@ -411,9 +431,24 @@ const startDeferredRecordUploads = (form, payload) => {
             selection.errorTrackerId = id;
             const actions = {
                 retry: async () => {
-                    removeUploadTrackerItem(id);
-                    selection.errorTrackerId = null;
-                    await startDeferredRecordUpload(form, selection, payload);
+                    try {
+                        await startDeferredRecordUpload(form, selection, payload);
+                    } catch (retryError) {
+                        const retryMessage = retryError instanceof Error
+                            ? retryError.message
+                            : `Unable to start ${selection.file.name}.`;
+                        updateUploadTrackerItem({
+                            id,
+                            kind: 'server-transfer',
+                            name: selection.file.name,
+                            size: selection.file.size,
+                            status: 'failed',
+                            progress: 0,
+                            error: retryMessage,
+                            actions,
+                        });
+                        throw retryError;
+                    }
                 },
                 remove: () => {
                     removeUploadTrackerItem(id);

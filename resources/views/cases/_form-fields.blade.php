@@ -15,10 +15,27 @@
                             @foreach ($category->images as $image)
                                 <div class="case-evidence-thumb" data-existing-case-image>
                                     @if ($image->type === 'video')
-                                        <span class="video-media-mark" aria-hidden="true">▶</span>
-                                        <span>{{ $image->original_name }}</span>
+                                        @if ($image->poster_path || $image->file?->video_poster_path)
+                                            <img class="case-evidence-video-poster" src="{{ route($routePrefix.'cases.images.poster', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="" loading="lazy" decoding="async">
+                                        @else
+                                            <video class="case-evidence-video-poster" data-case-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
+                                        @endif
+                                        <span class="case-evidence-video-mark case-evidence-video-mark--centered" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
+                                        <span class="case-evidence-filename" title="{{ $image->original_name }}">{{ \Illuminate\Support\Str::limit($image->original_name, 22, '...') }}</span>
                                     @elseif (in_array($image->type, ['document', 'audio'], true))
-                                        <a class="case-evidence-document" href="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" aria-label="Download {{ $image->original_name }}">{{ strtoupper(pathinfo($image->original_name, PATHINFO_EXTENSION)) }}</a>
+                                        @php($extension = strtoupper(pathinfo($image->original_name, PATHINFO_EXTENSION)) ?: 'FILE')
+                                        @php($documentIcon = match (strtolower($extension)) {
+                                            'pdf' => 'ri-file-pdf-2-line',
+                                            'doc', 'docx' => 'ri-file-word-2-line',
+                                            'txt', 'rtf' => 'ri-file-text-line',
+                                            'mp3', 'wav', 'm4a', 'ogg' => 'ri-music-2-line',
+                                            default => 'ri-file-text-line',
+                                        })
+                                        <a class="case-evidence-document" href="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" target="_blank" rel="noopener" aria-label="View {{ $image->original_name }}">
+                                            <i class="ri {{ $documentIcon }} case-evidence-document__watermark" aria-hidden="true"></i>
+                                            <strong>{{ $extension }}</strong>
+                                            <span title="{{ $image->original_name }}">{{ \Illuminate\Support\Str::limit(pathinfo($image->original_name, PATHINFO_FILENAME), 16, '...') }}</span>
+                                        </a>
                                     @else
                                         <img src="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="{{ $image->original_name }}">
                                     @endif

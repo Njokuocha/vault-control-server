@@ -33,6 +33,12 @@ class DashboardController extends Controller
                 'mediaCount' => File::query()->whereIn('category', ['image', 'video', 'audio'])->count(),
             ];
         });
+        $archiveCount = app(VersionedCache::class)->remember(
+            'files',
+            'dashboard-archive-total',
+            now()->addSeconds(30),
+            fn (): int => File::query()->standaloneArchive()->count(),
+        );
         $files = $this->latestFiles('dashboard-snapshot-latest')
             ->map(fn (File $file): array => [
                 'uuid' => $file->uuid,
@@ -53,6 +59,7 @@ class DashboardController extends Controller
         return response()->json([
             'metrics' => $metrics,
             'files' => $files,
+            'archive_total' => $archiveCount,
         ]);
     }
 
@@ -68,7 +75,7 @@ class DashboardController extends Controller
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $query = File::query()->select([
+        $query = File::query()->standaloneArchive()->select([
             'id',
             'uuid',
             'original_name',
@@ -136,7 +143,7 @@ class DashboardController extends Controller
                 return [];
             }
 
-            return File::query()->selectRaw($yearExpression.' as year')
+            return File::query()->standaloneArchive()->selectRaw($yearExpression.' as year')
                 ->distinct()
                 ->orderByDesc('year')
                 ->pluck('year')
@@ -144,7 +151,7 @@ class DashboardController extends Controller
                 ->all();
         });
         $extensions = app(VersionedCache::class)->remember('files', 'archive-extensions', now()->addMinutes(5), function (): array {
-            $extensions = File::query()
+            $extensions = File::query()->standaloneArchive()
                 ->whereNotNull('extension')
                 ->where('extension', '!=', '')
                 ->distinct()
@@ -153,7 +160,7 @@ class DashboardController extends Controller
                 ->map(fn ($extension): string => (string) $extension)
                 ->all();
 
-            if (File::query()->whereNull('extension')->exists()) {
+            if (File::query()->standaloneArchive()->whereNull('extension')->exists()) {
                 $extensions[] = '__none__';
             }
 
@@ -195,6 +202,7 @@ class DashboardController extends Controller
             $key,
             now()->addSeconds(30),
             fn (): Collection => File::query()
+                ->standaloneArchive()
                 ->select(['id', 'uuid', 'original_name', 'extension', 'mime_type', 'category', 'upload_method', 'size', 'created_at'])
                 ->latest()
                 ->limit(20)

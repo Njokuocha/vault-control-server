@@ -21,11 +21,11 @@
                 <label for="blacklist-ip-reason">REASON</label>
                 <textarea id="blacklist-ip-reason" rows="3" maxlength="160" wire:model="reason"></textarea>
                 @error('reason')<small class="field-error">{{ $message }}</small>@enderror
-                <div class="agency-modal__actions"><button class="button-secondary" type="button" wire:click="closeAddModal">CANCEL</button><button class="button-danger" type="submit" wire:loading.attr="disabled" wire:target="add">BLACKLIST IP</button></div>
+                <div class="agency-modal__actions"><button class="button-secondary" type="button" wire:click="closeAddModal" wire:loading.attr="disabled" wire:target="add">CANCEL</button><button class="button-danger" type="submit" wire:loading.attr="disabled" wire:target="add"><span wire:loading.remove wire:target="add">BLACKLIST IP</span><span wire:loading wire:target="add"><i class="ri ri-loader-4-line" aria-hidden="true"></i> ADDING…</span></button></div>
             </form>
         </section></div>
     @endif
     @if ($removeTarget)
-        <div class="agency-modal-backdrop"><section class="agency-modal" role="dialog" aria-modal="true" aria-labelledby="remove-ip-title"><span class="section-kicker">SOURCE CONTROL</span><h2 id="remove-ip-title">Remove IP block?</h2><p>{{ $removeTarget->ip_address }} will be allowed to authenticate again.</p><div class="agency-modal__actions"><button class="button-secondary" wire:click="cancelRemove">CANCEL</button><button class="button-danger" wire:click="remove({{ $removeTarget->id }})">UNBLOCK IP</button></div></section></div>
+        <div class="agency-modal-backdrop"><section class="agency-modal" role="dialog" aria-modal="true" aria-labelledby="remove-ip-title"><span class="section-kicker">SOURCE CONTROL</span><h2 id="remove-ip-title">Remove IP block?</h2><p>{{ $removeTarget->ip_address }} will be allowed to authenticate again.</p><div class="agency-modal__actions"><button class="button-secondary" type="button" wire:click="cancelRemove" wire:loading.attr="disabled" wire:target="remove">CANCEL</button><button class="button-danger" type="button" wire:click="remove({{ $removeTarget->id }})" wire:loading.attr="disabled" wire:target="remove"><span wire:loading.remove wire:target="remove">UNBLOCK IP</span><span wire:loading wire:target="remove"><i class="ri ri-loader-4-line" aria-hidden="true"></i> UNBLOCKING…</span></button></div></section></div>
     @endif
 </div>

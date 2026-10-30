@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\FinalizeUploadTransferJob;
+use App\Models\Admin;
 use App\Models\CaseCategory;
 use App\Models\CaseImage;
 use App\Models\File;
@@ -20,16 +21,16 @@ class RecordUploadAttachmentService
 {
     public function __construct(private readonly RecordAttachmentTypes $types) {}
 
-    public function assertStandaloneUploadAllowed(User $user): void
+    public function assertStandaloneUploadAllowed(User|Admin $user): void
     {
         abort_unless(
-            $this->isConfiguredAdministrator($user)
-                || ($user->department === 'fm' && $user->account_status === 'active'),
+            $this->isAdministrator($user)
+                || ($user instanceof User && $user->department === 'fm' && $user->account_status === 'active'),
             403,
         );
     }
 
-    public function validateIntent(User $user, array $intent): array
+    public function validateIntent(User|Admin $user, array $intent): array
     {
         $purpose = $intent['purpose'] ?? null;
         if (! in_array($purpose, [
@@ -41,7 +42,11 @@ class RecordUploadAttachmentService
         }
 
         $requiredDepartment = $purpose === RecordAttachmentTypes::CASE_EVIDENCE ? 'cfm' : 'pm';
-        abort_unless($this->isConfiguredAdministrator($user) || $user->department === $requiredDepartment, 403);
+        abort_unless(
+            $this->isAdministrator($user)
+                || ($user instanceof User && $user->department === $requiredDepartment),
+            403,
+        );
 
         $recordType = $purpose === RecordAttachmentTypes::CASE_EVIDENCE ? 'case' : 'person';
         $recordId = isset($intent['record_id']) ? (int) $intent['record_id'] : null;
@@ -91,7 +96,7 @@ class RecordUploadAttachmentService
     }
 
     public function commitPersonUploads(
-        User $user,
+        User|Admin $user,
         Person $person,
         ?string $draftToken,
         ?string $mainImageToken,
@@ -125,7 +130,7 @@ class RecordUploadAttachmentService
     }
 
     public function commitCaseUploads(
-        User $user,
+        User|Admin $user,
         InvestigationCase $caseFile,
         ?string $draftToken,
         array $attachments,
@@ -212,7 +217,7 @@ class RecordUploadAttachmentService
     }
 
     private function commitTransfer(
-        User $user,
+        User|Admin $user,
         string $token,
         string $purpose,
         int $recordId,
@@ -221,7 +226,7 @@ class RecordUploadAttachmentService
         ?string $targetKey,
         string $errorField,
     ): void {
-        $upload = $user->uploadTransfers()->where('token', $token)->lockForUpdate()->first();
+        $upload = UploadTransfer::query()->ownedBy($user)->where('token', $token)->lockForUpdate()->first();
         if (! $upload instanceof UploadTransfer
             || $upload->attachment_purpose !== $purpose
             || $upload->record_type !== ($purpose === RecordAttachmentTypes::CASE_EVIDENCE ? 'case' : 'person')
@@ -281,5 +286,10 @@ class RecordUploadAttachmentService
             && strtolower($user->email) === $configuredAdminEmail
             && $user->department === null
             && in_array($user->account_status, ['active', null], true);
+    }
+
+    private function isAdministrator(User|Admin $user): bool
+    {
+        return $user instanceof Admin || $this->isConfiguredAdministrator($user);
     }
 }

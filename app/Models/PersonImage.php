@@ -21,6 +21,7 @@ class PersonImage extends Model
             $cache = app(VersionedCache::class);
             $cache->bumpAfterCommit('media');
             $cache->bumpAfterCommit('people');
+            $cache->bumpAfterCommit('files');
         };
         static::saved($invalidate);
         static::deleted($invalidate);

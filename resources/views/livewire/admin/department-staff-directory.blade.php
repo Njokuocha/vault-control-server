@@ -27,7 +27,7 @@
                     <div class="agency-staff-row__identity">
                         <a href="{{ route('admin.staff.show', $staff) }}" wire:navigate><strong>{{ $staff->name }}</strong></a>
                         <span>{{ $staff->username }} · {{ $staff->email }}</span>
-                        <small>{{ strtoupper($staff->account_status ?? 'active') }}</small>
+                        <small class="agency-staff-row__status">{{ strtoupper($staff->account_status ?? 'active') }}</small>
                     </div>
                     <div class="agency-staff-row__actions">
                         <a class="button-secondary" href="{{ route('admin.staff.show', $staff) }}" wire:navigate>VIEW PROFILE</a>

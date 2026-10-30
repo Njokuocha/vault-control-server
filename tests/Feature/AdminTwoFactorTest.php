@@ -23,7 +23,7 @@ beforeEach(function (): void {
     ]);
 });
 
-test('administrator can toggle email two-factor authentication from the protected setting page', function () {
+test('administrator can toggle email two-factor authentication from system settings', function () {
     $admin = Admin::query()->create([
         'name' => 'Two Factor Administrator',
         'email' => 'operator@example.test',
@@ -31,10 +31,10 @@ test('administrator can toggle email two-factor authentication from the protecte
     ]);
 
     $this->actingAs($admin, 'admin')
-        ->get(route('admin.security.two-factor'))
+        ->get(route('settings.index'))
         ->assertOk()
-        ->assertSee('Two-factor')
-        ->assertSee('authentication')
+        ->assertSee('ADMINISTRATOR SIGN-IN SECURITY')
+        ->assertSee('Password-only sign-in is active')
         ->assertSee('aria-checked="false"', false);
 
     Livewire::actingAs($admin, 'admin')
@@ -50,6 +50,23 @@ test('administrator can toggle email two-factor authentication from the protecte
         ->call('toggle')
         ->assertSet('enabled', false);
     expect(app(AdminTwoFactorService::class)->enabled())->toBeFalse();
+});
+
+test('two-factor settings are no longer a separate route or sidebar item', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Two Factor Administrator',
+        'email' => 'operator@example.test',
+        'password' => 'a-secure-password',
+    ]);
+
+    $this->actingAs($admin, 'admin')
+        ->get('/admin/auth-security/two-factor')
+        ->assertNotFound();
+
+    $this->get(route('settings.index'))
+        ->assertOk()
+        ->assertDontSee('Two-factor access')
+        ->assertSee('ADMINISTRATOR SIGN-IN SECURITY');
 });
 
 test('admin password sign-in requires an emailed code which survives a page refresh', function () {
@@ -165,8 +182,8 @@ test('legacy administrators and staff cannot manage the admin two-factor control
         'account_status' => 'active',
     ]);
     $this->actingAs($staff, 'web')
-        ->get(route('admin.security.two-factor'))
-        ->assertRedirect(route('login'));
+        ->get('/admin/auth-security/two-factor')
+        ->assertNotFound();
 
     $legacyAdmin = User::factory()->create([
         'department' => null,
@@ -174,6 +191,6 @@ test('legacy administrators and staff cannot manage the admin two-factor control
         'email' => 'operator@example.test',
     ]);
     $this->actingAs($legacyAdmin, 'web')
-        ->get(route('admin.security.two-factor'))
-        ->assertRedirect(route('login'));
+        ->get('/admin/auth-security/two-factor')
+        ->assertNotFound();
 });

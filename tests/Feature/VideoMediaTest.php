@@ -114,10 +114,104 @@ test('completed private videos can be attached to any case evidence category and
     $this->get(route('cases.show', $case))
         ->assertOk()
         ->assertSee('data-video-viewer', false)
+        ->assertSee('data-case-video-thumbnail', false)
         ->assertSee('witness-video.mp4');
+    $this->get(route('cases.edit', $case))
+        ->assertOk()
+        ->assertSee('case-evidence-video-mark--centered', false);
     $this->get(route('cases.image', ['caseFile' => $case, 'image' => $media]))
         ->assertOk()
         ->assertHeader('Content-Type', 'video/mp4');
+});
+
+test('case PDF documents open inline while the explicit download route remains an attachment', function () {
+    $bytes = "%PDF-1.7\nprivate evidence PDF";
+    $path = '2026/10/case-evidence.pdf';
+    Storage::disk('vault')->put($path, $bytes);
+    $file = VaultFile::query()->create([
+        'uuid' => (string) Str::uuid(),
+        'original_name' => 'case-evidence.pdf',
+        'stored_path' => $path,
+        'extension' => 'pdf',
+        'mime_type' => 'application/pdf',
+        'category' => 'document',
+        'upload_method' => 'manual',
+        'size' => strlen($bytes),
+        'checksum' => hash('sha256', $bytes),
+        'is_editable' => false,
+    ]);
+    $case = InvestigationCase::query()->create([
+        'public_id' => 'CSE-PDF-VIEW',
+        'title' => 'PDF evidence case',
+    ]);
+    $category = $case->categories()->create(['title' => 'Documents']);
+    $media = $category->images()->create([
+        'file_id' => $file->id,
+        'path' => $path,
+        'original_name' => 'case-evidence.pdf',
+        'type' => 'document',
+    ]);
+    $this->actingAs(User::factory()->create());
+
+    $this->get(route('cases.show', $case))
+        ->assertOk()
+        ->assertSee('href="'.route('cases.image', ['caseFile' => $case, 'image' => $media]).'"', false)
+        ->assertSee('aria-label="View case-evidence.pdf"', false);
+    $this->get(route('cases.edit', $case))
+        ->assertOk()
+        ->assertSee('target="_blank" rel="noopener"', false);
+
+    $this->get(route('cases.image', ['caseFile' => $case, 'image' => $media]))
+        ->assertOk()
+        ->assertHeader('Content-Type', 'application/pdf')
+        ->assertHeader('Content-Disposition', 'inline; filename=case-evidence.pdf');
+    $this->get(route('cases.images.download', ['caseFile' => $case, 'image' => $media]))
+        ->assertOk()
+        ->assertHeader('Content-Disposition', 'attachment; filename=case-evidence.pdf');
+});
+
+test('person galleries defer a protected video thumbnail until image access is unlocked', function () {
+    $upload = completedVideoForMedia('profile-video.mp4');
+    $operator = User::factory()->create();
+    $this->actingAs($operator)
+        ->post(route('people.store'), ['video_upload_tokens' => [$upload->token]])
+        ->assertRedirect();
+
+    $person = Person::query()->firstOrFail();
+    $this->get(route('people.show', $person))
+        ->assertOk()
+        ->assertSee('data-protected-video-thumbnail', false)
+        ->assertSee('data-video-pin-required', false);
+
+    $fileManager = User::factory()->create([
+        'department' => 'fm',
+        'account_status' => 'active',
+    ]);
+    $this->actingAs($fileManager, 'web')
+        ->get(route('fm.person-media.show', $person))
+        ->assertOk()
+        ->assertSee('data-fm-protected-video-thumbnail', false);
+});
+
+test('case video posters fall back to the private file poster when the case poster path is stale', function () {
+    $upload = completedVideoForMedia('witness-video.mp4', true);
+    $this->actingAs(User::factory()->create())
+        ->post(route('cases.store'), [
+            'title' => 'Video poster fallback case',
+            'categories' => [[
+                'title' => 'Witnesses',
+                'video_upload_tokens' => [$upload->token],
+            ]],
+        ])
+        ->assertRedirect();
+
+    $case = InvestigationCase::query()->firstOrFail();
+    $media = CaseImage::query()->firstOrFail();
+    $media->update(['poster_path' => 'missing/case-poster.jpg']);
+
+    $this->get(route('cases.images.poster', ['caseFile' => $case, 'image' => $media]))
+        ->assertOk()
+        ->assertHeader('Content-Type', 'image/jpeg');
 });
 
 test('legacy case image files support private byte-range delivery', function () {

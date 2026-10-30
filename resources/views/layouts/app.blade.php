@@ -10,7 +10,8 @@
         <meta name="application-acronym" content="{{ config('app.acronym') }}">
         <meta name="description" content="{{ config('app.name') }} secure file archive command center.">
         <meta name="dashboard-snapshot-url" content="{{ route('dashboard.snapshot') }}">
-        <meta name="upload-user-id" content="{{ auth()->id() }}">
+        <meta name="upload-user-id" content="{{ auth('web')->id() }}">
+        <meta name="upload-admin-id" content="{{ auth('admin')->id() }}">
         <title>@yield('page_title', $page_title ?? config('app.name'))</title>
         @livewireStyles
         <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -71,11 +72,6 @@
                     <a class="nav-item {{ request()->routeIs('admin.security.*') ? 'is-active' : '' }}" href="{{ route('admin.security.index') }}" wire:navigate data-security-nav @if(request()->routeIs('admin.security.*')) aria-current="page" @endif>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5.5c0 4.7-3.1 7.7-8 9.5-4.9-1.8-8-4.8-8-9.5V6z"/><path d="M12 7v5M12 16h.01"/></svg><span>Auth Security</span><span class="security-unread-badge" data-security-activity-badge data-count="{{ $securityUnreadCount }}">{{ $securityUnreadCount > 99 ? '99+' : $securityUnreadCount }}</span>
                     </a>
-                    @if (auth('admin')->check())
-                        <a class="nav-item {{ request()->routeIs('admin.security.two-factor') ? 'is-active' : '' }}" href="{{ route('admin.security.two-factor') }}" wire:navigate @if(request()->routeIs('admin.security.two-factor')) aria-current="page" @endif>
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5.5c0 4.7-3.1 7.7-8 9.5-4.9-1.8-8-4.8-8-9.5V6z"/><rect x="9" y="10" width="6" height="5" rx="1"/><path d="M10.5 10V8.5a1.5 1.5 0 0 1 3 0V10"/></svg><span>Two-factor access</span>
-                        </a>
-                    @endif
                     @php
                         $reportUnreadCount = 0;
                         if (\Illuminate\Support\Facades\Schema::hasTable('reports')) {
@@ -107,7 +103,7 @@
                     <div class="topbar-tools">
                         @yield('topbar_tools')
                         <button class="upload-tracker-toggle" type="button" data-upload-tracker-toggle aria-label="Open upload tracker" aria-controls="upload-tracker-panel" aria-expanded="false">
-                            <span aria-hidden="true">⇧</span><span class="upload-tracker-toggle__count" data-upload-tracker-badge hidden>0</span>
+                            <i class="ri ri-upload-cloud-2-line" aria-hidden="true"></i><span class="upload-tracker-toggle__count" data-upload-tracker-badge hidden>0</span>
                         </button>
                         <div class="session-status"><span class="status-dot"></span><span>SECURE SESSION</span></div>
                         <div class="clock" data-clock>--:--:--</div>

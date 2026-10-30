@@ -81,7 +81,11 @@
                             @if ($image->type === 'video')
                                 <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-video-title="{{ $image->original_name }}" data-video-pin-required aria-label="Locked video. Unlock viewables to preview." @if ($loop->index >= 4) hidden data-gallery-extra @endif>
                                     <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
-                                    @if ($image->poster_path)<img data-protected-image data-image-url="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id]) }}" alt="" loading="lazy" hidden>@endif
+                                    @if ($image->poster_path || $image->file?->video_poster_path)
+                                        <img data-protected-image data-image-url="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id]) }}" alt="" loading="lazy" hidden>
+                                    @else
+                                        <video class="profile-gallery-video-thumbnail" data-protected-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
+                                    @endif
                                     <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                                     @if ($loop->index === 3 && $person->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $person->images->count() - 4 }}</span>@endif
                                 </button>

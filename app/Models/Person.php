@@ -12,10 +12,13 @@ class Person extends Model
 {
     protected static function booted(): void
     {
-        static::saved(function (): void {
+        static::saved(function (Person $person): void {
             $cache = app(VersionedCache::class);
             $cache->bumpAfterCommit('people');
             $cache->bumpAfterCommit('reports');
+            if ($person->wasChanged(['main_image_file_id', 'main_image_path'])) {
+                $cache->bumpAfterCommit('files');
+            }
         });
         static::deleted(function (): void {
             $cache = app(VersionedCache::class);

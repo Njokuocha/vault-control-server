@@ -92,7 +92,7 @@
                                 </button>
                             @endif
                             <button class="upload-tracker-toggle" type="button" data-upload-tracker-toggle aria-label="Open upload tracker" aria-controls="upload-tracker-panel" aria-expanded="false">
-                                <span aria-hidden="true">⇧</span><span class="upload-tracker-toggle__count" data-upload-tracker-badge hidden>0</span>
+                                <i class="ri ri-upload-cloud-2-line" aria-hidden="true"></i><span class="upload-tracker-toggle__count" data-upload-tracker-badge hidden>0</span>
                             </button>
                             <div class="session-status"><span class="status-dot"></span><span>SECURE SESSION</span></div>
                             <div class="clock" data-clock>--:--:--</div>
@@ -123,7 +123,7 @@
                         <a href="{{ '/'.$department }}" wire:navigate>WORKSPACE</a>
                         <a href="{{ '/'.$department.'/profile' }}" wire:navigate>MY PROFILE</a>
                         <button class="upload-tracker-toggle" type="button" data-upload-tracker-toggle aria-label="Open upload tracker" aria-controls="upload-tracker-panel" aria-expanded="false">
-                            <span aria-hidden="true">⇧</span><span class="upload-tracker-toggle__count" data-upload-tracker-badge hidden>0</span>
+                            <i class="ri ri-upload-cloud-2-line" aria-hidden="true"></i><span class="upload-tracker-toggle__count" data-upload-tracker-badge hidden>0</span>
                         </button>
                         <form method="POST" action="{{ url('/'.$department.'/logout') }}" x-data x-on:submit.prevent="window.vaultConfirm({ title: 'Sign out', message: 'Sign out of your {{ $departmentRecord?->name ?? $department }} session?', confirmLabel: 'SIGN OUT', destructive: true }).then(confirmed => confirmed && $el.submit())">@csrf<button type="submit">SIGN OUT</button></form>
                     </nav>

@@ -5,6 +5,7 @@ namespace App\Livewire\Admin;
 use App\Models\User;
 use App\Models\Department;
 use App\Services\ActivityLogger;
+use App\Services\StaffAccountStatusService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
@@ -28,8 +29,6 @@ class StaffManagement extends Component
     public string $departmentId = '';
 
     public string $password = '';
-
-    public string $accountStatus = 'active';
 
     public ?TemporaryUploadedFile $profilePhoto = null;
 
@@ -59,7 +58,6 @@ class StaffManagement extends Component
         $this->email = $staff->email;
         $this->username = $staff->username ?? '';
         $this->departmentId = (string) $staff->department_id;
-        $this->accountStatus = $staff->account_status;
         $this->password = '';
         $this->profilePhoto = null;
         $this->resetValidation();
@@ -69,7 +67,6 @@ class StaffManagement extends Component
     {
         $this->reset(['editingId', 'name', 'email', 'username', 'password', 'profilePhoto', 'confirmingDeleteId', 'passwordResetTargetId', 'newPassword', 'newPasswordConfirmation']);
         $this->departmentId = (string) (Department::query()->where('code', 'cfm')->value('id') ?? '');
-        $this->accountStatus = 'active';
         $this->resetValidation();
     }
 
@@ -91,7 +88,6 @@ class StaffManagement extends Component
             ],
             'username' => ['required', 'string', 'max:80', 'alpha_dash:ascii', Rule::unique('users', 'username')->ignore($staff->id)],
             'departmentId' => ['required', 'integer', Rule::exists('departments', 'id')],
-            'accountStatus' => ['required', Rule::in(['active', 'suspended', 'disabled'])],
             'password' => [$this->editingId ? 'nullable' : 'required', 'string', 'min:12'],
             'profilePhoto' => ['nullable', 'image', 'max:5120'],
         ]);
@@ -102,7 +98,9 @@ class StaffManagement extends Component
         $department = Department::query()->findOrFail((int) $validated['departmentId']);
         $staff->department_id = $department->id;
         $staff->department = $department->code;
-        $staff->account_status = $validated['accountStatus'];
+        if ($isCreating) {
+            $staff->account_status = 'active';
+        }
         if ($validated['password'] !== null && $validated['password'] !== '') {
             $staff->password = $validated['password'];
         }
@@ -134,6 +132,7 @@ class StaffManagement extends Component
         );
         $this->resetForm();
         $this->dispatch('alert', type: 'success', message: 'Staff account saved.');
+        $this->dispatch('staff-account-saved');
     }
 
     public function resetPassword(): void
@@ -155,6 +154,7 @@ class StaffManagement extends Component
         $this->passwordResetTargetId = null;
         $this->reset(['newPassword', 'newPasswordConfirmation']);
         $this->dispatch('alert', type: 'success', message: 'The staff password was updated.');
+        $this->dispatch('staff-password-reset-close');
     }
 
     public function openDeleteConfirmation(int $id): void
@@ -185,6 +185,7 @@ class StaffManagement extends Component
     {
         abort_unless($this->confirmingDeleteId === $id, 403);
         $staff = User::query()->whereNotNull('department')->findOrFail($id);
+        app(StaffAccountStatusService::class)->revokeSessions($staff);
         $staff->delete();
         app(ActivityLogger::class)->record(
             'staff-management',
@@ -198,6 +199,7 @@ class StaffManagement extends Component
         );
         $this->confirmingDeleteId = null;
         $this->dispatch('alert', type: 'success', message: 'Staff account deleted.');
+        $this->dispatch('staff-delete-close');
     }
 
     public function render(): View
@@ -219,12 +221,6 @@ class StaffManagement extends Component
                 ->orderBy('name')
                 ->get(),
             'departments' => Department::query()->orderBy('name')->get(),
-            'deleteTarget' => $this->confirmingDeleteId
-                ? User::query()->whereNotNull('department')->find($this->confirmingDeleteId)
-                : null,
-            'passwordResetTarget' => $this->passwordResetTargetId
-                ? User::query()->whereNotNull('department')->find($this->passwordResetTargetId)
-                : null,
         ])->extends('layouts.app', [
             'page_title' => 'Staff Management — '.config('app.name'),
             'page_label' => 'STAFF MANAGEMENT',

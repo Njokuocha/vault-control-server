@@ -1,4 +1,4 @@
-<div class="content-inner report-system-page">
+<div class="content-inner report-system-page" x-data="{ composerOpen: @entangle('composerOpen') }" x-init="$watch('composerOpen', open => { if (!open) window.dispatchEvent(new Event('report-composer-closed')) })" x-on:keydown.escape.window="if (composerOpen) { composerOpen = false; $wire.closeComposer() }">
     <header class="report-system-heading">
         <div>
             <span class="section-kicker">AGENCY-WIDE INTELLIGENCE · INTERNAL REPORTING</span>
@@ -9,7 +9,7 @@
             @if ($isAdmin)
                 <a class="button-secondary" href="{{ route('admin.reports.manage') }}" wire:navigate>REPORT CONTROL</a>
             @endif
-            <button class="button-primary" type="button" wire:click="openComposer">＋ NEW REPORT</button>
+            <button class="button-primary" type="button" x-on:click="composerOpen = true" wire:click="openComposer">＋ NEW REPORT</button>
         </div>
     </header>
 
@@ -69,7 +69,7 @@
                     </div>
                     <div class="report-detail-heading__actions">
                         @if ($canEditReport)
-                            <button class="button-secondary" type="button" wire:click="editReport('{{ $report->uuid }}')">EDIT REPORT</button>
+                            <button class="button-secondary" type="button" x-on:click="composerOpen = true" wire:click="editReport('{{ $report->uuid }}')">EDIT REPORT</button>
                         @endif
                         <span class="report-detail-status {{ $report->is_hidden ? 'is-restricted' : '' }}">{{ $report->is_hidden ? 'RESTRICTED' : 'INTERNAL' }}</span>
                     </div>
@@ -213,15 +213,14 @@
                         </form>
                     </section>
             @else
-                <div class="report-empty-state report-empty-state--detail"><span class="ri ri-radar-line" aria-hidden="true"></span><strong>AWAITING FIRST REPORT</strong><p>Publish a field report to begin the agency situation record.</p><button class="button-primary" type="button" wire:click="openComposer">＋ CREATE REPORT</button></div>
+                <div class="report-empty-state report-empty-state--detail"><span class="ri ri-radar-line" aria-hidden="true"></span><strong>AWAITING FIRST REPORT</strong><p>Publish a field report to begin the agency situation record.</p><button class="button-primary" type="button" x-on:click="composerOpen = true" wire:click="openComposer">＋ CREATE REPORT</button></div>
             @endif
         </main>
     </div>
 
-    @if ($composerOpen)
-        <div class="report-modal-backdrop" role="presentation" wire:click.self="$set('composerOpen', false)">
+        <div class="report-modal-backdrop" data-report-composer-backdrop role="presentation" x-show="composerOpen" x-cloak x-on:click.self="composerOpen = false; $wire.closeComposer()">
             <section class="report-composer-modal" data-report-composer role="dialog" aria-modal="true" aria-labelledby="report-composer-title">
-                <header><div><span class="section-kicker">{{ $editingUuid ? 'UPDATE RECORD' : 'NEW SITUATION REPORT' }}</span><h2 id="report-composer-title">{{ $editingUuid ? 'Edit report' : 'Publish a report' }}</h2></div><button type="button" aria-label="Close report form" wire:click="$set('composerOpen', false)">×</button></header>
+                <header><div><span class="section-kicker">{{ $editingUuid ? 'UPDATE RECORD' : 'NEW SITUATION REPORT' }}</span><h2 id="report-composer-title">{{ $editingUuid ? 'Edit report' : 'Publish a report' }}</h2></div><button type="button" data-report-composer-close aria-label="Close report form" x-on:click="composerOpen = false" wire:click="closeComposer">×</button></header>
                 <form wire:submit="saveReport">
                     <label class="report-form-label" for="report-body">REPORT NARRATIVE <span>NO TITLE REQUIRED</span></label>
                     <textarea id="report-body" wire:model="body" rows="7" maxlength="20000" placeholder="Record the event, timing, location, source, and operational context…"></textarea>
@@ -230,7 +229,7 @@
                     @if ($report && $report->uuid === $editingUuid && $report->media->isNotEmpty())
                         <div class="report-existing-media"><span class="report-form-label">CURRENT MEDIA · SELECT TO REMOVE</span><div>
                             @foreach ($report->media as $media)
-                                <button type="button" class="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'is-marked-remove' : '' }}" wire:click="toggleMediaRemoval({{ $media->id }})" aria-label="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'Keep' : 'Remove' }} {{ $media->original_name }}">
+                                <button type="button" data-report-media-toggle class="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'is-marked-remove' : '' }}" wire:click="toggleMediaRemoval({{ $media->id }})" aria-label="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'Keep' : 'Remove' }} {{ $media->original_name }}">
                                     @if ($media->media_type === 'image')<img src="{{ route('reports.media', [$report, $media]) }}" alt="">
                                     @else <span class="ri ri-video-line" aria-hidden="true"></span>@endif
                                     <small>{{ $media->original_name }}</small>
@@ -240,7 +239,12 @@
                     @endif
 
                     <label class="report-form-label" for="report-uploads">IMAGE / VIDEO ATTACHMENTS <span>UP TO 12 · 50 MB EACH</span></label>
-                    <input id="report-uploads" type="file" wire:model="uploads" accept="image/jpeg,image/png,image/gif,image/webp,image/avif,video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska" multiple data-report-files>
+                    <label class="report-file-picker" for="report-uploads">
+                        <i class="ri ri-upload-cloud-2-line" aria-hidden="true"></i>
+                        <span><strong>Choose images or videos</strong><small>Multiple files · Images and video up to 50 MB each</small></span>
+                        <b>SELECT FILES</b>
+                        <input id="report-uploads" type="file" wire:model="uploads" accept="image/jpeg,image/png,image/gif,image/webp,image/avif,video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska" multiple data-report-files>
+                    </label>
                     <div class="report-upload-previews" data-report-previews wire:ignore aria-live="polite"></div>
                     <div wire:loading wire:target="uploads" class="report-upload-progress">SECURELY PREPARING SELECTED MEDIA…</div>
                     @error('uploads')<small class="report-form-error">{{ $message }}</small>@enderror
@@ -249,26 +253,62 @@
                     @if ($canLinkCases)
                         <label class="report-form-label" for="report-case-search">LINK CASE FILES <span>AVAILABLE TO CFM / ADMIN</span></label>
                         <input id="report-case-search" type="search" wire:model.live.debounce.300ms="caseSearch" placeholder="Search case reference or title">
-                        <select class="report-link-select" wire:model="caseIds" multiple size="4" aria-label="Select case files to link">
-                            @foreach ($caseOptions as $caseOption)<option value="{{ $caseOption->id }}">{{ $caseOption->public_id }} · {{ $caseOption->title }}</option>@endforeach
-                        </select>
+                        @php($selectedCaseIds = array_map('intval', $caseIds))
+                        <div class="report-link-selected" aria-label="Selected case files">
+                            @forelse ($caseOptions->whereIn('id', $selectedCaseIds) as $caseOption)
+                                <article class="report-link-card">
+                                    <span class="report-link-card__icon ri ri-folder-shield-2-line" aria-hidden="true"></span>
+                                    <span class="report-link-card__copy"><strong>{{ $caseOption->public_id }}</strong><small>{{ $caseOption->title }}</small></span>
+                                    <button type="button" wire:click="toggleCaseLink({{ $caseOption->id }})" wire:loading.attr="disabled" wire:target="toggleCaseLink" aria-label="Remove {{ $caseOption->public_id }} from this report"><i class="ri ri-close-line" aria-hidden="true"></i></button>
+                                </article>
+                            @empty
+                                <p class="report-link-empty">No case files selected yet.</p>
+                            @endforelse
+                        </div>
+                        <div class="report-link-results" aria-label="Matching case files">
+                            @forelse ($caseOptions->whereNotIn('id', $selectedCaseIds) as $caseOption)
+                                <button class="report-link-result" type="button" wire:click="toggleCaseLink({{ $caseOption->id }})" wire:loading.attr="disabled" wire:target="toggleCaseLink" aria-label="Link {{ $caseOption->public_id }}">
+                                    <i class="ri ri-add-line" aria-hidden="true"></i><span><strong>{{ $caseOption->public_id }}</strong><small>{{ $caseOption->title }}</small></span>
+                                </button>
+                            @empty
+                                <p class="report-link-empty">{{ trim($caseSearch) === '' ? 'Type a case reference or title to find records.' : 'No matching case files.' }}</p>
+                            @endforelse
+                        </div>
+                        @error('caseIds')<small class="report-form-error">{{ $message }}</small>@enderror
                     @endif
                     @if ($canLinkPeople)
                         <label class="report-form-label" for="report-person-search">LINK PERSON RECORDS <span>AVAILABLE TO PM / ADMIN</span></label>
                         <input id="report-person-search" type="search" wire:model.live.debounce.300ms="personSearch" placeholder="Search person reference or name">
-                        <select class="report-link-select" wire:model="personIds" multiple size="4" aria-label="Select person records to link">
-                            @foreach ($personOptions as $personOption)<option value="{{ $personOption->id }}">{{ $personOption->public_id }} · {{ $personOption->name }}</option>@endforeach
-                        </select>
+                        @php($selectedPersonIds = array_map('intval', $personIds))
+                        <div class="report-link-selected" aria-label="Selected person records">
+                            @forelse ($personOptions->whereIn('id', $selectedPersonIds) as $personOption)
+                                <article class="report-link-card">
+                                    <span class="report-link-card__icon ri ri-user-search-line" aria-hidden="true"></span>
+                                    <span class="report-link-card__copy"><strong>{{ $personOption->public_id }}</strong><small>{{ $personOption->name }}</small></span>
+                                    <button type="button" wire:click="togglePersonLink({{ $personOption->id }})" wire:loading.attr="disabled" wire:target="togglePersonLink" aria-label="Remove {{ $personOption->public_id }} from this report"><i class="ri ri-close-line" aria-hidden="true"></i></button>
+                                </article>
+                            @empty
+                                <p class="report-link-empty">No person records selected yet.</p>
+                            @endforelse
+                        </div>
+                        <div class="report-link-results" aria-label="Matching person records">
+                            @forelse ($personOptions->whereNotIn('id', $selectedPersonIds) as $personOption)
+                                <button class="report-link-result" type="button" wire:click="togglePersonLink({{ $personOption->id }})" wire:loading.attr="disabled" wire:target="togglePersonLink" aria-label="Link {{ $personOption->public_id }}">
+                                    <i class="ri ri-add-line" aria-hidden="true"></i><span><strong>{{ $personOption->public_id }}</strong><small>{{ $personOption->name }}</small></span>
+                                </button>
+                            @empty
+                                <p class="report-link-empty">{{ trim($personSearch) === '' ? 'Type a person reference or name to find records.' : 'No matching person records.' }}</p>
+                            @endforelse
+                        </div>
+                        @error('personIds')<small class="report-form-error">{{ $message }}</small>@enderror
                     @endif
                     @error('caseIds.*')<small class="report-form-error">{{ $message }}</small>@enderror
                     @error('personIds.*')<small class="report-form-error">{{ $message }}</small>@enderror
 
-                    <footer><button class="button-secondary" type="button" wire:click="$set('composerOpen', false)">CANCEL</button><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="saveReport,uploads"><span wire:loading.remove wire:target="saveReport"> {{ $editingUuid ? 'SAVE REPORT' : 'PUBLISH REPORT' }}</span><span wire:loading wire:target="saveReport">SUBMITTING…</span></button></footer>
+                    <footer><button class="button-secondary" type="button" data-report-composer-close x-on:click="composerOpen = false" wire:click="closeComposer">CANCEL</button><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="saveReport,uploads"><span wire:loading.remove wire:target="saveReport"> {{ $editingUuid ? 'SAVE REPORT' : 'PUBLISH REPORT' }}</span><span wire:loading wire:target="saveReport">SUBMITTING…</span></button></footer>
                 </form>
             </section>
         </div>
-    @endif
-
     @if ($report && $report->media->isNotEmpty())
         <div data-report-gallery-data hidden>
             @foreach ($report->media as $media)

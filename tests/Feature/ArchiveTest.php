@@ -1,6 +1,11 @@
 <?php
 
 use App\Models\File as VaultFile;
+use App\Models\CaseCategory;
+use App\Models\CaseImage;
+use App\Models\InvestigationCase;
+use App\Models\Person;
+use App\Models\PersonImage;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -102,6 +107,92 @@ test('the full archive filters by upload method', function () {
         ->assertOk()
         ->assertJsonCount(1, 'records')
         ->assertJsonPath('records.0.upload_method', 'api');
+});
+
+test('all archive listings exclude files attached to case and person records', function () {
+    $user = User::factory()->create();
+    $createFile = static fn (string $name): VaultFile => VaultFile::query()->create([
+        'uuid' => (string) Str::uuid(),
+        'original_name' => $name,
+        'stored_path' => 'archive/'.$name,
+        'extension' => 'jpg',
+        'mime_type' => 'image/jpeg',
+        'category' => 'image',
+        'upload_method' => 'manual',
+        'size' => 10,
+        'checksum' => hash('sha256', $name),
+    ]);
+
+    $standaloneManual = $createFile('standalone-manual.jpg');
+    $standaloneApi = $createFile('standalone-api.jpg');
+    $standaloneApi->update(['upload_method' => 'api']);
+    $personMainImage = $createFile('person-main-image.jpg');
+    $personGalleryImage = $createFile('person-gallery-image.jpg');
+    $caseEvidence = $createFile('case-evidence.jpg');
+
+    $this->actingAs($user)
+        ->getJson(route('archive.files'))
+        ->assertOk()
+        ->assertJsonCount(5, 'records');
+
+    $person = Person::query()->create([
+        'public_id' => 'USR-ARCHIVE-01',
+        'name' => 'Archive Test Person',
+        'main_image_path' => $personMainImage->stored_path,
+        'main_image_file_id' => $personMainImage->id,
+    ]);
+    PersonImage::query()->create([
+        'person_id' => $person->id,
+        'file_id' => $personGalleryImage->id,
+        'path' => $personGalleryImage->stored_path,
+        'original_name' => $personGalleryImage->original_name,
+        'type' => 'image',
+    ]);
+
+    $case = InvestigationCase::query()->create([
+        'public_id' => 'CSE-ARCHIVE-01',
+        'title' => 'Archive Test Case',
+    ]);
+    $category = CaseCategory::query()->create([
+        'case_file_id' => $case->id,
+        'title' => 'Evidence',
+    ]);
+    CaseImage::query()->create([
+        'case_category_id' => $category->id,
+        'file_id' => $caseEvidence->id,
+        'path' => $caseEvidence->stored_path,
+        'original_name' => $caseEvidence->original_name,
+        'type' => 'image',
+    ]);
+
+    $this->getJson(route('archive.files'))
+        ->assertOk()
+        ->assertJsonCount(2, 'records')
+        ->assertJsonFragment(['name' => 'standalone-manual.jpg'])
+        ->assertJsonFragment(['name' => 'standalone-api.jpg'])
+        ->assertJsonMissing(['name' => 'person-main-image.jpg'])
+        ->assertJsonMissing(['name' => 'person-gallery-image.jpg'])
+        ->assertJsonMissing(['name' => 'case-evidence.jpg']);
+
+    Livewire::test(\App\Livewire\DashboardArchive::class)
+        ->call('open')
+        ->assertSee($standaloneManual->original_name)
+        ->assertSee($standaloneApi->original_name)
+        ->assertDontSee($personMainImage->original_name)
+        ->assertDontSee($personGalleryImage->original_name)
+        ->assertDontSee($caseEvidence->original_name);
+
+    Livewire::test(\App\Livewire\DashboardLatestFiles::class)
+        ->assertSee($standaloneManual->original_name)
+        ->assertSee($standaloneApi->original_name)
+        ->assertDontSee($personMainImage->original_name)
+        ->assertDontSee($personGalleryImage->original_name)
+        ->assertDontSee($caseEvidence->original_name);
+
+    $this->getJson(route('dashboard.snapshot'))
+        ->assertOk()
+        ->assertJsonPath('archive_total', 2)
+        ->assertJsonCount(2, 'files');
 });
 
 test('the full archive endpoint rejects unsupported extension filter values', function () {

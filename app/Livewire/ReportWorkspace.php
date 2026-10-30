@@ -106,22 +106,72 @@ class ReportWorkspace extends Component
         $this->composerOpen = true;
     }
 
+    public function closeComposer(ReportAccess $access): void
+    {
+        $this->authorizeWorkspace($access);
+        $this->composerOpen = false;
+        $this->resetComposer();
+    }
+
     public function editReport(string $uuid, ReportAccess $access): void
     {
         $actor = $this->authorizeWorkspace($access);
-        $report = $access->visibleQuery($actor)->where('uuid', $uuid)->firstOrFail();
+        $report = $this->cachedReportDetail($access, $actor, $uuid);
+        abort_if($report === null, 404);
         abort_unless($access->canManage($report, $actor), 403);
 
         $this->resetComposer();
         $this->editingUuid = $report->uuid;
         $this->body = $report->body;
         if ($access->canLinkCases($actor)) {
-            $this->caseIds = $report->cases()->pluck('case_files.id')->map(fn ($id): string => (string) $id)->all();
+            $this->caseIds = $report->cases->pluck('id')->map(fn ($id): string => (string) $id)->all();
         }
         if ($access->canLinkPeople($actor)) {
-            $this->personIds = $report->people()->pluck('people.id')->map(fn ($id): string => (string) $id)->all();
+            $this->personIds = $report->people->pluck('id')->map(fn ($id): string => (string) $id)->all();
         }
         $this->composerOpen = true;
+    }
+
+    public function toggleCaseLink(int $id, ReportAccess $access): void
+    {
+        $actor = $this->authorizeWorkspace($access);
+        abort_unless($access->canLinkCases($actor), 403);
+        InvestigationCase::query()->findOrFail($id);
+
+        $selectedIds = array_values(array_unique(array_map('intval', $this->caseIds)));
+        if (in_array($id, $selectedIds, true)) {
+            $selectedIds = array_values(array_diff($selectedIds, [$id]));
+        } elseif (count($selectedIds) >= 20) {
+            $this->addError('caseIds', 'A report can link up to 20 case files.');
+
+            return;
+        } else {
+            $selectedIds[] = $id;
+        }
+
+        $this->caseIds = array_map('strval', $selectedIds);
+        $this->resetValidation('caseIds');
+    }
+
+    public function togglePersonLink(int $id, ReportAccess $access): void
+    {
+        $actor = $this->authorizeWorkspace($access);
+        abort_unless($access->canLinkPeople($actor), 403);
+        Person::query()->findOrFail($id);
+
+        $selectedIds = array_values(array_unique(array_map('intval', $this->personIds)));
+        if (in_array($id, $selectedIds, true)) {
+            $selectedIds = array_values(array_diff($selectedIds, [$id]));
+        } elseif (count($selectedIds) >= 20) {
+            $this->addError('personIds', 'A report can link up to 20 person records.');
+
+            return;
+        } else {
+            $selectedIds[] = $id;
+        }
+
+        $this->personIds = array_map('strval', $selectedIds);
+        $this->resetValidation('personIds');
     }
 
     public function saveReport(ReportAccess $access): void
@@ -509,7 +559,7 @@ class ReportWorkspace extends Component
             'report-link:'.$actorKey.':'.hash('sha256', $search.':'.implode(',', $selectedIds)),
             now()->addSeconds(30),
             function () use ($search, $selectedIds): Collection {
-                $matches = InvestigationCase::query()
+                $matches = $search === '' ? collect() : InvestigationCase::query()
                     ->when($search !== '', function ($query) use ($search): void {
                         $term = '%'.$search.'%';
                         $query->where(fn ($query) => $query->where('public_id', 'like', $term)->orWhere('title', 'like', $term));
@@ -542,7 +592,7 @@ class ReportWorkspace extends Component
             'report-link:'.$actorKey.':'.hash('sha256', $search.':'.implode(',', $selectedIds)),
             now()->addSeconds(30),
             function () use ($search, $selectedIds): Collection {
-                $matches = Person::query()
+                $matches = $search === '' ? collect() : Person::query()
                     ->when($search !== '', function ($query) use ($search): void {
                         $term = '%'.$search.'%';
                         $query->where(fn ($query) => $query->where('public_id', 'like', $term)->orWhere('name', 'like', $term));

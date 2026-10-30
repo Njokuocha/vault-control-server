@@ -128,6 +128,53 @@ test('staff can publish reports with permitted case and person links and recipro
         ->assertSee(route('pm.reports.index', ['report' => $personReport->uuid]), false);
 });
 
+test('report composer searches and lets administrators add or remove multiple case and person links', function () {
+    $admin = createReportSystemAdmin();
+    $firstCase = InvestigationCase::query()->create([
+        'public_id' => 'CSE-SELECT-01',
+        'title' => 'First selectable case',
+    ]);
+    $secondCase = InvestigationCase::query()->create([
+        'public_id' => 'CSE-SELECT-02',
+        'title' => 'Second selectable case',
+    ]);
+    $firstPerson = Person::query()->create([
+        'public_id' => 'USR-SELECT-01',
+        'name' => 'First selectable person',
+    ]);
+    $secondPerson = Person::query()->create([
+        'public_id' => 'USR-SELECT-02',
+        'name' => 'Second selectable person',
+    ]);
+
+    Livewire::actingAs($admin, 'admin')
+        ->test(ReportWorkspace::class)
+        ->call('openComposer')
+        ->assertSee('Type a case reference or title to find records.')
+        ->assertSee('Type a person reference or name to find records.')
+        ->set('caseSearch', 'CSE-SELECT-01')
+        ->assertSee('First selectable case')
+        ->call('toggleCaseLink', $firstCase->id)
+        ->assertSet('caseIds', [(string) $firstCase->id])
+        ->assertSee('report-link-card', false)
+        ->set('caseSearch', 'CSE-SELECT-02')
+        ->assertSee('Second selectable case')
+        ->call('toggleCaseLink', $secondCase->id)
+        ->assertSet('caseIds', [(string) $firstCase->id, (string) $secondCase->id])
+        ->set('personSearch', 'USR-SELECT-01')
+        ->assertSee('First selectable person')
+        ->call('togglePersonLink', $firstPerson->id)
+        ->assertSet('personIds', [(string) $firstPerson->id])
+        ->set('personSearch', 'USR-SELECT-02')
+        ->assertSee('Second selectable person')
+        ->call('togglePersonLink', $secondPerson->id)
+        ->assertSet('personIds', [(string) $firstPerson->id, (string) $secondPerson->id])
+        ->call('toggleCaseLink', $firstCase->id)
+        ->assertSet('caseIds', [(string) $secondCase->id])
+        ->call('togglePersonLink', $firstPerson->id)
+        ->assertSet('personIds', [(string) $secondPerson->id]);
+});
+
 test('staff can comment but only the report owner or an administrator can reply', function () {
     Event::fake([AgencyReportUpdated::class]);
     $owner = User::factory()->create([

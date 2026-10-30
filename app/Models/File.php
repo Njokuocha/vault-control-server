@@ -6,6 +6,7 @@ use App\Events\FileDeleted;
 use App\Events\FileEdited;
 use App\Services\ActivityLogger;
 use App\Support\VersionedCache;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -46,6 +47,30 @@ class File extends Model
             'archive_entry_count' => 'integer',
             'video_duration' => 'integer',
         ];
+    }
+
+    public function scopeStandaloneArchive(Builder $query): Builder
+    {
+        return $query
+            ->whereNotExists(fn ($subquery) => $subquery->selectRaw('1')
+                ->from('case_images')
+                ->where(fn ($attachment) => $attachment
+                    ->whereColumn('case_images.file_id', 'files.id')
+                    ->orWhereColumn('case_images.path', 'files.stored_path')))
+            ->whereNotExists(fn ($subquery) => $subquery->selectRaw('1')
+                ->from('person_images')
+                ->where(fn ($attachment) => $attachment
+                    ->whereColumn('person_images.file_id', 'files.id')
+                    ->orWhereColumn('person_images.path', 'files.stored_path')))
+            ->whereNotExists(fn ($subquery) => $subquery->selectRaw('1')
+                ->from('people')
+                ->where(fn ($attachment) => $attachment
+                    ->whereColumn('people.main_image_file_id', 'files.id')
+                    ->orWhereColumn('people.main_image_path', 'files.stored_path')))
+            ->whereNotExists(fn ($subquery) => $subquery->selectRaw('1')
+                ->from('upload_transfers')
+                ->whereColumn('upload_transfers.file_id', 'files.id')
+                ->whereNotNull('upload_transfers.attachment_purpose'));
     }
 
     protected static function booted(): void
