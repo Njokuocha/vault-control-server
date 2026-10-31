@@ -15,7 +15,9 @@ class Person extends Model
         static::saved(function (Person $person): void {
             $cache = app(VersionedCache::class);
             $cache->bumpAfterCommit('people');
-            $cache->bumpAfterCommit('reports');
+            if ($person->wasChanged(['public_id', 'name'])) {
+                $cache->bumpAfterCommit('report-related');
+            }
             if ($person->wasChanged(['main_image_file_id', 'main_image_path'])) {
                 $cache->bumpAfterCommit('files');
             }
@@ -24,6 +26,7 @@ class Person extends Model
             $cache = app(VersionedCache::class);
             $cache->bumpAfterCommit('people');
             $cache->bumpAfterCommit('reports');
+            $cache->bumpAfterCommit('report-related');
         });
     }
 

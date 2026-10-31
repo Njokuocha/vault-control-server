@@ -4,6 +4,7 @@ namespace App\Livewire;
 
 use App\Http\Controllers\FileController;
 use App\Models\File;
+use App\Support\ArchiveDateFilter;
 use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
@@ -187,8 +188,7 @@ class DashboardArchive extends Component
                         ->orWhere('category', 'like', '%'.$filters['q'].'%');
                 });
             })
-            ->when($filters['year'] !== '', fn ($query) => $query->whereYear('created_at', (int) $filters['year']))
-            ->when($filters['month'] !== '', fn ($query) => $query->whereMonth('created_at', (int) $filters['month']))
+            ->tap(fn ($query) => ArchiveDateFilter::apply($query, $filters['year'], $filters['month']))
             ->when($filters['extension'] !== '', function ($query) use ($filters): void {
                 if ($filters['extension'] === '__none__') {
                     $query->whereNull('extension');

@@ -4,7 +4,9 @@ namespace App\Models;
 
 use App\Events\FileDeleted;
 use App\Events\FileEdited;
+use App\Jobs\BuildImageThumbnailJob;
 use App\Services\ActivityLogger;
+use App\Services\ImageThumbnailService;
 use App\Support\VersionedCache;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -75,10 +77,21 @@ class File extends Model
 
     protected static function booted(): void
     {
+        static::created(function (File $file): void {
+            if ($file->category === 'image') {
+                BuildImageThumbnailJob::dispatch($file->stored_path)->afterCommit();
+            }
+        });
         static::deleting(function (File $file): void {
             $paths = array_filter([$file->video_playable_path, $file->video_poster_path]);
+            if ($file->category === 'image') {
+                $thumbnailPath = app(ImageThumbnailService::class)->thumbnailPath($file->stored_path);
+                if (Storage::disk(config('vault.upload_disk', 'vault'))->exists($thumbnailPath)) {
+                    $paths[] = $thumbnailPath;
+                }
+            }
             if ($paths !== [] && ! Storage::disk(config('vault.upload_disk', 'vault'))->delete($paths)) {
-                throw new \RuntimeException('Unable to remove generated private video previews.');
+                throw new \RuntimeException('Unable to remove generated private media previews.');
             }
         });
         static::saved(function (): void {

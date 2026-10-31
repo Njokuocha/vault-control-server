@@ -63,7 +63,7 @@
             </div>
             @endunless
             <div class="case-linked-reports person-linked-reports">
-                <div class="profile-section-heading"><div><span class="section-kicker">CONNECTED INTELLIGENCE</span><h3>Linked reports <span>{{ $linkedReports->count() }}</span></h3></div><a class="text-action" href="{{ route($profileManagement ? 'pm.reports.index' : 'admin.reports.index') }}" wire:navigate>REPORT SYSTEM ↗</a></div>
+                <div class="profile-section-heading"><div><span class="section-kicker">CONNECTED INTELLIGENCE</span><h3>Linked reports <span>{{ $linkedReports->total() }}</span></h3></div><a class="text-action" href="{{ route($profileManagement ? 'pm.reports.index' : 'admin.reports.index') }}" wire:navigate>REPORT SYSTEM ↗</a></div>
                 @forelse ($linkedReports as $linkedReport)
                     <a class="case-linked-report-row" href="{{ route($profileManagement ? 'pm.reports.index' : 'admin.reports.index', ['report' => $linkedReport->uuid]) }}" wire:navigate>
                         <span class="case-linked-report-node" aria-hidden="true"></span>
@@ -72,6 +72,9 @@
                 @empty
                     <p class="profile-gallery-empty">No reports are linked to this person record.</p>
                 @endforelse
+                @if ($linkedReports->hasPages())
+                    {{ $linkedReports->links() }}
+                @endif
             </div>
             <div class="profile-gallery-block">
                 <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h3>Gallery <span>{{ $person->images->count() }}</span></h3></div><a href="{{ route($routePrefix.'.edit', $person) }}" wire:navigate class="text-action">MANAGE MEDIA</a></div>
@@ -92,7 +95,7 @@
                             @else
                                 <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-image-title="{{ $image->original_name }}" aria-label="Locked image. Unlock viewables to preview." @if ($loop->index >= 4) hidden data-gallery-extra @endif>
                                     <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
-                                    <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" alt="{{ $image->original_name }}" loading="lazy" hidden>
+                                    <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-thumbnail-url="{{ route($routePrefix.'.images.thumbnail', ['person' => $person, 'image' => $image->id]) }}" alt="{{ $image->original_name }}" loading="lazy" hidden>
                                     @if ($loop->index === 3 && $person->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $person->images->count() - 4 }}</span>@endif
                                 </button>
                             @endif

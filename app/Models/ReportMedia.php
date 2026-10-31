@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Jobs\BuildImageThumbnailJob;
+use App\Jobs\DeleteImageThumbnailJob;
 use App\Support\VersionedCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -25,8 +27,24 @@ class ReportMedia extends Model
 
     protected static function booted(): void
     {
-        static::saved(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('reports'));
-        static::deleted(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('reports'));
+        static::created(function (ReportMedia $media): void {
+            if ($media->media_type === 'image') {
+                BuildImageThumbnailJob::dispatch($media->path)->afterCommit();
+            }
+        });
+        static::saved(function (ReportMedia $media): void {
+            $cache = app(VersionedCache::class);
+            $cache->bumpAfterCommit('reports');
+            $cache->bumpAfterCommit('report-content-'.$media->report_id);
+        });
+        static::deleted(function (ReportMedia $media): void {
+            $cache = app(VersionedCache::class);
+            $cache->bumpAfterCommit('reports');
+            $cache->bumpAfterCommit('report-content-'.$media->report_id);
+            if ($media->media_type === 'image') {
+                DeleteImageThumbnailJob::dispatch($media->path)->afterCommit();
+            }
+        });
     }
 
     public function report(): BelongsTo

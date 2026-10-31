@@ -3,6 +3,35 @@ import { openImageViewer } from './image-viewer.js';
 const previewObjectUrls = new WeakMap();
 const activeObjectUrls = new Set();
 let lastModalTrigger = null;
+let subscribedReportId = null;
+const preservedCommentDrafts = new WeakMap();
+
+export function syncReportRealtimeSubscription() {
+    const echo = window.Echo;
+    if (!echo) return;
+
+    const selectedId = document.querySelector('[data-report-selected-id]')?.dataset.reportSelectedId;
+    const nextReportId = selectedId && /^\d+$/.test(selectedId) ? selectedId : null;
+    if (nextReportId === subscribedReportId) return;
+
+    if (subscribedReportId !== null) {
+        echo.leave(`reports.${subscribedReportId}`);
+        subscribedReportId = null;
+    }
+
+    if (nextReportId === null) return;
+
+    subscribedReportId = nextReportId;
+    echo.private(`reports.${nextReportId}`)
+        .listen('.agency.report.updated', (event) => {
+            if (
+                String(event.report_id) !== subscribedReportId
+                || !['commented', 'replied'].includes(event.action)
+            ) return;
+
+            window.Livewire?.dispatch('agency-report-comments-updated');
+        });
+}
 
 function revokePreviewUrls(input) {
     for (const url of previewObjectUrls.get(input) ?? []) {
@@ -87,7 +116,7 @@ function activateReportSection(button) {
 
     const componentId = root.getAttribute('wire:id');
     const component = componentId ? window.Livewire?.find(componentId) : null;
-    component?.set('activeSection', section, false);
+    component?.call('showSection', section);
 }
 
 function mediaElement(type, url, name) {
@@ -289,4 +318,47 @@ document.addEventListener('keydown', (event) => {
 document.addEventListener('livewire:navigating', () => {
     clearAllPreviewUrls();
     closeReportModals();
+    if (subscribedReportId !== null && window.Echo) {
+        window.Echo.leave(`reports.${subscribedReportId}`);
+        subscribedReportId = null;
+    }
+});
+
+document.addEventListener('livewire:init', () => {
+    window.Livewire?.hook('morph.updated', syncReportRealtimeSubscription);
+    window.Livewire?.hook('morph.updating', ({ el, toEl }) => {
+        if (
+            el instanceof HTMLTextAreaElement
+            && el.id === 'report-comment-body'
+            && toEl instanceof HTMLTextAreaElement
+            && el.value !== toEl.value
+        ) {
+            preservedCommentDrafts.set(el, {
+                value: el.value,
+                selectionStart: el.selectionStart,
+                selectionEnd: el.selectionEnd,
+            });
+        }
+    });
+    window.Livewire?.hook('morph.updated', ({ el }) => {
+        if (!(el instanceof HTMLTextAreaElement) || el.id !== 'report-comment-body') return;
+
+        const draft = preservedCommentDrafts.get(el);
+        if (!draft) return;
+
+        el.value = draft.value;
+        el.setSelectionRange(draft.selectionStart, draft.selectionEnd);
+        preservedCommentDrafts.delete(el);
+    });
+    syncReportRealtimeSubscription();
+});
+
+document.addEventListener('livewire:navigated', syncReportRealtimeSubscription);
+
+window.addEventListener('report-comment-submitted', () => {
+    const textarea = document.querySelector('#report-comment-body');
+    if (!(textarea instanceof HTMLTextAreaElement)) return;
+
+    preservedCommentDrafts.delete(textarea);
+    textarea.value = '';
 });

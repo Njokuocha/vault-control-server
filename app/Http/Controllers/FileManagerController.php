@@ -46,7 +46,7 @@ class FileManagerController extends Controller
         ]);
     }
 
-    public function personMediaFile(Person $person, string $image, bool $download = false): Response
+    public function personMediaFile(Person $person, string $image, bool $download = false, bool $thumbnail = false): Response
     {
         abort_unless(request()->session()->get('unlocked_person_images') === $person->getKey(), 403);
 
@@ -55,6 +55,6 @@ class FileManagerController extends Controller
             abort_unless($mediaType === null || in_array($mediaType, ['image', 'video'], true), 404);
         }
 
-        return app(PersonController::class)->image($person, $image, $download);
+        return app(PersonController::class)->image($person, $image, $download, $thumbnail);
     }
 }

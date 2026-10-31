@@ -4,7 +4,7 @@ import './upload-tracker';
 import './upload-transfer-uploader';
 import './record-form-submitter';
 import './video-uploader';
-import './report-system';
+import { syncReportRealtimeSubscription } from './report-system';
 import './admin-mail';
 import './staff-status';
 import './case-media-previews';
@@ -44,9 +44,20 @@ if (broadcastConnection === 'pusher' && pusherKey && pusherCluster && applicatio
                         badge.hidden = false;
                     });
                 }
-                window.Livewire?.dispatch('agency-report-updated');
+                window.Livewire?.dispatch('agency-report-list-updated');
             });
     }
+
+    if (applicationWorkspace === 'admin') {
+        window.Echo.private('reports.control')
+            .listen('.agency.report.updated', (event) => {
+                if (['commented', 'replied'].includes(event.action)) {
+                    window.Livewire?.dispatch('agency-report-control-updated');
+                }
+            });
+    }
+
+    syncReportRealtimeSubscription();
 
     if (applicationWorkspace === 'admin' || applicationWorkspace === 'fm') {
         const vaultChannel = applicationWorkspace === 'fm' ? 'fm.vault' : 'admin.vault';
@@ -1927,8 +1938,9 @@ const profileMainImage = document.querySelector('[data-profile-main-image]');
 let personViewablesUnlocked = false;
 
 const loadProtectedImage = (image) => {
-    if (image && !image.getAttribute('src') && image.dataset.imageUrl) {
-        image.src = image.dataset.imageUrl;
+    if (image && !image.getAttribute('src')) {
+        const imageUrl = image.dataset.thumbnailUrl || image.dataset.imageUrl;
+        if (imageUrl) image.src = imageUrl;
     }
 };
 
@@ -2125,7 +2137,7 @@ listenForPageEvent(document, 'click', (event) => {
         return;
     }
     if (protectedImage) loadProtectedImage(protectedImage);
-    const imageUrl = protectedImage?.src || imageTrigger.dataset.imageUrl;
+    const imageUrl = imageTrigger.dataset.imageUrl || protectedImage?.src;
     if (!imageUrl) return;
     openImageViewer({
         src: imageUrl,
@@ -2729,7 +2741,7 @@ document.addEventListener('submit', async (event) => {
         mediaPage?.querySelector('[data-profile-gallery]')?.classList.remove('is-locked');
         mediaPage?.querySelectorAll('[data-fm-protected-image]').forEach((image) => {
             image.hidden = false;
-            const imageUrl = image.dataset.imageUrl;
+            const imageUrl = image.dataset.thumbnailUrl || image.dataset.imageUrl;
             if (imageUrl && !image.getAttribute('src')) image.src = imageUrl;
         });
         mediaPage?.querySelectorAll('[data-fm-protected-video-thumbnail]').forEach((video) => {

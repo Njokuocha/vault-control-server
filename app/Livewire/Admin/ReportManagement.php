@@ -7,6 +7,7 @@ use App\Models\Admin;
 use App\Models\Report;
 use App\Models\User;
 use App\Services\ActivityLogger;
+use App\Services\ImageThumbnailService;
 use App\Services\ReportAccess;
 use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
@@ -74,7 +75,7 @@ class ReportManagement extends Component
         abort_unless($access->isAdministrator($actor), 403);
         abort_if($this->confirmingDeleteId === null, 403);
 
-        $report = Report::query()->with('media')->findOrFail($this->confirmingDeleteId);
+        $report = Report::query()->with('media')->withCount('comments')->findOrFail($this->confirmingDeleteId);
         if ($report->cases()->exists() || $report->people()->exists()) {
             $this->dispatch('alert', type: 'error', message: 'This report is linked to a case or person record and cannot be deleted. Remove its record links first.');
             $this->confirmingDeleteId = null;
@@ -83,7 +84,13 @@ class ReportManagement extends Component
         }
 
         $paths = $report->media->pluck('path')->all();
-        $commentCount = $report->comments()->count();
+        $disk = Storage::disk(config('vault.upload_disk', 'vault'));
+        $thumbnailPaths = $report->media
+            ->where('media_type', 'image')
+            ->map(fn ($media): string => app(ImageThumbnailService::class)->thumbnailPath($media->path))
+            ->filter(fn (string $path): bool => $disk->exists($path))
+            ->all();
+        $paths = [...$paths, ...$thumbnailPaths];
         if ($paths !== [] && ! Storage::disk(config('vault.upload_disk', 'vault'))->delete($paths)) {
             throw new \RuntimeException('The report attachments could not be removed from private storage.');
         }
@@ -96,7 +103,7 @@ class ReportManagement extends Component
             [
                 'report_id' => $report->id,
                 'report_uuid' => $report->uuid,
-                'comment_count' => $commentCount,
+                'comment_count' => $report->comments_count,
                 'media_count' => count($paths),
             ],
             $actor,
@@ -106,7 +113,7 @@ class ReportManagement extends Component
         $this->dispatch('alert', type: 'success', message: 'Report deleted.');
     }
 
-    #[On('agency-report-updated')]
+    #[On('agency-report-control-updated')]
     public function refreshReports(ReportAccess $access): void
     {
         abort_unless($access->isAdministrator($access->actor()), 403);

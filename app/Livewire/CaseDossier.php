@@ -9,9 +9,12 @@ use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
+use Livewire\WithPagination;
 
 class CaseDossier extends Component
 {
+    use WithPagination;
+
     #[Locked]
     public InvestigationCase $caseFile;
 
@@ -45,10 +48,13 @@ class CaseDossier extends Component
                 ->findOrFail($this->caseFile->getKey()),
         );
         $linkedReports = $reportAccess->visibleQuery()
-            ->whereHas('cases', fn ($query) => $query->whereKey($caseFile->id))
+            ->join('report_case_file', 'reports.id', '=', 'report_case_file.report_id')
+            ->where('report_case_file.case_file_id', $caseFile->id)
+            ->select('reports.*')
             ->withCount('comments')
             ->latest('updated_at')
-            ->get();
+            ->orderByDesc('reports.id')
+            ->paginate(10, ['reports.*'], 'linkedReportsPage');
 
         return view('livewire.case-dossier', [
             'caseFile' => $caseFile,

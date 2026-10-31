@@ -58,13 +58,11 @@
                             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5 20v-1.2a7 7 0 0 1 14 0V20z"/></svg><span>My profile</span>
                         </a>
                         @php
-                            $reportUnreadCount = 0;
-                            if (\Illuminate\Support\Facades\Schema::hasTable('reports')) {
-                                $reportUnreadCount = app(\App\Services\ReportAccess::class)
-                                    ->visibleQuery()
-                                    ->where('id', '>', (int) session('report_system_last_seen_id', 0))
-                                    ->count();
-                            }
+                            $reportActor = auth('web')->user();
+                            $reportUnreadCount = app(\App\Support\SidebarUnreadCounts::class)->reports(
+                                $reportActor,
+                                (int) session('report_system_last_seen_id', 0),
+                            );
                         @endphp
                         <a class="nav-item {{ request()->routeIs($department.'.reports.*') ? 'is-active' : '' }}" href="{{ route($department.'.reports.index') }}" wire:navigate data-report-system-nav @if (request()->routeIs($department.'.reports.*')) aria-current="page" @endif>
                             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v10H9l-4 3v-13Z"/><path d="M8.5 9h7M8.5 12h4.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg><span>Report System</span><span class="security-unread-badge" data-report-system-badge data-count="{{ $reportUnreadCount }}" @if($reportUnreadCount === 0) hidden @endif>{{ $reportUnreadCount > 99 ? '99+' : $reportUnreadCount }}</span>

@@ -65,24 +65,39 @@ class SecuritySessionMetrics
 
         $sessionId = $request->session()->getId();
         $presence = SecuritySessionPresence::query()->find($sessionId);
-        $shouldRefresh = $presence === null
-            || $presence->last_seen_at?->lessThan(now()->subSeconds(30));
+        $now = now();
+        $refreshBefore = $now->copy()->subSeconds(30);
+        if ($presence !== null && ! $presence->last_seen_at->lessThan($refreshBefore)) {
+            return;
+        }
+
         $legacyAdmin = $actor instanceof User
             && $actor->department === null
             && strtolower((string) $actor->email) === strtolower((string) config('vault.admin.email'));
         $isAdmin = $admin instanceof Admin || $legacyAdmin;
+        $attributes = [
+            'guard' => $isAdmin ? 'admin' : 'web',
+            'account_type' => $isAdmin ? 'admin' : 'staff',
+            'account_id' => (string) $actor->getAuthIdentifier(),
+            'last_seen_at' => $now,
+            'updated_at' => $now,
+        ];
 
-        SecuritySessionPresence::query()->updateOrCreate(
-            ['session_id' => $sessionId],
-            [
-                'guard' => $isAdmin ? 'admin' : 'web',
-                'account_type' => $isAdmin ? 'admin' : 'staff',
-                'account_id' => (string) $actor->getAuthIdentifier(),
-                'last_seen_at' => now(),
-            ],
-        );
+        if ($presence === null) {
+            $created = DB::table('security_session_presence')->insertOrIgnore([
+                'session_id' => $sessionId,
+                ...$attributes,
+                'created_at' => $now,
+            ]) === 1;
+        } else {
+            $created = false;
+            SecuritySessionPresence::query()
+                ->whereKey($sessionId)
+                ->where('last_seen_at', '<', $refreshBefore)
+                ->update($attributes);
+        }
 
-        if ($shouldRefresh && config('session.driver') === 'database') {
+        if ($presence === null && $created && config('session.driver') === 'database') {
             $this->capture();
         }
     }

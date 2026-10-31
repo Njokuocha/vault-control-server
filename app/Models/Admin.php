@@ -37,7 +37,19 @@ class Admin extends Authenticatable
 
     protected static function booted(): void
     {
-        static::saved(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('reports'));
-        static::deleted(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('reports'));
+        static::saved(function (Admin $admin): void {
+            $cache = app(VersionedCache::class);
+            if ($admin->wasChanged(['name', 'email'])) {
+                $cache->bumpAfterCommit('reports');
+            }
+            if ($admin->wasChanged('name')) {
+                $cache->bumpAfterCommit('report-related');
+            }
+        });
+        static::deleted(function (): void {
+            $cache = app(VersionedCache::class);
+            $cache->bumpAfterCommit('reports');
+            $cache->bumpAfterCommit('report-related');
+        });
     }
 }

@@ -80,6 +80,7 @@ foreach ($departments as $department => $departmentName) {
             Route::get('/cases/{caseFile}/evidence/{file:uuid}/preview', [InvestigationCaseController::class, 'previewEvidence'])->withoutScopedBindings()->name('cases.evidence-preview');
             Route::get('/cases/{caseFile}/evidence/{file:uuid}/stream', [InvestigationCaseController::class, 'streamEvidence'])->withoutScopedBindings()->name('cases.evidence-stream');
             Route::get('/cases/{caseFile}/images/{image}', [InvestigationCaseController::class, 'image'])->name('cases.image');
+            Route::get('/cases/{caseFile}/images/{image}/thumbnail', [InvestigationCaseController::class, 'image'])->defaults('download', false)->defaults('thumbnail', true)->name('cases.images.thumbnail');
             Route::get('/cases/{caseFile}/images/{image}/download', [InvestigationCaseController::class, 'image'])->defaults('download', true)->name('cases.images.download');
             Route::get('/cases/{caseFile}/images/{image}/poster', [InvestigationCaseController::class, 'imagePoster'])->name('cases.images.poster');
             Route::delete('/cases/{caseFile}/images/{image}', [InvestigationCaseController::class, 'destroyImage'])->name('cases.images.destroy');
@@ -92,6 +93,7 @@ foreach ($departments as $department => $departmentName) {
             Route::get('/people/{person}/edit', [PersonController::class, 'edit'])->name('people.edit');
             Route::put('/people/{person}', [PersonController::class, 'update'])->name('people.update');
             Route::get('/people/{person}/images/{image}', [PersonController::class, 'image'])->name('people.image');
+            Route::get('/people/{person}/images/{image}/thumbnail', [PersonController::class, 'image'])->defaults('download', false)->defaults('thumbnail', true)->name('people.images.thumbnail');
             Route::get('/people/{person}/images/{image}/download', [PersonController::class, 'image'])->defaults('download', true)->name('people.images.download');
             Route::get('/people/{person}/images/{image}/poster', [PersonController::class, 'imagePoster'])->name('people.images.poster');
             Route::post('/people/{person}/images/unlock', [PersonController::class, 'authenticateImages'])->middleware('throttle:8,1')->name('people.images.unlock');
@@ -114,6 +116,7 @@ foreach ($departments as $department => $departmentName) {
                 ->middleware('throttle:8,1')
                 ->name('person-media.unlock');
             Route::get('/person-media/{person}/images/{image}', [FileManagerController::class, 'personMediaFile'])->name('person-media.image');
+            Route::get('/person-media/{person}/images/{image}/thumbnail', [FileManagerController::class, 'personMediaFile'])->defaults('download', false)->defaults('thumbnail', true)->name('person-media.thumbnail');
             Route::get('/person-media/{person}/images/{image}/download', [FileManagerController::class, 'personMediaFile'])->defaults('download', true)->name('person-media.download');
             Route::get('/person-media/{person}/images/{image}/poster', [PersonController::class, 'imagePoster'])->name('person-media.poster');
 
@@ -148,6 +151,10 @@ Route::middleware(['auth:web,admin', 'security.presence'])->group(function (): v
         ->whereNumber('report')
         ->whereNumber('media')
         ->name('reports.media');
+    Route::get('/agency-reports/{report}/media/{media}/thumbnail', [ReportMediaController::class, 'thumbnail'])
+        ->whereNumber('report')
+        ->whereNumber('media')
+        ->name('reports.media.thumbnail');
 });
 
 Route::middleware(['auth:web,admin', 'security.presence', 'throttle:2000,1'])->prefix('/upload-transfers')->name('upload-transfers.')->group(function (): void {
@@ -196,6 +203,7 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::get('/people/{person}/edit', [PersonController::class, 'edit'])->name('people.edit');
     Route::put('/people/{person}', [PersonController::class, 'update'])->name('people.update');
     Route::get('/people/{person}/images/{image}', [PersonController::class, 'image'])->name('people.image');
+    Route::get('/people/{person}/images/{image}/thumbnail', [PersonController::class, 'image'])->defaults('download', false)->defaults('thumbnail', true)->name('people.images.thumbnail');
     Route::get('/people/{person}/images/{image}/download', [PersonController::class, 'image'])->defaults('download', true)->name('people.images.download');
     Route::get('/people/{person}/images/{image}/poster', [PersonController::class, 'imagePoster'])->name('people.images.poster');
     Route::post('/people/{person}/images/unlock', [PersonController::class, 'authenticateImages'])->middleware('throttle:8,1')->name('people.images.unlock');
@@ -214,6 +222,7 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::get('/cases/{caseFile}/evidence/{file:uuid}/preview', [InvestigationCaseController::class, 'previewEvidence'])->withoutScopedBindings()->name('cases.evidence-preview');
     Route::get('/cases/{caseFile}/evidence/{file:uuid}/stream', [InvestigationCaseController::class, 'streamEvidence'])->withoutScopedBindings()->name('cases.evidence-stream');
     Route::get('/cases/{caseFile}/images/{image}', [InvestigationCaseController::class, 'image'])->name('cases.image');
+    Route::get('/cases/{caseFile}/images/{image}/thumbnail', [InvestigationCaseController::class, 'image'])->defaults('download', false)->defaults('thumbnail', true)->name('cases.images.thumbnail');
     Route::get('/cases/{caseFile}/images/{image}/download', [InvestigationCaseController::class, 'image'])->defaults('download', true)->name('cases.images.download');
     Route::get('/cases/{caseFile}/images/{image}/poster', [InvestigationCaseController::class, 'imagePoster'])->name('cases.images.poster');
     Route::delete('/cases/{caseFile}/images/{image}', [InvestigationCaseController::class, 'destroyImage'])->name('cases.images.destroy');

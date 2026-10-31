@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use App\Events\AgencyReportUpdated;
+use App\Jobs\DeleteImageThumbnailJob;
 use App\Models\Admin;
 use App\Models\InvestigationCase;
 use App\Models\Person;
@@ -79,10 +80,10 @@ class ReportWorkspace extends Component
         session(['report_system_last_seen_id' => (int) Report::query()->max('id')]);
     }
 
-    public function selectReport(string $uuid, ReportAccess $access): void
+    public function selectReport(string $uuid, int $reportId, ReportAccess $access): void
     {
         $actor = $this->authorizeWorkspace($access);
-        $report = $this->cachedReportDetail($access, $actor, $uuid);
+        $report = $this->cachedReportDetail($access, $actor, $uuid, $reportId);
         abort_if($report === null, 404);
         $this->selectedReport = $report->uuid;
         $this->activeSection = 'report';
@@ -205,9 +206,26 @@ class ReportWorkspace extends Component
         $storedPaths = [];
         $removedPaths = [];
         try {
-            $report = DB::transaction(function () use ($validated, $actor, $access, $existing, &$storedPaths, &$removedPaths): Report {
+            $reportUuid = $existing?->uuid ?? (string) Str::uuid();
+            $storedMedia = [];
+            foreach ($validated['uploads'] as $upload) {
+                $path = $upload->store('reports/'.$reportUuid, config('vault.upload_disk', 'vault'));
+                if ($path === false) {
+                    throw new \RuntimeException('A report attachment could not be stored on private storage.');
+                }
+                $storedPaths[] = $path;
+                $storedMedia[] = [
+                    'path' => $path,
+                    'original_name' => Str::limit(basename($upload->getClientOriginalName()), 255, ''),
+                    'mime_type' => (string) $upload->getMimeType(),
+                    'media_type' => str_starts_with((string) $upload->getMimeType(), 'image/') ? 'image' : 'video',
+                    'size' => $upload->getSize(),
+                ];
+            }
+
+            $report = DB::transaction(function () use ($validated, $actor, $access, $existing, $reportUuid, $storedMedia, &$removedPaths): Report {
                 $report = $existing ?? Report::query()->create([
-                    'uuid' => (string) Str::uuid(),
+                    'uuid' => $reportUuid,
                     'body' => trim($validated['body']),
                     'reporter_type' => $actor::class,
                     'reporter_id' => $actor->getAuthIdentifier(),
@@ -227,23 +245,17 @@ class ReportWorkspace extends Component
                     $mediaToRemove = $report->media()->whereIn('id', $validated['removeMediaIds'])->get();
                     abort_if($mediaToRemove->count() !== count(array_unique(array_map('intval', $validated['removeMediaIds']))), 403);
                     $removedPaths = $mediaToRemove->pluck('path')->all();
+                    $mediaToRemove->where('media_type', 'image')->each(
+                        fn (ReportMedia $media) => DeleteImageThumbnailJob::dispatch($media->path)->afterCommit(),
+                    );
                     $report->media()->whereIn('id', $mediaToRemove->modelKeys())->delete();
                 }
 
-                foreach ($validated['uploads'] as $upload) {
-                    $path = $upload->store('reports/'.$report->id, config('vault.upload_disk', 'vault'));
-                    if ($path === false) {
-                        throw new \RuntimeException('A report attachment could not be stored on private storage.');
-                    }
-                    $storedPaths[] = $path;
-                    $mimeType = (string) $upload->getMimeType();
+                $sortOrder = (int) $report->media()->max('sort_order');
+                foreach ($storedMedia as $media) {
                     $report->media()->create([
-                        'path' => $path,
-                        'original_name' => Str::limit(basename($upload->getClientOriginalName()), 255, ''),
-                        'mime_type' => $mimeType,
-                        'media_type' => str_starts_with($mimeType, 'image/') ? 'image' : 'video',
-                        'size' => $upload->getSize(),
-                        'sort_order' => (int) $report->media()->max('sort_order') + 1,
+                        ...$media,
+                        'sort_order' => ++$sortOrder,
                     ]);
                 }
 
@@ -302,6 +314,7 @@ class ReportWorkspace extends Component
 
         $this->reset('commentBody');
         $this->activeSection = 'comments';
+        $this->dispatch('report-comment-submitted');
         $this->dispatch('alert', type: 'success', message: 'Comment added.');
     }
 
@@ -381,8 +394,14 @@ class ReportWorkspace extends Component
         $this->reportLimit += 30;
     }
 
-    #[On('agency-report-updated')]
+    #[On('agency-report-list-updated')]
     public function refreshReports(): void
+    {
+        $this->authorizeWorkspace(app(ReportAccess::class));
+    }
+
+    #[On('agency-report-comments-updated')]
+    public function refreshReportComments(): void
     {
         $this->authorizeWorkspace(app(ReportAccess::class));
     }
@@ -426,23 +445,28 @@ class ReportWorkspace extends Component
         }
         $selected = $this->selectedReport === null
             ? null
-            : $this->cachedReportDetail($access, $actor, $this->selectedReport);
+            : $this->cachedReportDetail(
+                $access,
+                $actor,
+                $this->selectedReport,
+                $reports->firstWhere('uuid', $this->selectedReport)?->id,
+            );
         if ($selected === null && $reports->isNotEmpty()) {
-            $selected = $this->cachedReportDetail($access, $actor, $reports->first()->uuid);
+            $selected = $this->cachedReportDetail($access, $actor, $reports->first()->uuid, $reports->first()->id);
             $this->selectedReport = $selected?->uuid;
             $this->activeSection = 'report';
         }
 
         $mainComments = collect();
         $totalMainComments = 0;
-        if ($selected !== null) {
+        if ($selected !== null && $this->activeSection === 'comments') {
             $expandedReplyIds = array_values(array_unique(array_map('intval', $this->expandedReplyIds)));
             $commentCacheKey = "workspace:{$actorCacheKey}:comments:{$selected->id}:{$this->commentLimit}:".hash(
                 'sha256',
                 implode(',', $expandedReplyIds),
             );
             $comments = $cache->remember(
-                'reports',
+                'report-content-'.$selected->id,
                 $commentCacheKey,
                 now()->addSeconds(20),
                 function () use ($selected, $expandedReplyIds): array {
@@ -482,6 +506,7 @@ class ReportWorkspace extends Component
 
         return view('livewire.report-workspace', [
             'reports' => $reports,
+            'selectedReportId' => $selected?->id,
             'totalReportCount' => $totalReportCount,
             'hasMoreReports' => $totalReportCount > $this->reportLimit,
             'report' => $selected,
@@ -514,12 +539,21 @@ class ReportWorkspace extends Component
         return $access->visibleQuery($actor)->where('uuid', $this->selectedReport)->with('media')->firstOrFail();
     }
 
-    private function cachedReportDetail(ReportAccess $access, Authenticatable $actor, string $uuid): ?Report
-    {
+    private function cachedReportDetail(
+        ReportAccess $access,
+        Authenticatable $actor,
+        string $uuid,
+        ?int $reportId = null,
+    ): ?Report {
+        $reportId ??= $access->visibleQuery($actor)->where('uuid', $uuid)->value('id');
+        if ($reportId === null) {
+            return null;
+        }
+
         $actorCacheKey = hash('sha256', $actor::class.':'.$actor->getAuthIdentifier());
 
         return app(VersionedCache::class)->remember(
-            'reports',
+            'report-content-'.$reportId,
             "workspace:{$actorCacheKey}:detail:{$uuid}",
             now()->addSeconds(20),
             fn (): ?Report => $access->visibleQuery($actor)
@@ -532,8 +566,10 @@ class ReportWorkspace extends Component
                     'people',
                 ])
                 ->withCount('comments')
+                ->whereKey($reportId)
                 ->where('uuid', $uuid)
                 ->first(),
+            ['report-related'],
         );
     }
 
@@ -615,23 +651,47 @@ class ReportWorkspace extends Component
             return;
         }
 
-        $rows = ReportComment::query()
-            ->select(['report_id', 'author_type', 'author_id'])
-            ->selectRaw('MAX(updated_at) as last_updated')
-            ->whereIn('report_id', $reports->modelKeys())
-            ->groupBy('report_id', 'author_type', 'author_id')
+        $commenterRows = ReportComment::query()
+            ->leftJoin('users as commenter_users', function ($join): void {
+                $join->on('commenter_users.id', '=', 'report_comments.author_id')
+                    ->where('report_comments.author_type', '=', User::class);
+            })
+            ->leftJoin('admins as commenter_admins', function ($join): void {
+                $join->on('commenter_admins.id', '=', 'report_comments.author_id')
+                    ->where('report_comments.author_type', '=', Admin::class);
+            })
+            ->select([
+                'report_comments.report_id',
+                'report_comments.author_type',
+                'report_comments.author_id',
+            ])
+            ->selectRaw('MAX(report_comments.updated_at) as last_updated')
+            ->whereIn('report_comments.report_id', $reports->modelKeys())
+            ->where(function ($query): void {
+                $query->whereNotNull('commenter_users.id')
+                    ->orWhereNotNull('commenter_admins.id');
+            })
+            ->groupBy('report_comments.report_id', 'report_comments.author_type', 'report_comments.author_id')
+            ->selectRaw('ROW_NUMBER() OVER (PARTITION BY report_comments.report_id ORDER BY MAX(report_comments.updated_at) DESC, report_comments.author_type, report_comments.author_id) as preview_rank')
+            ->selectRaw('COUNT(*) OVER (PARTITION BY report_comments.report_id) as commenter_count')
+            ->selectRaw(
+                'MAX(CASE WHEN report_comments.author_type = ? THEN 1 ELSE 0 END) OVER (PARTITION BY report_comments.report_id) as admin_commented',
+                [Admin::class],
+            );
+        $rows = DB::query()
+            ->fromSub($commenterRows, 'report_commenters')
+            ->where('preview_rank', '<=', 5)
             ->orderByDesc('last_updated')
             ->get();
-        $adminCommentReportIds = ReportComment::query()
-            ->whereIn('report_id', $reports->modelKeys())
-            ->where('author_type', Admin::class)
-            ->distinct()
-            ->pluck('report_id');
 
         $userIds = $rows->where('author_type', User::class)->pluck('author_id')->unique();
         $adminIds = $rows->where('author_type', Admin::class)->pluck('author_id')->unique();
-        $users = User::query()->whereIn('id', $userIds)->get(['id', 'name', 'profile_photo_path'])->keyBy('id');
-        $admins = Admin::query()->whereIn('id', $adminIds)->get(['id', 'name'])->keyBy('id');
+        $users = $userIds->isEmpty()
+            ? collect()
+            : User::query()->whereIn('id', $userIds)->get(['id', 'name', 'profile_photo_path'])->keyBy('id');
+        $admins = $adminIds->isEmpty()
+            ? collect()
+            : Admin::query()->whereIn('id', $adminIds)->get(['id', 'name'])->keyBy('id');
         $rowsByReport = $rows->groupBy('report_id');
 
         foreach ($reports as $report) {
@@ -645,9 +705,9 @@ class ReportWorkspace extends Component
                     'type' => $row->author_type,
                 ];
             })->filter()->values();
-            $report->setAttribute('commenter_count', $commenters->count());
+            $report->setAttribute('commenter_count', (int) $rowsByReport->get($report->id, collect())->first()?->commenter_count);
             $report->setAttribute('recent_commenters', $commenters->take(5));
-            $report->setAttribute('admin_commented', $adminCommentReportIds->contains($report->id));
+            $report->setAttribute('admin_commented', (bool) $rowsByReport->get($report->id, collect())->first()?->admin_commented);
         }
     }
 

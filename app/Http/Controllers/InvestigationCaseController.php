@@ -11,6 +11,7 @@ use App\Models\UploadTransfer;
 use App\Models\User;
 use App\Models\VideoUpload;
 use App\Services\ActivityLogger;
+use App\Services\ImageThumbnailService;
 use App\Services\PublicRecordId;
 use App\Services\RecordUploadAttachmentService;
 use App\Services\SettingService;
@@ -55,7 +56,8 @@ class InvestigationCaseController extends Controller
         $storedPaths = [];
 
         try {
-            $caseFile = DB::transaction(function () use ($validated, $ids, $attachments, $actor, $uploadOwner, $request, &$storedPaths): InvestigationCase {
+            $categoryImagePaths = $this->storeCategoryImages($validated['categories'] ?? [], $storedPaths);
+            $caseFile = DB::transaction(function () use ($validated, $categoryImagePaths, $ids, $attachments, $actor, $uploadOwner, $request): InvestigationCase {
                 $caseFile = InvestigationCase::query()->create([
                     'created_by_user_id' => $actor instanceof User ? $actor->getKey() : null,
                     'public_id' => $ids->generate(InvestigationCase::class, 'CSE'),
@@ -68,7 +70,7 @@ class InvestigationCaseController extends Controller
                 $this->saveCategories(
                     $caseFile,
                     $validated['categories'] ?? [],
-                    $storedPaths,
+                    $categoryImagePaths,
                     $attachments,
                     $uploadOwner,
                     $validated['record_upload_draft_token'] ?? null,
@@ -153,11 +155,13 @@ class InvestigationCaseController extends Controller
         $uploadOwner = $actor;
         $storedPaths = [];
         $deletedPaths = [];
+        $deletedThumbnailPaths = [];
         $deletedFileIds = [];
         $deletedUploadIds = [];
         $deletedTransferTokens = [];
         try {
-            DB::transaction(function () use ($validated, $caseFile, $attachments, $actor, $uploadOwner, $request, &$storedPaths, &$deletedPaths, &$deletedFileIds, &$deletedUploadIds, &$deletedTransferTokens): void {
+            $categoryImagePaths = $this->storeCategoryImages($validated['categories'] ?? [], $storedPaths);
+            DB::transaction(function () use ($validated, $categoryImagePaths, $caseFile, $attachments, $actor, $uploadOwner, $request, &$deletedPaths, &$deletedThumbnailPaths, &$deletedFileIds, &$deletedUploadIds, &$deletedTransferTokens): void {
                 $caseFile->update([
                     'title' => $this->unknown($validated['title'] ?? null),
                     'classification' => $validated['classification'] ?? 'CLASSIFIED',
@@ -171,6 +175,11 @@ class InvestigationCaseController extends Controller
                         continue;
                     }
                     $deletedPaths = [...$deletedPaths, ...$category->images->pluck('path')->all()];
+                    foreach ($category->images as $image) {
+                        if (in_array($image->type, [null, 'image'], true)) {
+                            $deletedThumbnailPaths[] = app(ImageThumbnailService::class)->thumbnailPath($image->path);
+                        }
+                    }
                     $deletedFileIds = [...$deletedFileIds, ...$category->images->pluck('file_id')->filter()->all()];
                     $transfers = UploadTransfer::query()
                         ->where('record_type', 'case')
@@ -190,7 +199,7 @@ class InvestigationCaseController extends Controller
                 $this->saveCategories(
                     $caseFile,
                     $validated['categories'] ?? [],
-                    $storedPaths,
+                    $categoryImagePaths,
                     $attachments,
                     $uploadOwner,
                     $validated['record_upload_draft_token'] ?? null,
@@ -215,7 +224,9 @@ class InvestigationCaseController extends Controller
             Storage::disk(config('vault.upload_disk'))->delete($storedPaths);
             throw $exception;
         }
-        Storage::disk(config('vault.upload_disk'))->delete($deletedPaths);
+        $disk = Storage::disk(config('vault.upload_disk'));
+        $existingThumbnails = array_filter($deletedThumbnailPaths, fn (string $path): bool => $disk->exists($path));
+        $disk->delete([...$deletedPaths, ...$existingThumbnails]);
         if ($deletedFileIds !== []) {
             File::query()->whereIn('id', $deletedFileIds)->get()->each(
                 static fn (File $file) => $file->delete(),
@@ -248,9 +259,10 @@ class InvestigationCaseController extends Controller
         $caseId = $caseFile->getKey();
         $fileIds = collect();
         $paths = collect();
+        $thumbnailPaths = collect();
         $chunkTokens = collect();
 
-        DB::transaction(function () use ($caseFile, $caseReference, $caseId, &$fileIds, &$paths, &$chunkTokens): void {
+        DB::transaction(function () use ($caseFile, $caseReference, $caseId, &$fileIds, &$paths, &$thumbnailPaths, &$chunkTokens): void {
             $caseFile->load('categories.images.file');
             $images = $caseFile->categories->flatMap(fn (CaseCategory $category) => $category->images);
             $transfers = UploadTransfer::query()
@@ -268,6 +280,10 @@ class InvestigationCaseController extends Controller
                 ->merge(File::query()->whereKey($fileIds)->pluck('stored_path'))
                 ->filter()
                 ->unique()
+                ->values();
+            $thumbnailPaths = $images
+                ->filter(fn (CaseImage $image): bool => in_array($image->type, [null, 'image'], true))
+                ->map(fn (CaseImage $image): string => app(ImageThumbnailService::class)->thumbnailPath($image->path))
                 ->values();
             $chunkTokens = $transfers->pluck('token')->values();
 
@@ -292,7 +308,9 @@ class InvestigationCaseController extends Controller
             );
         });
 
-        Storage::disk(config('vault.upload_disk'))->delete($paths->all());
+        $disk = Storage::disk(config('vault.upload_disk'));
+        $existingThumbnails = $thumbnailPaths->filter(fn (string $path): bool => $disk->exists($path))->all();
+        $disk->delete([...$paths->all(), ...$existingThumbnails]);
         foreach (File::query()->whereKey($fileIds)->get() as $file) {
             $file->delete();
         }
@@ -303,7 +321,7 @@ class InvestigationCaseController extends Controller
         return redirect()->route('cases.index')->with('status', 'Case file deleted.');
     }
 
-    public function image(InvestigationCase $caseFile, CaseImage $image, bool $download = false): mixed
+    public function image(InvestigationCase $caseFile, CaseImage $image, bool $download = false, bool $thumbnail = false): mixed
     {
         abort_unless($image->category()->where('case_file_id', $caseFile->id)->exists(), 404);
         if ($image->type === 'video') {
@@ -326,10 +344,18 @@ class InvestigationCaseController extends Controller
         }
         abort_unless(Storage::disk(config('vault.upload_disk'))->exists($image->path), 404);
 
+        $path = $image->path;
+        if ($thumbnail) {
+            $thumbnailPath = app(ImageThumbnailService::class)->thumbnailPath($path);
+            if (Storage::disk(config('vault.upload_disk'))->exists($thumbnailPath)) {
+                $path = $thumbnailPath;
+            }
+        }
+
         $response = app(FileController::class)->streamPrivatePath(
             request(),
-            $image->path,
-            null,
+            $path,
+            $path === $image->path ? null : 'image/jpeg',
             $image->original_name,
             $download,
         );
@@ -427,7 +453,7 @@ class InvestigationCaseController extends Controller
     private function saveCategories(
         InvestigationCase $caseFile,
         array $categories,
-        array &$storedPaths,
+        array $categoryImagePaths,
         RecordUploadAttachmentService $attachments,
         User|Admin $user,
         ?string $draftToken,
@@ -444,19 +470,13 @@ class InvestigationCaseController extends Controller
             $category->fill($attributes);
             $caseFile->categories()->save($category);
 
-            foreach ($categoryData['images'] ?? [] as $image) {
+            foreach ($categoryData['images'] ?? [] as $imageIndex => $image) {
                 if (! $image instanceof UploadedFile) {
                     continue;
                 }
 
-                $extension = strtolower($image->guessExtension() ?: 'img');
-                $path = $image->storeAs('cases/'.$caseFile->id.'/evidence', Str::uuid().'.'.$extension, config('vault.upload_disk'));
-                if (! is_string($path)) {
-                    throw new \RuntimeException('Unable to store the case evidence image.');
-                }
-                $storedPaths[] = $path;
                 $category->images()->create([
-                    'path' => $path,
+                    'path' => $categoryImagePaths[$index][$imageIndex],
                     'original_name' => Str::limit(basename(str_replace('\\', '/', $image->getClientOriginalName())), 255, ''),
                 ]);
             }
@@ -479,6 +499,29 @@ class InvestigationCaseController extends Controller
                 );
             }
         }
+    }
+
+    private function storeCategoryImages(array $categories, array &$storedPaths): array
+    {
+        $paths = [];
+        foreach ($categories as $categoryIndex => $categoryData) {
+            foreach ($categoryData['images'] ?? [] as $imageIndex => $image) {
+                if (! $image instanceof UploadedFile) {
+                    continue;
+                }
+
+                $extension = strtolower($image->guessExtension() ?: 'img');
+                $path = $image->storeAs('cases/evidence', Str::uuid().'.'.$extension, config('vault.upload_disk'));
+                if (! is_string($path)) {
+                    throw new \RuntimeException('Unable to store the case evidence image.');
+                }
+
+                $storedPaths[] = $path;
+                $paths[$categoryIndex][$imageIndex] = $path;
+            }
+        }
+
+        return $paths;
     }
 
     private function attachVideosToCategory(CaseCategory $category, array $tokens): void

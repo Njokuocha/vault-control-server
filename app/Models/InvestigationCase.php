@@ -12,15 +12,18 @@ class InvestigationCase extends Model
 {
     protected static function booted(): void
     {
-        static::saved(function (): void {
+        static::saved(function (InvestigationCase $case): void {
             $cache = app(VersionedCache::class);
             $cache->bumpAfterCommit('cases');
-            $cache->bumpAfterCommit('reports');
+            if ($case->wasChanged(['public_id', 'title'])) {
+                $cache->bumpAfterCommit('report-related');
+            }
         });
         static::deleted(function (): void {
             $cache = app(VersionedCache::class);
             $cache->bumpAfterCommit('cases');
             $cache->bumpAfterCommit('reports');
+            $cache->bumpAfterCommit('report-related');
         });
     }
 

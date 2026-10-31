@@ -7,15 +7,17 @@ use App\Models\VideoUpload;
 use App\Services\FileUploadService;
 use App\Services\VideoProcessingService;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
-class FinalizeVideoUploadJob implements ShouldQueue
+class FinalizeVideoUploadJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;
@@ -28,9 +30,18 @@ class FinalizeVideoUploadJob implements ShouldQueue
 
     public bool $failOnTimeout = true;
 
+    public array $backoff = [60, 300];
+
+    public int $uniqueFor = 7200;
+
     public function __construct(public readonly int $videoUploadId)
     {
-        $this->onQueue('default');
+        $this->onQueue('video-processing');
+    }
+
+    public function uniqueId(): string
+    {
+        return (string) $this->videoUploadId;
     }
 
     public function handle(FileUploadService $uploads, VideoProcessingService $videoProcessor): void
@@ -40,6 +51,7 @@ class FinalizeVideoUploadJob implements ShouldQueue
             if ($upload->status === 'cancelled') {
                 Storage::disk('local')->deleteDirectory('vault-chunks/'.$upload->token);
             }
+
             return;
         }
 
@@ -82,7 +94,7 @@ class FinalizeVideoUploadJob implements ShouldQueue
         try {
             $mimeType = (new \finfo(FILEINFO_MIME_TYPE))->file($assembledAbsolutePath);
             if (! is_string($mimeType) || ! str_starts_with($mimeType, 'video/')) {
-                throw \Illuminate\Validation\ValidationException::withMessages([
+                throw ValidationException::withMessages([
                     'file' => 'The uploaded content is not a video.',
                 ]);
             }
@@ -145,6 +157,7 @@ class FinalizeVideoUploadJob implements ShouldQueue
             if ($upload?->status === 'cancelled') {
                 Storage::disk('local')->deleteDirectory('vault-chunks/'.$upload->token);
             }
+
             return;
         }
 
@@ -159,7 +172,7 @@ class FinalizeVideoUploadJob implements ShouldQueue
 
     private function safeErrorMessage(?Throwable $exception): string
     {
-        if ($exception instanceof \Illuminate\Validation\ValidationException) {
+        if ($exception instanceof ValidationException) {
             return collect($exception->errors())->flatten()->first() ?? 'The video upload was rejected.';
         }
 

@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Events\ArchiveIndexUpdated;
 use App\Models\File;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -13,7 +14,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use ZipArchive;
 
-class BuildArchiveIndexJob implements ShouldQueue
+class BuildArchiveIndexJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;
@@ -22,9 +23,18 @@ class BuildArchiveIndexJob implements ShouldQueue
 
     public int $tries = 3;
 
+    public array $backoff = [30, 120];
+
+    public int $uniqueFor = 7200;
+
     public function __construct(public readonly int $fileId)
     {
         $this->onQueue('default');
+    }
+
+    public function uniqueId(): string
+    {
+        return (string) $this->fileId;
     }
 
     public function handle(): void
@@ -131,8 +141,8 @@ class BuildArchiveIndexJob implements ShouldQueue
     }
 
     /**
-     * @param array<string, array<string, mixed>> $tree
-     * @param list<string> $parts
+     * @param  array<string, array<string, mixed>>  $tree
+     * @param  list<string>  $parts
      */
     private function insertEntry(array &$tree, array $parts, string $path, bool $isDirectory, int $size): void
     {
@@ -164,7 +174,7 @@ class BuildArchiveIndexJob implements ShouldQueue
     }
 
     /**
-     * @param array<string, array<string, mixed>> $tree
+     * @param  array<string, array<string, mixed>>  $tree
      */
     private function sortTree(array &$tree): void
     {

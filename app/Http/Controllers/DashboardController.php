@@ -3,14 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\File;
+use App\Support\ArchiveDateFilter;
 use App\Support\FormatBytes;
+use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use App\Support\VersionedCache;
 
 class DashboardController extends Controller
 {
@@ -95,13 +96,11 @@ class DashboardController extends Controller
             });
         }
 
-        if (! empty($validated['year'])) {
-            $query->whereYear('created_at', (int) $validated['year']);
-        }
-
-        if (! empty($validated['month'])) {
-            $query->whereMonth('created_at', (int) $validated['month']);
-        }
+        ArchiveDateFilter::apply(
+            $query,
+            (string) ($validated['year'] ?? ''),
+            (string) ($validated['month'] ?? ''),
+        );
 
         if (! empty($validated['extension'])) {
             if ($validated['extension'] === '__none__') {

@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -29,10 +30,10 @@ return new class extends Migration
             $table->string('occupation')->default('Unknown');
             $table->string('aliases')->default('Unknown');
             $table->string('last_known_location')->default('Unknown');
-            $table->text('identifying_marks')->default('Unknown');
+            $table->text('identifying_marks')->default(DB::raw("('Unknown')"));
             $table->string('avatar_group', 20)->default('Group');
             $table->string('main_image_path', 500)->nullable();
-            $table->text('statement')->default('Unknown');
+            $table->text('statement')->default(DB::raw("('Unknown')"));
             $table->timestamps();
             $table->index(['last_name', 'first_name']);
         });
@@ -51,8 +52,8 @@ return new class extends Migration
             $table->string('title')->default('Unknown');
             $table->string('classification', 40)->default('CLASSIFIED')->index();
             $table->string('case_status', 40)->default('OPEN')->index();
-            $table->text('narrative')->default('Unknown');
-            $table->text('comment')->default('Unknown');
+            $table->text('narrative')->default(DB::raw("('Unknown')"));
+            $table->text('comment')->default(DB::raw("('Unknown')"));
             $table->timestamps();
         });
 
@@ -60,7 +61,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('case_file_id')->constrained('case_files')->cascadeOnDelete();
             $table->string('title')->default('Unknown');
-            $table->text('description')->default('Unknown');
+            $table->text('description')->default(DB::raw("('Unknown')"));
             $table->unsignedInteger('sort_order')->default(0);
             $table->timestamps();
         });

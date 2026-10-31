@@ -5,6 +5,7 @@ use App\Models\InvestigationCase;
 use App\Models\Person;
 use App\Models\Report;
 use App\Models\User;
+use App\Support\VersionedCache;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -75,16 +76,77 @@ test('linked person edits invalidate cached report details after commit', functi
     $workspace = Livewire::actingAs($reporter, 'web')
         ->test(ReportWorkspace::class)
         ->assertSee('USR-CACHE-01');
-    $reportVersion = (int) Cache::get('vault:cache-version:reports', 0);
+    $reportVersion = (int) Cache::get('vault:cache-version:report-related', 0);
+    $feedVersion = (int) Cache::get('vault:cache-version:reports', 0);
 
     DB::transaction(fn () => $person->update([
         'public_id' => 'USR-CACHE-02',
         'name' => 'Updated linked person',
     ]));
 
-    expect((int) Cache::get('vault:cache-version:reports', 0))->toBeGreaterThan($reportVersion);
+    expect((int) Cache::get('vault:cache-version:report-related', 0))->toBeGreaterThan($reportVersion)
+        ->and((int) Cache::get('vault:cache-version:reports', 0))->toBe($feedVersion);
 
     $workspace->call('refreshReports')
         ->assertDontSee('USR-CACHE-01')
         ->assertSee('USR-CACHE-02');
+});
+
+test('a report comment invalidates only its report content cache and the shared feed cache', function () {
+    config(['cache.default' => 'array']);
+    Cache::flush();
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $updatedReport = Report::query()->create([
+        'uuid' => (string) Str::uuid(),
+        'body' => 'Report whose comment changes.',
+        'reporter_type' => $reporter::class,
+        'reporter_id' => $reporter->id,
+    ]);
+    $unrelatedReport = Report::query()->create([
+        'uuid' => (string) Str::uuid(),
+        'body' => 'Unrelated report detail.',
+        'reporter_type' => $reporter::class,
+        'reporter_id' => $reporter->id,
+    ]);
+    $cache = app(VersionedCache::class);
+    $unrelatedDetailCalls = 0;
+    $updatedDetailCalls = 0;
+    $unrelatedKey = 'report-content-'.$unrelatedReport->id;
+    $updatedKey = 'report-content-'.$updatedReport->id;
+    $expiresAt = now()->addMinute();
+
+    $cache->remember($unrelatedKey, 'detail', $expiresAt, function () use (&$unrelatedDetailCalls): string {
+        $unrelatedDetailCalls++;
+
+        return 'cached unrelated detail';
+    });
+    $cache->remember($updatedKey, 'detail', $expiresAt, function () use (&$updatedDetailCalls): string {
+        $updatedDetailCalls++;
+
+        return 'initial detail';
+    });
+    $feedVersion = (int) Cache::get('vault:cache-version:reports', 0);
+
+    $updatedReport->comments()->create([
+        'author_type' => User::class,
+        'author_id' => $reporter->id,
+        'body' => 'A new report comment.',
+    ]);
+
+    expect($cache->remember($unrelatedKey, 'detail', $expiresAt, function () use (&$unrelatedDetailCalls): string {
+        $unrelatedDetailCalls++;
+
+        return 'rebuilt unrelated detail';
+    }))->toBe('cached unrelated detail')
+        ->and($cache->remember($updatedKey, 'detail', $expiresAt, function () use (&$updatedDetailCalls): string {
+            $updatedDetailCalls++;
+
+            return 'refreshed detail';
+        }))->toBe('refreshed detail')
+        ->and($unrelatedDetailCalls)->toBe(1)
+        ->and($updatedDetailCalls)->toBe(2)
+        ->and((int) Cache::get('vault:cache-version:reports', 0))->toBeGreaterThan($feedVersion);
 });

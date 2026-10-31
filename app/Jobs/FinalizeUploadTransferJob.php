@@ -7,20 +7,21 @@ use App\Models\UploadTransfer;
 use App\Services\FileUploadService;
 use App\Services\RecordUploadAttachmentService;
 use App\Services\UploadTransferStatus;
-use App\Services\VideoProcessingService;
 use App\Support\RecordAttachmentTypes;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
-class FinalizeUploadTransferJob implements ShouldQueue
+class FinalizeUploadTransferJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;
@@ -33,14 +34,22 @@ class FinalizeUploadTransferJob implements ShouldQueue
 
     public bool $failOnTimeout = true;
 
+    public array $backoff = [30, 90];
+
+    public int $uniqueFor = 7200;
+
     public function __construct(public readonly int $uploadTransferId)
     {
         $this->onQueue('default');
     }
 
+    public function uniqueId(): string
+    {
+        return (string) $this->uploadTransferId;
+    }
+
     public function handle(
         FileUploadService $uploads,
-        VideoProcessingService $videoProcessor,
         UploadTransferStatus $statusUpdates,
         RecordAttachmentTypes $attachmentTypes,
         RecordUploadAttachmentService $attachments,
@@ -130,38 +139,14 @@ class FinalizeUploadTransferJob implements ShouldQueue
             return;
         }
 
-        $videoPreview = str_starts_with($mimeType, 'video/')
-            ? $videoProcessor->process($assembledAbsolutePath, $upload->token)
-            : null;
+        $file = $uploads->store(
+            $assembledUpload,
+            null,
+            'manual',
+            $upload->admin ?? $upload->user,
+        );
 
         try {
-            $file = $uploads->store(
-                $assembledUpload,
-                null,
-                'manual',
-                $upload->admin ?? $upload->user,
-            );
-        } catch (Throwable $exception) {
-            if ($videoPreview !== null) {
-                Storage::disk(config('vault.upload_disk', 'vault'))->delete(array_filter([
-                    $videoPreview['playable_path'],
-                    $videoPreview['poster_path'],
-                ]));
-            }
-
-            throw $exception;
-        }
-
-        try {
-            if ($videoPreview !== null
-                && ($videoPreview['playable_path'] !== null || $videoPreview['poster_path'] !== null || $videoPreview['duration'] !== null)) {
-                $file->forceFill([
-                    'video_playable_path' => $videoPreview['playable_path'],
-                    'video_poster_path' => $videoPreview['poster_path'],
-                    'video_duration' => $videoPreview['duration'],
-                ])->save();
-            }
-
             $updated = DB::transaction(function () use ($upload, $file, $attachments): bool {
                 $current = UploadTransfer::query()->whereKey($upload->id)->lockForUpdate()->first();
                 if (! $current || $current->status !== 'processing') {
@@ -187,6 +172,17 @@ class FinalizeUploadTransferJob implements ShouldQueue
         } catch (Throwable $exception) {
             $this->deleteStoredFile($file);
             throw $exception;
+        }
+
+        if (str_starts_with($mimeType, 'video/')) {
+            try {
+                BuildVideoPreviewJob::dispatch($file->id)->afterCommit();
+            } catch (Throwable $exception) {
+                Log::error('Unable to queue video preview processing; the original video remains available.', [
+                    'file_id' => $file->id,
+                    'exception' => $exception::class,
+                ]);
+            }
         }
 
         $upload->refresh();

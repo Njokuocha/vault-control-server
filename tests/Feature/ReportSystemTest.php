@@ -2,6 +2,7 @@
 
 use App\Events\AgencyReportUpdated;
 use App\Livewire\Admin\ReportManagement;
+use App\Livewire\CaseDossier;
 use App\Livewire\ReportWorkspace;
 use App\Models\Admin;
 use App\Models\Department;
@@ -12,6 +13,7 @@ use App\Models\ReportComment;
 use App\Models\ReportMedia;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
@@ -173,6 +175,61 @@ test('report composer searches and lets administrators add or remove multiple ca
         ->assertSet('caseIds', [(string) $secondCase->id])
         ->call('togglePersonLink', $firstPerson->id)
         ->assertSet('personIds', [(string) $secondPerson->id]);
+});
+
+test('person and case dossiers paginate linked reports while retaining report visibility rules', function () {
+    $staff = User::factory()->create([
+        'department' => 'pm',
+        'account_status' => 'active',
+    ]);
+    $otherStaff = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $person = Person::query()->create([
+        'public_id' => 'USR-PAGINATE-01',
+        'name' => 'Paginated Report Person',
+    ]);
+    $caseFile = InvestigationCase::query()->create([
+        'public_id' => 'CSE-PAGINATE-01',
+        'title' => 'Paginated Report Case',
+    ]);
+
+    foreach (range(1, 11) as $index) {
+        $report = createTestReport($staff, "Visible linked report {$index}.");
+        $report->forceFill(['updated_at' => now()->addSeconds($index)])->saveQuietly();
+        $report->people()->attach($person->id);
+        $report->cases()->attach($caseFile->id);
+    }
+    $hiddenReport = createTestReport($otherStaff, 'Hidden linked report.');
+    $hiddenReport->update(['is_hidden' => true]);
+    $hiddenReport->people()->attach($person->id);
+    $hiddenReport->cases()->attach($caseFile->id);
+
+    $this->actingAs($staff, 'web')
+        ->get(route('pm.people.show', $person))
+        ->assertOk()
+        ->assertSee('Linked reports <span>11</span>', false)
+        ->assertSee('Visible linked report 11.')
+        ->assertDontSee('Hidden linked report.')
+        ->assertSee('linkedReportsPage=2');
+
+    $this->get(route('pm.people.show', $person).'?linkedReportsPage=2')
+        ->assertOk()
+        ->assertSee('Visible linked report 1.')
+        ->assertDontSee('Visible linked report 11.')
+        ->assertDontSee('Hidden linked report.');
+
+    $caseDossier = Livewire::actingAs($staff, 'web')
+        ->test(CaseDossier::class, ['caseFile' => $caseFile])
+        ->assertSee('Linked reports <span>11</span>', false)
+        ->assertSee('Visible linked report 11.')
+        ->assertDontSee('Hidden linked report.');
+
+    $caseDossier->call('setPage', 2, 'linkedReportsPage')
+        ->assertSee('Visible linked report 1.')
+        ->assertDontSee('Visible linked report 11.')
+        ->assertDontSee('Hidden linked report.');
 });
 
 test('staff can comment but only the report owner or an administrator can reply', function () {
@@ -377,7 +434,7 @@ test('selecting a report reuses the loaded detail during the Livewire render', f
     $connection->flushQueryLog();
     $connection->enableQueryLog();
 
-    $workspace->call('selectReport', $report->uuid)
+    $workspace->call('selectReport', $report->uuid, $report->id)
         ->assertSee('Measured report detail request.');
 
     $detailQueries = collect($connection->getQueryLog())
@@ -386,4 +443,79 @@ test('selecting a report reuses the loaded detail during the Livewire render', f
     $connection->disableQueryLog();
 
     expect($detailQueries)->toHaveCount(1);
+});
+
+test('report comment drafts survive targeted realtime rerenders', function () {
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $report = createTestReport($reporter);
+
+    $workspace = Livewire::actingAs($reporter, 'web')
+        ->test(ReportWorkspace::class)
+        ->set('selectedReport', $report->uuid)
+        ->call('showSection', 'comments')
+        ->set('commentBody', 'An unsaved note that must stay in the composer.')
+        ->dispatch('agency-report-comments-updated')
+        ->assertSet('commentBody', 'An unsaved note that must stay in the composer.');
+
+    $workspace->call('addComment')
+        ->assertHasNoErrors()
+        ->assertSet('commentBody', '');
+
+    expect($report->comments()->where('body', 'An unsaved note that must stay in the composer.')->exists())->toBeTrue();
+});
+
+test('report comments are queried only while the comments section is active', function () {
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $report = createTestReport($reporter);
+    $workspace = Livewire::actingAs($reporter, 'web')
+        ->test(ReportWorkspace::class)
+        ->set('selectedReport', $report->uuid);
+    $connection = DB::connection();
+    $connection->flushQueryLog();
+    $connection->enableQueryLog();
+
+    $workspace->dispatch('agency-report-list-updated');
+    $reportTabQueries = collect($connection->getQueryLog())
+        ->pluck('query')
+        ->filter(fn (string $query): bool => str_contains(strtolower($query), 'report_comments'));
+
+    $connection->flushQueryLog();
+    $workspace->call('showSection', 'comments');
+    $commentsTabQueries = collect($connection->getQueryLog())
+        ->pluck('query')
+        ->filter(fn (string $query): bool => str_contains(strtolower($query), 'report_comments'));
+    $connection->disableQueryLog();
+
+    expect($reportTabQueries)->toBeEmpty()
+        ->and($commentsTabQueries)->not->toBeEmpty();
+});
+
+test('report-specific realtime channels preserve report visibility restrictions', function () {
+    $owner = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $otherStaff = User::factory()->create([
+        'department' => 'pm',
+        'account_status' => 'active',
+    ]);
+    $visibleReport = createTestReport($owner);
+    $hiddenReport = createTestReport($owner);
+    $hiddenReport->update(['is_hidden' => true]);
+    $channels = Broadcast::connection()->getChannels();
+    $authorizeReportChannel = $channels['reports.{reportId}'];
+    $authorizeControlChannel = $channels['reports.control'];
+
+    expect($authorizeReportChannel($owner, $hiddenReport->id))->toBeTrue()
+        ->and($authorizeReportChannel($otherStaff, $visibleReport->id))->toBeTrue()
+        ->and($authorizeReportChannel($otherStaff, $hiddenReport->id))->toBeFalse()
+        ->and($authorizeReportChannel($otherStaff, $visibleReport->id + 1000))->toBeFalse()
+        ->and($authorizeControlChannel($otherStaff))->toBeFalse()
+        ->and($authorizeControlChannel(createReportSystemAdmin()))->toBeTrue();
 });

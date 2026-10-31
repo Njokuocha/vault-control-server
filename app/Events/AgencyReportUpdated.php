@@ -5,8 +5,8 @@ namespace App\Events;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
-use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
+use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
 class AgencyReportUpdated implements ShouldBroadcast, ShouldDispatchAfterCommit
@@ -20,6 +20,13 @@ class AgencyReportUpdated implements ShouldBroadcast, ShouldDispatchAfterCommit
 
     public function broadcastOn(): array
     {
+        if (in_array($this->action, ['commented', 'replied'], true)) {
+            return [
+                new PrivateChannel("reports.{$this->reportId}"),
+                new PrivateChannel('reports.control'),
+            ];
+        }
+
         return [new PrivateChannel('reports.agency')];
     }
 

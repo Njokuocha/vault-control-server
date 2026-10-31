@@ -1,4 +1,4 @@
-<div class="content-inner report-system-page" x-data="{ composerOpen: @entangle('composerOpen') }" x-init="$watch('composerOpen', open => { if (!open) window.dispatchEvent(new Event('report-composer-closed')) })" x-on:keydown.escape.window="if (composerOpen) { composerOpen = false; $wire.closeComposer() }">
+<div class="content-inner report-system-page" data-report-selected-id="{{ $selectedReportId }}" x-data="{ composerOpen: @entangle('composerOpen') }" x-init="$watch('composerOpen', open => { if (!open) window.dispatchEvent(new Event('report-composer-closed')) })" x-on:keydown.escape.window="if (composerOpen) { composerOpen = false; $wire.closeComposer() }">
     <header class="report-system-heading">
         <div>
             <span class="section-kicker">AGENCY-WIDE INTELLIGENCE · INTERNAL REPORTING</span>
@@ -22,7 +22,7 @@
             <div class="report-feed-list">
                 @forelse ($reports as $feedReport)
                     @php($reporter = $feedReport->reporter)
-                    <button class="report-feed-item {{ $report?->id === $feedReport->id ? 'is-selected' : '' }}" type="button" wire:click="selectReport('{{ $feedReport->uuid }}')" wire:loading.attr="disabled" wire:target="selectReport('{{ $feedReport->uuid }}')">
+                    <button class="report-feed-item {{ $report?->id === $feedReport->id ? 'is-selected' : '' }}" data-report-feed-id="{{ $feedReport->id }}" type="button" wire:click="selectReport('{{ $feedReport->uuid }}', {{ $feedReport->id }})" wire:loading.attr="disabled" wire:target="selectReport('{{ $feedReport->uuid }}', {{ $feedReport->id }})">
                         <span class="report-feed-item__node" aria-hidden="true"></span>
                         <span class="report-feed-item__meta">
                             <span>{{ $feedReport->created_at?->format('M d, Y · H:i') }} UTC</span>
@@ -46,8 +46,8 @@
                                 @endforeach
                             </span>
                             <span>{{ $feedReport->commenter_count }} {{ $feedReport->commenter_count === 1 ? 'staff' : 'staffs' }} commented</span>
-                            <span class="report-feed-item__arrow" aria-hidden="true" wire:loading.remove wire:target="selectReport('{{ $feedReport->uuid }}')">↗</span>
-                            <span class="report-feed-item__spinner" aria-label="Loading report" wire:loading wire:target="selectReport('{{ $feedReport->uuid }}')"></span>
+                            <span class="report-feed-item__arrow" aria-hidden="true" wire:loading.remove wire:target="selectReport('{{ $feedReport->uuid }}', {{ $feedReport->id }})">↗</span>
+                            <span class="report-feed-item__spinner" aria-label="Loading report" wire:loading wire:target="selectReport('{{ $feedReport->uuid }}', {{ $feedReport->id }})"></span>
                         </span>
                     </button>
                 @empty
@@ -105,7 +105,7 @@
                                         aria-label="{{ $report->media->count() > 4 && $loop->last ? 'Open all report attachments' : 'Preview '.$media->original_name }}"
                                     >
                                         @if ($media->media_type === 'image')
-                                            <img src="{{ route('reports.media', [$report, $media]) }}" alt="{{ $media->original_name }}" loading="lazy" decoding="async">
+                                            <img src="{{ route('reports.media.thumbnail', [$report, $media]) }}" alt="{{ $media->original_name }}" loading="lazy" decoding="async">
                                         @else
                                             <video src="{{ route('reports.media', [$report, $media]) }}" preload="none" muted playsinline aria-label="{{ $media->original_name }}"></video>
                                             <span class="report-video-mark"><i class="ri ri-play-fill" aria-hidden="true"></i> VIDEO</span>
@@ -207,7 +207,7 @@
                         <form class="report-comment-composer" wire:submit="addComment">
                             <span class="section-kicker">ADD FIELD NOTE</span>
                             <label class="sr-only" for="report-comment-body">Comment on report</label>
-                            <textarea id="report-comment-body" wire:model="commentBody" rows="3" maxlength="5000" placeholder="Add a relevant observation or operational update…"></textarea>
+                            <textarea id="report-comment-body" wire:key="report-comment-draft-{{ $report->id }}" wire:model.live.debounce.500ms="commentBody" rows="3" maxlength="5000" placeholder="Add a relevant observation or operational update…"></textarea>
                             @error('commentBody')<small>{{ $message }}</small>@enderror
                             <div><small>Comments are visible to authorized agency personnel. Replies are reserved for the reporter and administrators.</small><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="addComment"><span wire:loading.remove wire:target="addComment">POST COMMENT</span><span wire:loading wire:target="addComment">POSTING…</span></button></div>
                         </form>
@@ -230,7 +230,7 @@
                         <div class="report-existing-media"><span class="report-form-label">CURRENT MEDIA · SELECT TO REMOVE</span><div>
                             @foreach ($report->media as $media)
                                 <button type="button" data-report-media-toggle class="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'is-marked-remove' : '' }}" wire:click="toggleMediaRemoval({{ $media->id }})" aria-label="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'Keep' : 'Remove' }} {{ $media->original_name }}">
-                                    @if ($media->media_type === 'image')<img src="{{ route('reports.media', [$report, $media]) }}" alt="">
+                                    @if ($media->media_type === 'image')<img src="{{ route('reports.media.thumbnail', [$report, $media]) }}" alt="">
                                     @else <span class="ri ri-video-line" aria-hidden="true"></span>@endif
                                     <small>{{ $media->original_name }}</small>
                                 </button>

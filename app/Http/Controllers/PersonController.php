@@ -10,6 +10,7 @@ use App\Models\PersonImage;
 use App\Models\User;
 use App\Models\VideoUpload;
 use App\Services\ActivityLogger;
+use App\Services\ImageThumbnailService;
 use App\Services\PublicRecordId;
 use App\Services\RecordUploadAttachmentService;
 use App\Services\ReportAccess;
@@ -70,25 +71,33 @@ class PersonController extends Controller
         $storedPaths = [];
 
         try {
-            $person = DB::transaction(function () use ($validated, $mainImage, $otherImages, $ids, $attachments, $actor, $request, &$storedPaths): Person {
+            $mainImagePath = $mainImage instanceof UploadedFile
+                ? $this->storeImage($mainImage, 'people/main', $storedPaths)
+                : null;
+            $otherImagePaths = [];
+            foreach ($otherImages as $index => $image) {
+                if ($image instanceof UploadedFile) {
+                    $otherImagePaths[$index] = $this->storeImage($image, 'people/gallery', $storedPaths);
+                }
+            }
+
+            $person = DB::transaction(function () use ($validated, $mainImage, $otherImages, $mainImagePath, $otherImagePaths, $ids, $attachments, $actor, $request): Person {
                 $attributes = $this->personAttributes($validated);
                 $attributes['public_id'] = $ids->generate(Person::class, 'USR');
                 $attributes['avatar_group'] = $validated['avatar_group'] ?? $this->avatarGroup($attributes['gender']);
 
                 if ($mainImage instanceof UploadedFile) {
-                    $attributes['main_image_path'] = $this->storeImage($mainImage, 'people/main', $storedPaths);
+                    $attributes['main_image_path'] = $mainImagePath;
                     $attributes['main_image_file_id'] = null;
                 }
 
                 $person = Person::query()->create($attributes);
 
-                foreach ($otherImages as $image) {
-                    if ($image instanceof UploadedFile) {
-                        $person->images()->create([
-                            'path' => $this->storeImage($image, 'people/'.$person->id.'/gallery', $storedPaths),
-                            'original_name' => $this->safeImageName($image),
-                        ]);
-                    }
+                foreach ($otherImagePaths as $index => $path) {
+                    $person->images()->create([
+                        'path' => $path,
+                        'original_name' => $this->safeImageName($otherImages[$index]),
+                    ]);
                 }
                 $this->attachVideosToPerson($person, $validated['video_upload_tokens'] ?? []);
                 $attachments->commitPersonUploads(
@@ -145,10 +154,13 @@ class PersonController extends Controller
         );
         $person->loadMissing('images.file');
         $linkedReports = $reportAccess->visibleQuery()
-            ->whereHas('people', fn ($query) => $query->whereKey($person->id))
+            ->join('report_person', 'reports.id', '=', 'report_person.report_id')
+            ->where('report_person.person_id', $person->id)
+            ->select('reports.*')
             ->withCount('comments')
             ->latest('updated_at')
-            ->get();
+            ->orderByDesc('reports.id')
+            ->paginate(10, ['reports.*'], 'linkedReportsPage');
         $avatarGroup = strtolower($person->avatar_group);
         $avatarPath = in_array($avatarGroup, ['male', 'female', 'group', 'unknown', 'suspect', 'verified'], true)
             ? $settings->get('avatar_model_'.$avatarGroup)
@@ -191,12 +203,22 @@ class PersonController extends Controller
         $removeMainImage = (bool) ($validated['remove_main_image'] ?? false);
 
         try {
-            DB::transaction(function () use ($validated, $mainImage, $otherImages, $person, $removeMainImage, $attachments, $actor, $request, &$storedPaths): void {
+            $mainImagePath = $mainImage instanceof UploadedFile
+                ? $this->storeImage($mainImage, 'people/main', $storedPaths)
+                : null;
+            $otherImagePaths = [];
+            foreach ($otherImages as $index => $image) {
+                if ($image instanceof UploadedFile) {
+                    $otherImagePaths[$index] = $this->storeImage($image, 'people/gallery', $storedPaths);
+                }
+            }
+
+            DB::transaction(function () use ($validated, $mainImage, $otherImages, $mainImagePath, $otherImagePaths, $person, $removeMainImage, $attachments, $actor, $request): void {
                 $attributes = $this->personAttributes($validated);
                 $attributes['avatar_group'] = $validated['avatar_group'] ?? $this->avatarGroup($attributes['gender']);
 
                 if ($mainImage instanceof UploadedFile) {
-                    $attributes['main_image_path'] = $this->storeImage($mainImage, 'people/main', $storedPaths);
+                    $attributes['main_image_path'] = $mainImagePath;
                     $attributes['main_image_file_id'] = null;
                 } elseif ($removeMainImage) {
                     $attributes['main_image_path'] = null;
@@ -205,13 +227,11 @@ class PersonController extends Controller
 
                 $person->update($attributes);
 
-                foreach ($otherImages as $image) {
-                    if ($image instanceof UploadedFile) {
-                        $person->images()->create([
-                            'path' => $this->storeImage($image, 'people/'.$person->id.'/gallery', $storedPaths),
-                            'original_name' => $this->safeImageName($image),
-                        ]);
-                    }
+                foreach ($otherImagePaths as $index => $path) {
+                    $person->images()->create([
+                        'path' => $path,
+                        'original_name' => $this->safeImageName($otherImages[$index]),
+                    ]);
                 }
                 $this->attachVideosToPerson($person, $validated['video_upload_tokens'] ?? []);
                 $attachments->commitPersonUploads(
@@ -273,7 +293,7 @@ class PersonController extends Controller
         return response()->json(['status' => 'unlocked']);
     }
 
-    public function image(Person $person, string $image, bool $download = false): mixed
+    public function image(Person $person, string $image, bool $download = false, bool $thumbnail = false): mixed
     {
         abort_unless(request()->session()->get('unlocked_person_images') === $person->getKey(), 403);
 
@@ -301,6 +321,10 @@ class PersonController extends Controller
             if ($file instanceof File) {
                 abort_unless($file->category === 'image', 404);
 
+                if ($thumbnail) {
+                    return $this->privateImagePreview($file->stored_path, $file->original_name);
+                }
+
                 return $download
                     ? app(FileController::class)->download($file)
                     : app(FileController::class)->stream(request(), $file);
@@ -310,12 +334,33 @@ class PersonController extends Controller
 
         abort_unless(is_string($path) && Storage::disk(config('vault.upload_disk'))->exists($path), 404);
 
+        if ($thumbnail) {
+            return $this->privateImagePreview($path, basename($path));
+        }
+
         $response = app(FileController::class)->streamPrivatePath(
             request(),
             $path,
             null,
             basename($path),
             $download,
+        );
+        $response->headers->set('Content-Security-Policy', "default-src 'none'; sandbox");
+
+        return $response;
+    }
+
+    private function privateImagePreview(string $sourcePath, string $fileName): mixed
+    {
+        $disk = Storage::disk(config('vault.upload_disk'));
+        $thumbnailPath = app(ImageThumbnailService::class)->thumbnailPath($sourcePath);
+        $path = $disk->exists($thumbnailPath) ? $thumbnailPath : $sourcePath;
+
+        $response = app(FileController::class)->streamPrivatePath(
+            request(),
+            $path,
+            $path === $thumbnailPath ? 'image/jpeg' : null,
+            $fileName,
         );
         $response->headers->set('Content-Security-Policy', "default-src 'none'; sandbox");
 

@@ -1,6 +1,7 @@
 <?php
 
 use App\Events\UploadTransferStatusChanged;
+use App\Jobs\BuildVideoPreviewJob;
 use App\Jobs\FinalizeUploadTransferJob;
 use App\Livewire\CaseDossier;
 use App\Models\Admin;
@@ -13,7 +14,6 @@ use App\Services\FileUploadService;
 use App\Services\RecordUploadAttachmentService;
 use App\Services\SettingService;
 use App\Services\UploadTransferStatus;
-use App\Services\VideoProcessingService;
 use App\Support\RecordAttachmentTypes;
 use Illuminate\Broadcasting\BroadcastManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -153,7 +153,6 @@ test('queued finalization stores arbitrary files privately and publishes final s
 
     (new FinalizeUploadTransferJob($transfer->id))->handle(
         app(FileUploadService::class),
-        app(VideoProcessingService::class),
         app(UploadTransferStatus::class),
         app(RecordAttachmentTypes::class),
         app(RecordUploadAttachmentService::class),
@@ -179,6 +178,40 @@ test('queued finalization stores arbitrary files privately and publishes final s
         && $event->pendingUploads === 1);
     Event::assertDispatched(UploadTransferStatusChanged::class, fn (UploadTransferStatusChanged $event): bool => $event->status === 'done'
         && $event->pendingUploads === 0);
+});
+
+test('video upload transfers finish storage before preview work is queued separately', function () {
+    Queue::fake();
+    $user = User::factory()->create();
+    $video = pack('N', 24).'ftypmp42'.pack('N', 0).pack('N', 0).'mp42'.str_repeat("\0", 1100);
+    expect((new finfo(FILEINFO_MIME_TYPE))->buffer($video))->toBe('video/mp4');
+
+    $transfer = $user->uploadTransfers()->create([
+        'token' => (string) Str::uuid(),
+        'original_name' => 'evidence.mp4',
+        'total_size' => strlen($video),
+        'chunk_size' => strlen($video),
+        'chunk_count' => 1,
+        'status' => 'pending',
+        'expires_at' => now()->addDay(),
+    ]);
+    Storage::disk('local')->put('upload-transfer-chunks/'.$transfer->token.'/0.part', $video);
+
+    (new FinalizeUploadTransferJob($transfer->id))->handle(
+        app(FileUploadService::class),
+        app(UploadTransferStatus::class),
+        app(RecordAttachmentTypes::class),
+        app(RecordUploadAttachmentService::class),
+    );
+
+    $file = VaultFile::query()->findOrFail($transfer->fresh()->file_id);
+    expect($transfer->fresh()->status)->toBe('done')
+        ->and($file->category)->toBe('video')
+        ->and($file->video_playable_path)->toBeNull();
+    Queue::assertPushed(BuildVideoPreviewJob::class, fn (BuildVideoPreviewJob $job): bool => $job->fileId === $file->id
+        && $job->queue === 'video-processing');
+    Storage::disk('vault')->assertExists($file->stored_path);
+    Storage::disk('local')->assertMissing('upload-transfer-chunks/'.$transfer->token.'/0.part');
 });
 
 test('record attachment initialization validates intent ownership and filename extension', function () {
@@ -309,7 +342,6 @@ test('uncommitted record transfers remain pending until the form binds them', fu
 
     (new FinalizeUploadTransferJob($transfer->id))->handle(
         app(FileUploadService::class),
-        app(VideoProcessingService::class),
         app(UploadTransferStatus::class),
         app(RecordAttachmentTypes::class),
         app(RecordUploadAttachmentService::class),
@@ -348,7 +380,6 @@ test('a committed case evidence transfer finalizes and attaches the detected doc
 
     (new FinalizeUploadTransferJob($transfer->id))->handle(
         app(FileUploadService::class),
-        app(VideoProcessingService::class),
         app(UploadTransferStatus::class),
         app(RecordAttachmentTypes::class),
         app(RecordUploadAttachmentService::class),
@@ -406,7 +437,6 @@ test('administrator uploads can be attached to case evidence and remain visible 
     $upload = UploadTransfer::query()->where('token', $transfer['token'])->firstOrFail();
     (new FinalizeUploadTransferJob($upload->id))->handle(
         app(FileUploadService::class),
-        app(VideoProcessingService::class),
         app(UploadTransferStatus::class),
         app(RecordAttachmentTypes::class),
         app(RecordUploadAttachmentService::class),
@@ -468,7 +498,6 @@ test('administrator can use the central manual upload page and own standalone tr
     $upload = UploadTransfer::query()->where('token', $transfer['token'])->firstOrFail();
     (new FinalizeUploadTransferJob($upload->id))->handle(
         app(FileUploadService::class),
-        app(VideoProcessingService::class),
         app(UploadTransferStatus::class),
         app(RecordAttachmentTypes::class),
         app(RecordUploadAttachmentService::class),
@@ -511,7 +540,6 @@ test('administrator can upload and attach profile main images and gallery media 
     $upload = UploadTransfer::query()->where('token', $transfer['token'])->firstOrFail();
     (new FinalizeUploadTransferJob($upload->id))->handle(
         app(FileUploadService::class),
-        app(VideoProcessingService::class),
         app(UploadTransferStatus::class),
         app(RecordAttachmentTypes::class),
         app(RecordUploadAttachmentService::class),
@@ -538,7 +566,6 @@ test('administrator can upload and attach profile main images and gallery media 
     $mainImageUpload = UploadTransfer::query()->where('token', $mainImageTransfer['token'])->firstOrFail();
     (new FinalizeUploadTransferJob($mainImageUpload->id))->handle(
         app(FileUploadService::class),
-        app(VideoProcessingService::class),
         app(UploadTransferStatus::class),
         app(RecordAttachmentTypes::class),
         app(RecordUploadAttachmentService::class),
@@ -588,7 +615,6 @@ test('uploads started after case creation appear in the saved evidence category'
     $upload = UploadTransfer::query()->where('token', $transfer['token'])->firstOrFail();
     (new FinalizeUploadTransferJob($upload->id))->handle(
         app(FileUploadService::class),
-        app(VideoProcessingService::class),
         app(UploadTransferStatus::class),
         app(RecordAttachmentTypes::class),
         app(RecordUploadAttachmentService::class),
@@ -656,7 +682,6 @@ test('gallery uploads started after person creation attach to the saved profile'
     $upload = UploadTransfer::query()->where('token', $transfer['token'])->firstOrFail();
     (new FinalizeUploadTransferJob($upload->id))->handle(
         app(FileUploadService::class),
-        app(VideoProcessingService::class),
         app(UploadTransferStatus::class),
         app(RecordAttachmentTypes::class),
         app(RecordUploadAttachmentService::class),
@@ -695,7 +720,6 @@ test('gallery uploads started after person update attach to the existing profile
     $upload = UploadTransfer::query()->where('token', $transfer['token'])->firstOrFail();
     (new FinalizeUploadTransferJob($upload->id))->handle(
         app(FileUploadService::class),
-        app(VideoProcessingService::class),
         app(UploadTransferStatus::class),
         app(RecordAttachmentTypes::class),
         app(RecordUploadAttachmentService::class),
@@ -725,7 +749,6 @@ test('a committed person main-image transfer updates the primary image and file 
 
     (new FinalizeUploadTransferJob($transfer->id))->handle(
         app(FileUploadService::class),
-        app(VideoProcessingService::class),
         app(UploadTransferStatus::class),
         app(RecordAttachmentTypes::class),
         app(RecordUploadAttachmentService::class),
@@ -770,7 +793,6 @@ test('record finalization immediately fails mismatched detected MIME and cleans 
 
     (new FinalizeUploadTransferJob($transfer->id))->handle(
         app(FileUploadService::class),
-        app(VideoProcessingService::class),
         app(UploadTransferStatus::class),
         app(RecordAttachmentTypes::class),
         app(RecordUploadAttachmentService::class),

@@ -25,7 +25,7 @@
         <div class="case-comment-text"><span>COMMENTS / CONTINUITY NOTES</span><p>{{ $caseFile->comment }}</p></div>
     </section>
     <section class="case-linked-reports">
-        <div class="profile-section-heading"><div><span class="section-kicker">CONNECTED INTELLIGENCE</span><h2>Linked reports <span>{{ $linkedReports->count() }}</span></h2></div><a class="text-action" href="{{ route($cfmWorkspace ? 'cfm.reports.index' : 'admin.reports.index') }}" wire:navigate>REPORT SYSTEM ↗</a></div>
+        <div class="profile-section-heading"><div><span class="section-kicker">CONNECTED INTELLIGENCE</span><h2>Linked reports <span>{{ $linkedReports->total() }}</span></h2></div><a class="text-action" href="{{ route($cfmWorkspace ? 'cfm.reports.index' : 'admin.reports.index') }}" wire:navigate>REPORT SYSTEM ↗</a></div>
         @forelse ($linkedReports as $linkedReport)
             <a class="case-linked-report-row" href="{{ route($cfmWorkspace ? 'cfm.reports.index' : 'admin.reports.index', ['report' => $linkedReport->uuid]) }}" wire:navigate>
                 <span class="case-linked-report-node" aria-hidden="true"></span>
@@ -34,6 +34,9 @@
         @empty
             <p class="profile-gallery-empty">No reports are linked to this case file.</p>
         @endforelse
+        @if ($linkedReports->hasPages())
+            {{ $linkedReports->links() }}
+        @endif
     </section>
     @unless ($cfmWorkspace)
     <section class="case-linked-people">
@@ -85,7 +88,7 @@
                                 </a>
                             @else
                                 <button class="evidence-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-image-title="{{ $image->original_name }}" aria-label="View {{ $image->original_name }}" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
-                                    <img src="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="{{ $image->original_name }}" loading="lazy" decoding="async">
+                                    <img src="{{ route($routePrefix.'cases.images.thumbnail', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="{{ $image->original_name }}" loading="lazy" decoding="async">
                                     @if ($loop->index === 3 && $category->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>@endif
                                 </button>
                             @endif

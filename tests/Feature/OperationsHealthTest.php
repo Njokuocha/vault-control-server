@@ -8,13 +8,16 @@ use Illuminate\Support\Facades\Artisan;
 test('agency report events are queued for private after-commit broadcasting', function () {
     $event = new AgencyReportUpdated(42, 'updated');
     $channels = $event->broadcastOn();
+    $commentEvent = new AgencyReportUpdated(42, 'commented');
 
     expect($event)
         ->toBeInstanceOf(ShouldDispatchAfterCommit::class)
         ->and($event->broadcastQueue())->toBe('broadcasts')
         ->and($channels)->toHaveCount(1)
         ->and($channels[0])->toBeInstanceOf(PrivateChannel::class)
-        ->and($channels[0]->name)->toBe('private-reports.agency');
+        ->and($channels[0]->name)->toBe('private-reports.agency')
+        ->and(array_map(fn (PrivateChannel $channel): string => $channel->name, $commentEvent->broadcastOn()))
+        ->toBe(['private-reports.42', 'private-reports.control']);
 });
 
 test('all required scheduler tasks are registered with Laravel', function () {

@@ -1,8 +1,10 @@
 <?php
 
-use Illuminate\Support\Facades\Broadcast;
 use App\Models\Admin;
+use App\Models\Report;
 use App\Models\User;
+use App\Services\ReportAccess;
+use Illuminate\Support\Facades\Broadcast;
 
 Broadcast::channel('admin.vault', function ($user): bool {
     $adminEmail = strtolower((string) config('vault.admin.email'));
@@ -21,7 +23,7 @@ Broadcast::channel('admin.security', function ($user): bool {
 });
 
 Broadcast::channel('fm.vault', function ($user): bool {
-    return $user instanceof \App\Models\User
+    return $user instanceof User
         && $user->department === 'fm'
         && $user->account_status === 'active';
 });
@@ -52,4 +54,19 @@ Broadcast::channel('reports.agency', function ($user): bool {
     return $user->department === null
         && $adminEmail !== ''
         && hash_equals($adminEmail, strtolower((string) $user->email));
+});
+
+Broadcast::channel('reports.control', function ($user): bool {
+    return app(ReportAccess::class)->isAdministrator($user);
+});
+
+Broadcast::channel('reports.{reportId}', function ($user, int $reportId): bool {
+    $access = app(ReportAccess::class);
+    if (! $access->isAdministrator($user) && ! $access->isStaff($user)) {
+        return false;
+    }
+
+    $report = Report::query()->find($reportId);
+
+    return $report !== null && $access->canView($report, $user);
 });

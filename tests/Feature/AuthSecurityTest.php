@@ -426,6 +426,88 @@ test('authenticated presence refreshes session totals and emits metrics for logi
     Event::assertDispatched(SecurityMetricsUpdated::class, fn (SecurityMetricsUpdated $event): bool => $event->activeAccounts === 0);
 });
 
+test('authenticated presence writes are throttled while scheduled snapshots remain current', function () {
+    config([
+        'session.driver' => 'database',
+        'session.table' => 'sessions',
+    ]);
+    $admin = Admin::query()->create([
+        'name' => 'Presence Throttle Administrator',
+        'email' => 'presence-throttle@example.test',
+        'password' => 'a-strong-password',
+    ]);
+    \Illuminate\Support\Facades\Auth::guard('admin')->setUser($admin);
+    $session = app('session')->driver();
+    $session->setId('presence-throttle-session');
+    $session->start();
+    $request = \Illuminate\Http\Request::create('/');
+    $request->setLaravelSession($session);
+    $metrics = app(SecuritySessionMetrics::class);
+
+    $metrics->trackRequest($request);
+    $presence = SecuritySessionPresence::query()->findOrFail($session->getId());
+    $initialLastSeen = $presence->last_seen_at->copy();
+    $initialSnapshotAt = SecurityMetricsSnapshot::query()->findOrFail(1)->captured_at->copy();
+
+    $this->travel(10)->seconds();
+    $metrics->trackRequest($request);
+    $presence->refresh();
+    expect($presence->last_seen_at->equalTo($initialLastSeen))->toBeTrue()
+        ->and(SecurityMetricsSnapshot::query()->findOrFail(1)->captured_at->equalTo($initialSnapshotAt))->toBeTrue();
+
+    $this->travel(21)->seconds();
+    $metrics->trackRequest($request);
+    $presence->refresh();
+    expect($presence->last_seen_at->greaterThan($initialLastSeen))->toBeTrue()
+        ->and(SecurityMetricsSnapshot::query()->findOrFail(1)->captured_at->equalTo($initialSnapshotAt))->toBeTrue();
+
+    $this->artisan('security:snapshot-sessions')->assertExitCode(0);
+    expect(SecurityMetricsSnapshot::query()->findOrFail(1)->active_accounts)->toBe(1);
+});
+
+test('a late presence request cannot overwrite a newer activity timestamp', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Concurrent Presence Administrator',
+        'email' => 'concurrent-presence@example.test',
+        'password' => 'a-strong-password',
+    ]);
+    \Illuminate\Support\Facades\Auth::guard('admin')->setUser($admin);
+
+    $sessionId = 'concurrent-presence-session';
+    SecuritySessionPresence::query()->create([
+        'session_id' => $sessionId,
+        'guard' => 'admin',
+        'account_type' => 'admin',
+        'account_id' => (string) $admin->id,
+        'last_seen_at' => now()->subMinute(),
+    ]);
+
+    $session = app('session')->driver();
+    $session->setId($sessionId);
+    $session->start();
+    $request = \Illuminate\Http\Request::create('/');
+    $request->setLaravelSession($session);
+    $newerActivity = now()->addSeconds(5);
+    $advanced = false;
+
+    DB::listen(function (\Illuminate\Database\Events\QueryExecuted $query) use ($sessionId, $newerActivity, &$advanced): void {
+        if (! $advanced
+            && str_starts_with(strtolower($query->sql), 'select')
+            && str_contains(strtolower($query->sql), 'security_session_presence')) {
+            $advanced = true;
+            DB::table('security_session_presence')
+                ->where('session_id', $sessionId)
+                ->update(['last_seen_at' => $newerActivity]);
+        }
+    });
+
+    app(SecuritySessionMetrics::class)->trackRequest($request);
+
+    expect($advanced)->toBeTrue()
+        ->and(SecuritySessionPresence::query()->findOrFail($sessionId)->last_seen_at->toDateTimeString())
+        ->toBe($newerActivity->toDateTimeString());
+});
+
 test('recent activity uses a custom paginator when more than ten records exist', function () {
     $admin = Admin::query()->create([
         'name' => 'Security Administrator',

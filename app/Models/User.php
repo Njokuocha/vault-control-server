@@ -64,8 +64,20 @@ class User extends Authenticatable
                     : Department::query()->where('code', $user->department)->value('id');
             }
         });
-        static::saved(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('reports'));
-        static::deleted(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('reports'));
+        static::saved(function (User $user): void {
+            $cache = app(VersionedCache::class);
+            if ($user->wasChanged(['name', 'email', 'department', 'department_id', 'profile_photo_path'])) {
+                $cache->bumpAfterCommit('reports');
+            }
+            if ($user->wasChanged(['name', 'department', 'department_id', 'profile_photo_path'])) {
+                $cache->bumpAfterCommit('report-related');
+            }
+        });
+        static::deleted(function (): void {
+            $cache = app(VersionedCache::class);
+            $cache->bumpAfterCommit('reports');
+            $cache->bumpAfterCommit('report-related');
+        });
     }
 
     public function uploadTransfers(): HasMany
