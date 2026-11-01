@@ -13,12 +13,11 @@
             <p class="page-description">{{ $galleryTotalCount }} media items across {{ $categories->count() }} categories.</p>
         </div>
         <div class="profile-heading-actions">
-            <button class="button-secondary" type="button" data-open-image-pin>UNLOCK VIEWABLES</button>
             <a class="button-secondary" href="{{ route($routePrefix.'.show', $person) }}" wire:navigate>BACK TO PROFILE</a>
         </div>
     </section>
 
-    <section class="profile-gallery-page" data-profile-gallery-page data-image-pin-unlocked="{{ $imagePinUnlocked ? 'true' : 'false' }}">
+    <section class="profile-gallery-page" data-profile-gallery-page data-gallery-media-unlocked="{{ $galleryMediaUnlocked ? 'true' : 'false' }}">
         <aside class="profile-gallery-category-panel">
             <div class="profile-section-heading">
                 <div><span class="section-kicker">PROFILE ORGANISATION</span><h3>Categories</h3></div>
@@ -90,14 +89,13 @@
                     <span>This category is locked. Contact an administrator if you need access.</span>
                 </div>
             @elseif ($galleryMedia->isNotEmpty())
-                <div class="profile-gallery is-locked" data-profile-gallery>
+                <div class="profile-gallery" data-profile-gallery>
                     @foreach ($galleryMedia as $image)
                         @php($mediaNumber = $image->id)
                         @php($mediaLabel = $mediaNumber >= 1000000 ? rtrim(rtrim(number_format($mediaNumber / 1000000, 1, '.', ''), '0'), '.').'M' : ($mediaNumber >= 1000 ? rtrim(rtrim(number_format($mediaNumber / 1000, 1, '.', ''), '0'), '.').'K' : str_pad((string) $mediaNumber, 2, '0', STR_PAD_LEFT)))
                         <div class="profile-gallery-entry">
                         @if ($image->type === 'video')
-                            <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-video-title="IMG {{ $mediaLabel }}" data-video-pin-required aria-label="Locked video {{ $mediaLabel }}. Unlock viewables to preview.">
-                                <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
+                            <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-video-title="IMG {{ $mediaLabel }}" aria-label="Play video {{ $mediaLabel }}">
                                 @if ($image->poster_path || $image->file?->video_poster_path)
                                     <img data-protected-image data-image-url="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id]) }}" alt="" loading="lazy" hidden>
                                 @else
@@ -106,15 +104,14 @@
                                 <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                             </button>
                         @elseif (in_array($image->type, [null, 'image'], true))
-                            <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-image-title="IMG {{ $mediaLabel }}" aria-label="Locked image {{ $mediaLabel }}. Unlock viewables to preview.">
-                                <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
+                            <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-image-title="IMG {{ $mediaLabel }}" aria-label="View image {{ $mediaLabel }}">
                                 <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-thumbnail-url="{{ route($routePrefix.'.images.thumbnail', ['person' => $person, 'image' => $image->id]) }}" alt="{{ $image->original_name }}" loading="lazy" hidden>
                             </button>
                         @else
                             <a class="profile-gallery-tile profile-gallery-file-tile" href="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}">
-                                <span class="image-lock-placeholder" aria-hidden="true">?</span>
+                                <span aria-hidden="true"><i class="ri ri-download-2-line"></i></span>
                                 <strong>IMG {{ $mediaLabel }}</strong>
-                                <small>Unlock viewables to download</small>
+                                <small>DOWNLOAD FILE</small>
                             </a>
                         @endif
                         <span class="profile-gallery-item-label">IMG {{ $mediaLabel }}</span>
@@ -203,31 +200,5 @@
         </form>
     </dialog>
 
-    <dialog class="image-pin-dialog" data-image-pin-dialog data-unlock-url="{{ route($routePrefix.'.images.unlock', $person) }}" data-pin-configured="{{ $imagePinConfigured ? 'true' : 'false' }}">
-        <form method="dialog" class="image-pin-close-form"><button value="close" aria-label="Close PIN window">×</button></form>
-        <div class="image-pin-content">
-            <span class="pin-security-emblem" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 19 6v5.5c0 4.4-2.8 7.4-7 9.5-4.2-2.1-7-5.1-7-9.5V6z"/><rect x="9" y="10" width="6" height="5" rx="1"/><path d="M10.5 10V8.5a1.5 1.5 0 0 1 3 0V10"/></svg></span>
-            <span class="section-kicker">RESTRICTED IMAGE ACCESS</span>
-            <h2>Unlock viewables</h2>
-            <p>Enter the four-digit image PIN to view this profile's private gallery.</p>
-            @if ($imagePinConfigured)
-                <form method="post" action="{{ route($routePrefix.'.images.unlock', $person) }}" data-image-pin-form>
-                    @csrf
-                    <div class="pin-digit-row" data-pin-digit-row>
-                        @for ($digit = 0; $digit < 4; $digit++)
-                            <input type="password" inputmode="numeric" pattern="[0-9]" maxlength="1" autocomplete="{{ $digit === 0 ? 'one-time-code' : 'off' }}" aria-label="PIN digit {{ $digit + 1 }}" data-pin-digit>
-                        @endfor
-                    </div>
-                    <p class="pin-error" data-pin-error role="alert" aria-live="polite"></p>
-                    <button type="submit" class="button-primary pin-submit" data-submit-image-pin>AUTHENTICATE PIN</button>
-                </form>
-            @else
-                <div class="pin-setup-required">An administrator must configure the image PIN in Settings before images can be viewed.</div>
-                @unless($profileManagement)
-                    <a class="button-primary pin-submit" href="{{ route('settings.index') }}">OPEN SECURITY SETTINGS</a>
-                @endunless
-            @endif
-        </div>
-    </dialog>
     <x-video-viewer />
 @endsection

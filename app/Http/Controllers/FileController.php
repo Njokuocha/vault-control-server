@@ -329,13 +329,16 @@ class FileController extends Controller
         $personImages = PersonImage::query()
             ->where(fn ($query) => $query->where('file_id', $file->getKey())->orWhere('path', $file->stored_path))
             ->get();
-        $personIds = $personImages->pluck('person_id')->merge(
-            Person::query()
-                ->where(fn ($query) => $query->where('main_image_file_id', $file->getKey())->orWhere('main_image_path', $file->stored_path))
-                ->pluck('id'),
-        )->unique();
+        foreach ($personImages->pluck('person_id')->unique() as $personId) {
+            $hasPinAuthorization = $request->session()->get('unlocked_person_images') === $personId;
+            $hasGalleryAuthorization = $request->session()->get('unlocked_person_gallery') === $personId;
+            abort_unless($hasPinAuthorization || $hasGalleryAuthorization, 403);
+        }
 
-        foreach ($personIds as $personId) {
+        $mainImagePersonIds = Person::query()
+            ->where(fn ($query) => $query->where('main_image_file_id', $file->getKey())->orWhere('main_image_path', $file->stored_path))
+            ->pluck('id');
+        foreach ($mainImagePersonIds as $personId) {
             abort_unless($request->session()->get('unlocked_person_images') === $personId, 403);
         }
         foreach ($personImages as $image) {

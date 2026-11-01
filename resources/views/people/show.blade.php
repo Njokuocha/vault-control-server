@@ -80,7 +80,7 @@
                 <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h3>Gallery <span>{{ $galleryTotalCount }}</span></h3></div><a href="{{ route($routePrefix.'.edit', $person) }}" wire:navigate class="text-action">MANAGE MEDIA</a></div>
                 <div class="profile-gallery-category-heading">
                     <strong>{{ $galleryPreviewCategory?->title ?? 'Uncategorized media' }} @if($canManageGalleryAccess && $galleryPreviewCategory?->is_locked)<i class="ri ri-lock-line gallery-category-lock-indicator" title="Restricted category" aria-label="Restricted category"></i>@endif</strong>
-                    <a class="text-action" href="{{ route($routePrefix.'.gallery', $person) }}" wire:navigate>VIEW GALLERY ↗</a>
+                    <a class="text-action" href="{{ route($routePrefix.'.gallery', $person) }}">VIEW GALLERY ↗</a>
                 </div>
                 @if ($galleryPreviewRestricted)
                     <div class="profile-gallery is-restricted" aria-label="Restricted gallery preview">

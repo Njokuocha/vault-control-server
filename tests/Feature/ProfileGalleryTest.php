@@ -39,7 +39,7 @@ beforeEach(function (): void {
     Bus::fake([BuildImageThumbnailJob::class]);
 });
 
-test('profile pages show one bounded gallery preview and link to the profile gallery', function () {
+test('profile pages show a bounded gallery preview and use a full navigation to open the gallery', function () {
     $staff = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
     $person = profileGalleryPerson('Gallery Preview Subject');
     $category = $person->galleryCategories()->create(['title' => 'Archive', 'sort_order' => 1]);
@@ -51,13 +51,14 @@ test('profile pages show one bounded gallery preview and link to the profile gal
 
     $response->assertOk()
         ->assertSee('Archive')
-        ->assertSee('href="'.route('pm.people.gallery', $person).'" wire:navigate', false)
+        ->assertSee('href="'.route('pm.people.gallery', $person).'"', false)
+        ->assertDontSee('href="'.route('pm.people.gallery', $person).'" wire:navigate', false)
         ->assertSee('VIEW GALLERY', false);
     expect(substr_count($response->getContent(), 'class="profile-gallery-tile'))->toBe(4)
         ->and(substr_count($response->getContent(), 'MANAGE MEDIA'))->toBe(1);
 });
 
-test('admin and profile manager gallery navigation links use Livewire navigation', function () {
+test('admin and profile manager use full navigation into galleries and Livewire navigation back to profiles', function () {
     $person = profileGalleryPerson('SPA Gallery Subject');
     $person->galleryCategories()->create(['title' => 'Archive']);
     $admin = Admin::query()->create([
@@ -74,7 +75,8 @@ test('admin and profile manager gallery navigation links use Livewire navigation
         $profile = $this->actingAs($user, $guard)->get(route($showRoute, $person));
         $galleryUrl = route($galleryRoute, $person);
         $profile->assertOk()
-            ->assertSee('href="'.$galleryUrl.'" wire:navigate', false);
+            ->assertSee('href="'.$galleryUrl.'"', false)
+            ->assertDontSee('href="'.$galleryUrl.'" wire:navigate', false);
 
         $gallery = $this->get($galleryUrl);
         $gallery->assertOk()
@@ -82,11 +84,36 @@ test('admin and profile manager gallery navigation links use Livewire navigation
     }
 });
 
-test('person gallery PIN stays authenticated when switching categories for admin and profile management', function () {
+test('gallery access makes media viewable without a PIN while remaining profile-scoped for admin and profile management', function () {
     $person = profileGalleryPerson('PIN Gallery Subject');
     $firstCategory = $person->galleryCategories()->create(['title' => 'First']);
     $secondCategory = $person->galleryCategories()->create(['title' => 'Second']);
     $image = profileGalleryImage($person, 'private-gallery.png', $secondCategory->id);
+    $otherPerson = profileGalleryPerson('Another PIN Gallery Subject');
+    $otherCategory = $otherPerson->galleryCategories()->create(['title' => 'Separate']);
+    $otherImage = profileGalleryImage($otherPerson, 'another-private-gallery.png', $otherCategory->id);
+    Storage::fake(config('vault.upload_disk'));
+    Storage::disk(config('vault.upload_disk'))->put($image->path, 'private media bytes');
+    Storage::disk(config('vault.upload_disk'))->put($otherImage->path, 'other private media bytes');
+    $documentPath = 'people/gallery/'.str()->uuid().'.pdf';
+    Storage::disk(config('vault.upload_disk'))->put($documentPath, '%PDF-1.7 private document');
+    $documentFile = VaultFile::query()->create([
+        'uuid' => (string) Str::uuid(),
+        'original_name' => 'private-document.pdf',
+        'stored_path' => $documentPath,
+        'extension' => 'pdf',
+        'mime_type' => 'application/pdf',
+        'category' => 'document',
+        'size' => 26,
+        'checksum' => hash('sha256', '%PDF-1.7 private document'),
+    ]);
+    $document = $person->images()->create([
+        'gallery_category_id' => $secondCategory->id,
+        'file_id' => $documentFile->id,
+        'path' => $documentPath,
+        'original_name' => 'private-document.pdf',
+        'type' => 'document',
+    ]);
     app(SettingService::class)->set('person_image_pin_hash', Hash::make('0427'));
 
     $admin = Admin::query()->create([
@@ -97,34 +124,63 @@ test('person gallery PIN stays authenticated when switching categories for admin
     $staff = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
 
     foreach ([
-        [$admin, 'admin', 'people.gallery', 'people.images.unlock', 'people.index', 'people.image'],
-        [$staff, 'web', 'pm.people.gallery', 'pm.people.images.unlock', 'pm.people.index', 'pm.people.image'],
-    ] as [$user, $guard, $galleryRoute, $unlockRoute, $indexRoute, $imageRoute]) {
-        $this->actingAs($user, $guard)
-            ->postJson(route($unlockRoute, $person), ['pin' => '0427'])
-            ->assertOk();
+        [$admin, 'admin', 'people.gallery', 'people.index', 'people.image'],
+        [$staff, 'web', 'pm.people.gallery', 'pm.people.index', 'pm.people.image'],
+    ] as [$user, $guard, $galleryRoute, $indexRoute, $imageRoute]) {
+        $this->withSession([
+            'unlocked_person_images' => $otherPerson->id,
+            'unlocked_person_gallery' => $otherPerson->id,
+        ])
+            ->actingAs($user, $guard)
+            ->get(route($imageRoute, ['person' => $person, 'image' => $image->id]))
+            ->assertForbidden();
 
         $this->get(route($galleryRoute, ['person' => $person, 'category' => $firstCategory->id]))
             ->assertOk()
-            ->assertSee('data-image-pin-unlocked="true"', false);
+            ->assertSee('data-gallery-media-unlocked="true"', false)
+            ->assertDontSee('data-image-pin-dialog', false)
+            ->assertDontSee('UNLOCK VIEWABLES');
 
         $this->get(route($galleryRoute, ['person' => $person, 'category' => $secondCategory->id]))
             ->assertOk()
-            ->assertSee('data-image-pin-unlocked="true"', false);
-
-        $this->get(route($galleryRoute, ['person' => $person, 'category' => $firstCategory->id]))
-            ->assertOk()
-            ->assertSee('data-image-pin-unlocked="true"', false);
-
+            ->assertSee('data-gallery-media-unlocked="true"', false);
         $this->get(route($imageRoute, ['person' => $person, 'image' => $image->id]))
-            ->assertNotFound();
+            ->assertOk();
+        $this->get(route($imageRoute, ['person' => $person, 'image' => 'main']))
+            ->assertForbidden();
+        $this->get(route(str_replace('.image', '.images.download', $imageRoute), [
+            'person' => $person,
+            'image' => $document->id,
+        ]))->assertOk();
 
-        $this->get(route($indexRoute))->assertOk();
-        $this->get(route($galleryRoute, ['person' => $person, 'category' => $secondCategory->id]))
+        $this->get(route($imageRoute, ['person' => $otherPerson, 'image' => $otherImage->id]))
+            ->assertForbidden();
+        $this->get(route($galleryRoute, ['person' => $otherPerson, 'category' => $otherCategory->id]))
             ->assertOk()
-            ->assertSee('data-image-pin-unlocked="false"', false);
+            ->assertSee('data-gallery-media-unlocked="true"', false);
+        $this->get(route($imageRoute, ['person' => $otherPerson, 'image' => $otherImage->id]))
+            ->assertOk();
         $this->get(route($imageRoute, ['person' => $person, 'image' => $image->id]))
             ->assertForbidden();
+        $this->get(route(str_replace('.image', '.images.download', $imageRoute), [
+            'person' => $person,
+            'image' => $document->id,
+        ]))->assertForbidden();
+
+        $this->get(route($galleryRoute, ['person' => $person, 'category' => $firstCategory->id]))
+            ->assertOk()
+            ->assertSee('data-gallery-media-unlocked="true"', false);
+        $this->get(route($imageRoute, ['person' => $person, 'image' => $image->id]))
+            ->assertOk();
+
+        $this->get(route($indexRoute))->assertOk();
+        $this->get(route($imageRoute, ['person' => $person, 'image' => $image->id]))
+            ->assertForbidden();
+        $this->get(route($galleryRoute, ['person' => $person, 'category' => $secondCategory->id]))
+            ->assertOk()
+            ->assertSee('data-gallery-media-unlocked="true"', false);
+        $this->get(route($imageRoute, ['person' => $person, 'image' => $image->id]))
+            ->assertOk();
     }
 });
 
@@ -236,7 +292,7 @@ test('categories can be created renamed and deleted without deleting their media
         ->and($image->fresh()->exists)->toBeTrue();
 });
 
-test('gallery categories and media are paginated and private previews stay PIN protected', function () {
+test('gallery categories and media are paginated and media can be viewed without a PIN', function () {
     $staff = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
     $person = profileGalleryPerson('Paginated Gallery Subject');
     $category = $person->galleryCategories()->create(['title' => 'Large collection']);
@@ -244,20 +300,30 @@ test('gallery categories and media are paginated and private previews stay PIN p
         profileGalleryImage($person, "photo-{$index}.jpg", $category->id);
     }
 
+    Storage::fake(config('vault.upload_disk'));
+    $firstImage = $person->images()->firstOrFail();
+    Storage::disk(config('vault.upload_disk'))->put($firstImage->path, 'private image bytes');
+
     $this->actingAs($staff, 'web')
         ->get(route('pm.people.gallery', ['person' => $person, 'category' => $category->id]))
         ->assertOk()
         ->assertSee('photo-26.jpg')
         ->assertDontSee('photo-1.jpg')
         ->assertSee('Next')
-        ->assertSee('data-image-pin-dialog', false);
+        ->assertSee('data-gallery-media-unlocked="true"', false)
+        ->assertDontSee('data-image-pin-dialog', false)
+        ->assertDontSee('Unlock viewables');
 
     $this->get(route('pm.people.image', ['person' => $person, 'image' => $person->images()->first()->id]))
+        ->assertOk();
+
+    $this->get(route('pm.people.show', $person))->assertOk();
+    $this->get(route('pm.people.image', ['person' => $person, 'image' => $firstImage->id]))
         ->assertForbidden();
 
     $this->withSession(['unlocked_person_images' => $person->id])
         ->get(route('pm.people.image', ['person' => $person, 'image' => $person->images()->first()->id]))
-        ->assertNotFound();
+        ->assertOk();
 });
 
 test('locked profile categories require a department grant and unlock clears grants', function () {

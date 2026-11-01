@@ -224,6 +224,11 @@ class PersonController extends Controller
 
     public function gallery(Request $request, Person $person, GalleryCategoryAccess $galleryAccess): Response
     {
+        $request->session()->put('unlocked_person_gallery', $person->getKey());
+        if ((string) $request->session()->get('unlocked_person_images') !== (string) $person->getKey()) {
+            $request->session()->forget('unlocked_person_images');
+        }
+
         $categories = $person->galleryCategories()->withCount('images')->get();
         $visibleCategoryIds = $galleryAccess->visiblePersonCategoryIds($person->getKey(), $request);
         $categories->each(function (PersonGalleryCategory $category) use ($visibleCategoryIds): void {
@@ -281,8 +286,7 @@ class PersonController extends Controller
             'galleryTotalCount' => $categories->sum('images_count') + $uncategorizedCount,
             'profileManagement' => request()->routeIs('pm.*'),
             'routePrefix' => $this->routePrefix(),
-            'imagePinConfigured' => app(SettingService::class)->get('person_image_pin_hash') !== null,
-            'imagePinUnlocked' => $request->session()->get('unlocked_person_images') === $person->getKey(),
+            'galleryMediaUnlocked' => $request->session()->get('unlocked_person_gallery') === $person->getKey(),
             'canManageGalleryAccess' => $galleryAccess->isAdministrator($request),
         ])->header('Cache-Control', 'no-store, private');
     }
@@ -509,6 +513,9 @@ class PersonController extends Controller
         if ($pinIsValid) {
             RateLimiter::clear($failureKey);
             $request->session()->put('unlocked_person_images', $person->getKey());
+            if ((string) $request->session()->get('unlocked_person_gallery') !== (string) $person->getKey()) {
+                $request->session()->forget('unlocked_person_gallery');
+            }
 
             return response()->json(['status' => 'unlocked']);
         }
@@ -534,7 +541,11 @@ class PersonController extends Controller
         bool $download = false,
         bool $thumbnail = false,
     ): mixed {
-        abort_unless(request()->session()->get('unlocked_person_images') === $person->getKey(), 403);
+        if ($image === 'main') {
+            abort_unless(request()->session()->get('unlocked_person_images') === $person->getKey(), 403);
+        } else {
+            abort_unless($this->hasUnlockedPersonMedia($person), 403);
+        }
 
         if ($image !== 'main') {
             $media = $person->images()->whereKey($image)->firstOrFail();
@@ -609,7 +620,7 @@ class PersonController extends Controller
 
     public function imagePoster(Person $person, PersonImage $image, GalleryCategoryAccess $galleryAccess): mixed
     {
-        abort_unless(request()->session()->get('unlocked_person_images') === $person->getKey(), 403);
+        abort_unless($this->hasUnlockedPersonMedia($person), 403);
         abort_unless($image->person_id === $person->id && $image->type === 'video', 404);
         abort_unless($galleryAccess->canViewPersonImage($image, request()), 403);
         $disk = Storage::disk(config('vault.upload_disk'));
@@ -620,6 +631,14 @@ class PersonController extends Controller
         $fileName = pathinfo($image->original_name, PATHINFO_FILENAME).'-poster.jpg';
 
         return app(FileController::class)->streamPrivatePath(request(), $posterPath, 'image/jpeg', $fileName);
+    }
+
+    private function hasUnlockedPersonMedia(Person $person): bool
+    {
+        $session = request()->session();
+
+        return $session->get('unlocked_person_images') === $person->getKey()
+            || $session->get('unlocked_person_gallery') === $person->getKey();
     }
 
     public function destroyImage(Person $person, PersonImage $image, GalleryCategoryAccess $galleryAccess): JsonResponse

@@ -204,7 +204,7 @@ let pageCleanup = [];
 let clockInterval = null;
 let navigationInProgress = false;
 let pageMediaClickHandler = null;
-let unlockedPersonGalleryPath = document.querySelector('[data-profile-gallery-page][data-image-pin-unlocked="true"]')
+let unlockedPersonGalleryPath = document.querySelector('[data-profile-gallery-page][data-gallery-media-unlocked="true"]')
     ? window.location.pathname
     : null;
 
@@ -1941,16 +1941,17 @@ document.querySelectorAll('[data-glb-form]').forEach((form) => {
     });
 });
 
-const imagePinDialog = document.querySelector('[data-image-pin-dialog]');
-const imagePinDigits = [...(imagePinDialog?.querySelectorAll('[data-pin-digit]') ?? [])];
-const imagePinError = imagePinDialog?.querySelector('[data-pin-error]');
-const imagePinForm = imagePinDialog?.querySelector('[data-image-pin-form]');
-const submitImagePin = imagePinDialog?.querySelector('[data-submit-image-pin]');
-const profileImageToggle = document.querySelector('[data-profile-visual-toggle]');
-const profileMainImage = document.querySelector('[data-profile-main-image]');
-const profileGalleryPage = document.querySelector('[data-profile-gallery-page]');
-let personViewablesUnlocked = profileGalleryPage?.dataset.imagePinUnlocked === 'true'
-    || unlockedPersonGalleryPath === window.location.pathname;
+let imagePinDialog = null;
+let imagePinDigits = [];
+let imagePinError = null;
+let submitImagePin = null;
+let profileImageToggle = null;
+let profileMainImage = null;
+let profileGalleryPage = null;
+let personViewablesUnlocked = false;
+const boundImagePinDialogs = new WeakSet();
+const boundImagePinDigits = new WeakSet();
+const boundProfileImageToggles = new WeakSet();
 
 const loadProtectedImage = (image) => {
     if (image && !image.getAttribute('src')) {
@@ -1986,8 +1987,6 @@ const activatePersonViewables = () => {
         unlockButton.setAttribute('aria-pressed', 'true');
     }
 };
-
-if (personViewablesUnlocked) activatePersonViewables();
 
 const authenticateImagePin = async () => {
     if (!imagePinDialog || !submitImagePin || submitImagePin.disabled) return;
@@ -2026,51 +2025,92 @@ const authenticateImagePin = async () => {
     }
 };
 
-document.querySelector('[data-open-image-pin]')?.addEventListener('click', (event) => {
+const bindImagePinDialog = (dialog) => {
+    const digits = [...dialog.querySelectorAll('[data-pin-digit]')];
+    if (!boundImagePinDialogs.has(dialog)) {
+        boundImagePinDialogs.add(dialog);
+        dialog.addEventListener('submit', (event) => {
+            if (!(event.target instanceof HTMLFormElement) || !event.target.matches('[data-image-pin-form]')) return;
+            event.preventDefault();
+            authenticateImagePin();
+        });
+    }
+    digits.forEach((input, index) => {
+        if (boundImagePinDigits.has(input)) return;
+        boundImagePinDigits.add(input);
+        input.addEventListener('input', () => {
+            const enteredDigits = input.value.replace(/\D/g, '').slice(0, 4);
+            if (enteredDigits.length > 1) {
+                [...enteredDigits].forEach((digit, digitIndex) => {
+                    if (digits[digitIndex]) digits[digitIndex].value = digit;
+                });
+                digits[Math.min(enteredDigits.length, 3)]?.focus();
+                return;
+            }
+            input.value = enteredDigits.slice(-1);
+            if (input.value) digits[index + 1]?.focus();
+        });
+        input.addEventListener('keydown', (event) => {
+            if (event.key === 'Backspace' && !input.value) digits[index - 1]?.focus();
+        });
+        input.addEventListener('paste', (event) => {
+            const pasted = event.clipboardData?.getData('text').replace(/\D/g, '').slice(0, 4);
+            if (!pasted) return;
+            event.preventDefault();
+            [...pasted].forEach((digit, digitIndex) => {
+                if (digits[digitIndex]) digits[digitIndex].value = digit;
+            });
+            digits[Math.min(pasted.length, 3)]?.focus();
+        });
+    });
+};
+
+const syncPersonImagePinPage = () => {
+    imagePinDialog = document.querySelector('[data-image-pin-dialog]');
+    imagePinDigits = [...(imagePinDialog?.querySelectorAll('[data-pin-digit]') ?? [])];
+    imagePinError = imagePinDialog?.querySelector('[data-pin-error]');
+    submitImagePin = imagePinDialog?.querySelector('[data-submit-image-pin]');
+    profileImageToggle = document.querySelector('[data-profile-visual-toggle]');
+    profileMainImage = document.querySelector('[data-profile-main-image]');
+    profileGalleryPage = document.querySelector('[data-profile-gallery-page]');
+
+    const serverAuthorized = profileGalleryPage?.dataset.galleryMediaUnlocked === 'true';
+    personViewablesUnlocked = serverAuthorized || unlockedPersonGalleryPath === window.location.pathname;
+    if (serverAuthorized) unlockedPersonGalleryPath = window.location.pathname;
+    if (imagePinDialog) bindImagePinDialog(imagePinDialog);
+
+    if (profileImageToggle && !boundProfileImageToggles.has(profileImageToggle)) {
+        boundProfileImageToggles.add(profileImageToggle);
+        const toggle = profileImageToggle;
+        const mainImage = profileMainImage;
+        toggle.addEventListener('click', () => {
+            if (!mainImage) return;
+            const showImage = mainImage.hidden;
+            if (showImage) loadProtectedImage(mainImage.querySelector('[data-protected-image]'));
+            mainImage.hidden = !showImage;
+            document.querySelectorAll('[data-profile-model]').forEach((model) => { model.hidden = showImage; });
+            toggle.innerHTML = showImage ? 'VIEW 3D MODEL <span>↗</span>' : 'VIEW MAIN IMAGE <span>↗</span>';
+        });
+    }
+
+    if (personViewablesUnlocked) activatePersonViewables();
+};
+
+document.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return;
+    const trigger = event.target.closest('[data-open-image-pin]');
+    if (!trigger) return;
+
     if (personViewablesUnlocked) {
-        event.currentTarget.disabled = true;
+        trigger.disabled = true;
         return;
     }
-    imagePinDialog?.showModal();
-    imagePinDigits[0]?.focus();
-});
-imagePinForm?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    authenticateImagePin();
-});
-imagePinDigits.forEach((input, index) => {
-    input.addEventListener('input', () => {
-        const enteredDigits = input.value.replace(/\D/g, '').slice(0, 4);
-        if (enteredDigits.length > 1) {
-            [...enteredDigits].forEach((digit, digitIndex) => {
-                if (imagePinDigits[digitIndex]) imagePinDigits[digitIndex].value = digit;
-            });
-            imagePinDigits[Math.min(enteredDigits.length, 3)]?.focus();
-            return;
-        }
-        input.value = enteredDigits.slice(-1);
-        if (input.value) imagePinDigits[index + 1]?.focus();
-    });
-    input.addEventListener('keydown', (event) => {
-        if (event.key === 'Backspace' && !input.value) imagePinDigits[index - 1]?.focus();
-    });
-    input.addEventListener('paste', (event) => {
-        const pasted = event.clipboardData?.getData('text').replace(/\D/g, '').slice(0, 4);
-        if (!pasted) return;
-        event.preventDefault();
-        [...pasted].forEach((digit, digitIndex) => {
-            if (imagePinDigits[digitIndex]) imagePinDigits[digitIndex].value = digit;
-        });
-        imagePinDigits[Math.min(pasted.length, 3)]?.focus();
-    });
-});
-profileImageToggle?.addEventListener('click', () => {
-    if (!profileMainImage) return;
-    const showImage = profileMainImage.hidden;
-    if (showImage) loadProtectedImage(profileMainImage.querySelector('[data-protected-image]'));
-    profileMainImage.hidden = !showImage;
-    document.querySelectorAll('[data-profile-model]').forEach((model) => { model.hidden = showImage; });
-    profileImageToggle.innerHTML = showImage ? 'VIEW 3D MODEL <span>↗</span>' : 'VIEW MAIN IMAGE <span>↗</span>';
+    if (imagePinDialog instanceof HTMLDialogElement) {
+        imagePinDialog.showModal();
+        imagePinDigits[0]?.focus();
+    } else {
+        window.vaultAlert({ type: 'error', message: 'The image access dialog is unavailable. Reload the page and try again.' });
+    }
 });
 
 document.querySelectorAll('[data-gallery-assignment-select]').forEach((select) => {
@@ -2177,7 +2217,8 @@ pageMediaClickHandler = (event) => {
         ? imageTrigger
         : imageTrigger.querySelector('[data-protected-image]');
     const currentPinDialog = document.querySelector('[data-image-pin-dialog]');
-    if (protectedImage && !protectedImage.getAttribute('src')) {
+    const isProfileGalleryPage = imageTrigger.closest('[data-profile-gallery-page]') !== null;
+    if (protectedImage && !protectedImage.getAttribute('src') && !isProfileGalleryPage) {
         if (currentPinDialog instanceof HTMLDialogElement) {
             currentPinDialog.showModal();
             currentPinDialog.querySelector('[data-pin-digit]')?.focus();
@@ -2187,7 +2228,7 @@ pageMediaClickHandler = (event) => {
         return;
     }
     if (protectedImage) loadProtectedImage(protectedImage);
-    const imageUrl = imageTrigger.dataset.imageUrl || protectedImage?.src;
+    const imageUrl = imageTrigger.dataset.imageUrl || protectedImage?.dataset.imageUrl || protectedImage?.src;
     if (!imageUrl) return;
     openImageViewer({
         src: imageUrl,
@@ -2673,6 +2714,7 @@ pageCleanup.push(() => {
     window.clearTimeout(caseSearchTimer);
     caseSearchRequest?.abort();
 });
+syncPersonImagePinPage();
 };
 
 document.addEventListener('livewire:navigating', (event) => {
@@ -2680,10 +2722,11 @@ document.addEventListener('livewire:navigating', (event) => {
     const destinationPath = new URL(event.detail.url, window.location.href).pathname;
     if (unlockedPersonGalleryPath && destinationPath !== unlockedPersonGalleryPath) {
         unlockedPersonGalleryPath = null;
+        personViewablesUnlocked = false;
     }
     const galleryPage = document.querySelector('[data-profile-gallery-page]');
     if (galleryPage && destinationPath !== window.location.pathname) {
-        galleryPage.dataset.imagePinUnlocked = 'false';
+        galleryPage.dataset.galleryMediaUnlocked = 'false';
     }
 });
 document.addEventListener('livewire:navigated', () => {
