@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\SecurityActivityCreated;
+use App\Events\CaseAnalysisUpdated;
 use App\Models\ActivityLog;
 use App\Models\Admin;
 use App\Models\User;
@@ -47,6 +48,13 @@ class ActivityLogger
             'occurred_at' => now(),
         ]);
         event(new SecurityActivityCreated($entry));
+        if ($category === 'case-management'
+            && in_array($action, ['case.created', 'case.updated', 'case.deleted'], true)
+            && isset($details['case_id'])
+            && is_numeric($details['case_id'])) {
+            $caseId = (int) $details['case_id'];
+            event(new CaseAnalysisUpdated($caseId));
+        }
 
         return $entry;
     }

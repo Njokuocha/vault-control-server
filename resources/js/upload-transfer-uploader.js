@@ -212,15 +212,13 @@ const createRecordFilePreview = (file, onRemove, purpose) => {
             if (preview.duration > 0) preview.currentTime = Math.min(0.1, preview.duration / 2);
         }, { once: true });
         wrapper.append(preview);
-        if (purpose === 'case-evidence') {
-            const mark = document.createElement('span');
-            mark.className = 'case-evidence-video-mark case-evidence-video-mark--centered';
-            mark.setAttribute('aria-hidden', 'true');
-            const playIcon = document.createElement('i');
-            playIcon.className = 'ri ri-play-fill';
-            mark.append(playIcon);
-            wrapper.append(mark);
-        }
+        const mark = document.createElement('span');
+        mark.className = 'case-evidence-video-mark case-evidence-video-mark--centered';
+        mark.setAttribute('aria-hidden', 'true');
+        const playIcon = document.createElement('i');
+        playIcon.className = 'ri ri-play-fill';
+        mark.append(playIcon);
+        wrapper.append(mark);
     } else {
         const badge = document.createElement('span');
         badge.className = 'case-evidence-document';
@@ -229,18 +227,15 @@ const createRecordFilePreview = (file, onRemove, purpose) => {
         icon.setAttribute('aria-hidden', 'true');
         const type = document.createElement('strong');
         type.textContent = extension;
-        const baseName = file.name.replace(/\.[^.]+$/, '');
-        const name = document.createElement('span');
-        name.textContent = baseName.slice(0, 15) + (baseName.length > 15 ? '...' : '');
-        name.title = file.name;
-        badge.append(icon, type, name);
+        badge.append(icon, type);
+        if (!galleryPreview) {
+            const baseName = file.name.replace(/\.[^.]+$/, '');
+            const name = document.createElement('span');
+            name.textContent = baseName.slice(0, 15) + (baseName.length > 15 ? '...' : '');
+            name.title = file.name;
+            badge.append(name);
+        }
         wrapper.append(badge);
-    }
-
-    if (galleryPreview && !isDocument) {
-        const name = document.createElement('span');
-        name.textContent = file.name;
-        wrapper.append(name);
     }
 
     const remove = document.createElement('button');

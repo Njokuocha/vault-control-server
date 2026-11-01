@@ -214,6 +214,44 @@ test('video upload transfers finish storage before preview work is queued separa
     Storage::disk('local')->assertMissing('upload-transfer-chunks/'.$transfer->token.'/0.part');
 });
 
+test('MP4 upload transfers attach to person galleries as videos', function () {
+    Queue::fake();
+    $user = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
+    $person = Person::query()->create(['public_id' => 'USR-MP4-GALLERY']);
+    $video = pack('N', 24).'ftypmp42'.pack('N', 0).pack('N', 0).'mp42'.str_repeat("\0", 1100);
+    $transfer = $user->uploadTransfers()->create([
+        'token' => (string) Str::uuid(),
+        'attachment_purpose' => RecordAttachmentTypes::PERSON_GALLERY,
+        'record_type' => 'person',
+        'record_id' => $person->id,
+        'committed_at' => now(),
+        'original_name' => 'profile-video.mp4',
+        'total_size' => strlen($video),
+        'chunk_size' => strlen($video),
+        'chunk_count' => 1,
+        'status' => 'pending',
+        'expires_at' => now()->addDay(),
+    ]);
+    Storage::disk('local')->put('upload-transfer-chunks/'.$transfer->token.'/0.part', $video);
+
+    (new FinalizeUploadTransferJob($transfer->id))->handle(
+        app(FileUploadService::class),
+        app(UploadTransferStatus::class),
+        app(RecordAttachmentTypes::class),
+        app(RecordUploadAttachmentService::class),
+    );
+
+    $transfer->refresh();
+    $file = VaultFile::query()->findOrFail($transfer->file_id);
+    $image = $person->images()->firstOrFail();
+    expect($transfer->status)->toBe('done')
+        ->and($transfer->attached_at)->not->toBeNull()
+        ->and($file->mime_type)->toBe('video/mp4')
+        ->and($file->category)->toBe('video')
+        ->and($image->type)->toBe('video')
+        ->and($image->file_id)->toBe($file->id);
+});
+
 test('record attachment initialization validates intent ownership and filename extension', function () {
     $user = User::factory()->create(['department' => 'cfm', 'account_status' => 'active']);
     $profileManager = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
@@ -770,6 +808,22 @@ test('record attachment MIME validation rejects a mismatched detected type', fun
         'text/plain',
         RecordAttachmentTypes::CASE_EVIDENCE,
     ))->toThrow(ValidationException::class);
+});
+
+test('record attachment MIME validation recognizes generic-detected MP4 containers', function () {
+    $video = pack('N', 24).'ftypmp42'.pack('N', 0).pack('N', 0).'mp42'.str_repeat("\0", 1100);
+    $path = Storage::disk('local')->path('mp4-generic-detection.upload');
+    file_put_contents($path, $video);
+
+    $types = app(RecordAttachmentTypes::class);
+    $mimeType = $types->normalizeDetectedMimeType('profile-video.mp4', 'application/octet-stream', $path);
+
+    expect($mimeType)->toBe('video/mp4');
+    $types->assertAllowedFile('profile-video.mp4', $mimeType, RecordAttachmentTypes::PERSON_GALLERY);
+
+    file_put_contents($path, 'not an MP4 container');
+    expect($types->normalizeDetectedMimeType('renamed.mp4', 'application/octet-stream', $path))
+        ->toBe('application/octet-stream');
 });
 
 test('record finalization immediately fails mismatched detected MIME and cleans its chunks', function () {

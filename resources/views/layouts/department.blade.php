@@ -53,6 +53,9 @@
                             <a class="nav-item {{ request()->routeIs('cfm.cases.*') ? 'is-active' : '' }}" href="{{ route('cfm.cases.index') }}" wire:navigate @if (request()->routeIs('cfm.cases.*')) aria-current="page" @endif>
                                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h6l2 2h8v10.8H4z"/><path d="M8 13h8M8 16.5h5"/></svg><span>Case files</span>
                             </a>
+                            <a class="nav-item {{ request()->routeIs('cfm.case-analysis.*') ? 'is-active' : '' }}" href="{{ route('cfm.case-analysis.index') }}" wire:navigate @if (request()->routeIs('cfm.case-analysis.*')) aria-current="page" @endif>
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5"/><circle cx="5" cy="5" r="1.5"/><circle cx="19" cy="5" r="1.5"/><circle cx="5" cy="19" r="1.5"/><circle cx="19" cy="19" r="1.5"/><path d="m10.2 10.2-4-4M13.8 10.2l4-4m-7.6 7.6-4 4m7.6-4 4 4"/></svg><span>Case analysis</span>
+                            </a>
                         @endif
                         <a class="nav-item {{ request()->routeIs($department.'.profile') ? 'is-active' : '' }}" href="{{ route($department.'.profile') }}" wire:navigate @if (request()->routeIs($department.'.profile')) aria-current="page" @endif>
                             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5 20v-1.2a7 7 0 0 1 14 0V20z"/></svg><span>My profile</span>

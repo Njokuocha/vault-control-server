@@ -319,6 +319,7 @@ class InvestigationCaseController extends Controller
                 app(VersionedCache::class)->bumpAfterCommit('cases');
             }
         });
+        app(\App\Support\CaseAnalysisCache::class)->invalidate((int) $caseFile->getKey());
 
         return $this->caseCategoryActionResponse($request, $caseFile, 'Evidence categories updated.', $categoryIds[0]);
     }

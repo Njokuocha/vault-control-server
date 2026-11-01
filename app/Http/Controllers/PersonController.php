@@ -26,6 +26,7 @@ use Illuminate\Http\Response;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -281,6 +282,7 @@ class PersonController extends Controller
             'profileManagement' => request()->routeIs('pm.*'),
             'routePrefix' => $this->routePrefix(),
             'imagePinConfigured' => app(SettingService::class)->get('person_image_pin_hash') !== null,
+            'imagePinUnlocked' => $request->session()->get('unlocked_person_images') === $person->getKey(),
             'canManageGalleryAccess' => $galleryAccess->isAdministrator($request),
         ])->header('Cache-Control', 'no-store, private');
     }
@@ -494,17 +496,35 @@ class PersonController extends Controller
     public function authenticateImages(Request $request, Person $person, SettingService $settings): JsonResponse
     {
         $validated = $request->validate(['pin' => ['required', 'digits:4']]);
-        $pinHash = $settings->get('person_image_pin_hash');
+        $actor = $request->user();
+        abort_unless($actor !== null, 401);
 
-        if (! is_string($pinHash) || ! Hash::check($validated['pin'], $pinHash)) {
-            return response()->json([
-                'message' => is_string($pinHash) ? 'The PIN is incorrect.' : 'No person image PIN has been configured.',
-            ], 422);
+        $failureKey = 'person-image-pin:'.hash('sha256', implode('|', [
+            $actor::class,
+            (string) $actor->getAuthIdentifier(),
+        ]));
+        $pinHash = $settings->get('person_image_pin_hash');
+        $pinIsValid = is_string($pinHash) && Hash::check($validated['pin'], $pinHash);
+
+        if ($pinIsValid) {
+            RateLimiter::clear($failureKey);
+            $request->session()->put('unlocked_person_images', $person->getKey());
+
+            return response()->json(['status' => 'unlocked']);
         }
 
-        $request->session()->put('unlocked_person_images', $person->getKey());
+        if (RateLimiter::tooManyAttempts($failureKey, 8)) {
+            return response()->json([
+                'message' => 'Too many incorrect PIN attempts. Please try again shortly.',
+                'retry_after' => RateLimiter::availableIn($failureKey),
+            ], 429);
+        }
 
-        return response()->json(['status' => 'unlocked']);
+        RateLimiter::hit($failureKey, 60);
+
+        return response()->json([
+            'message' => is_string($pinHash) ? 'The PIN is incorrect.' : 'No person image PIN has been configured.',
+        ], 422);
     }
 
     public function image(
@@ -650,6 +670,7 @@ class PersonController extends Controller
         $person->cases()->syncWithoutDetaching([$validated['case_id']]);
         app(VersionedCache::class)->bump('people');
         app(VersionedCache::class)->bump('cases');
+        app(\App\Support\CaseAnalysisCache::class)->invalidate((int) $validated['case_id']);
 
         return response()->json(['status' => 'linked']);
     }
@@ -659,6 +680,7 @@ class PersonController extends Controller
         $person->cases()->detach($case->id);
         app(VersionedCache::class)->bump('people');
         app(VersionedCache::class)->bump('cases');
+        app(\App\Support\CaseAnalysisCache::class)->invalidate((int) $case->getKey());
 
         return response()->json(['status' => 'unlinked']);
     }

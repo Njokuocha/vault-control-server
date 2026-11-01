@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\ReportAccess;
 use App\Support\VersionedCache;
+use App\Support\CaseAnalysisCache;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -223,7 +224,8 @@ class ReportWorkspace extends Component
                 ];
             }
 
-            $report = DB::transaction(function () use ($validated, $actor, $access, $existing, $reportUuid, $storedMedia, &$removedPaths): Report {
+            $previousCaseIds = $existing?->cases()->pluck('case_files.id') ?? collect();
+            $report = DB::transaction(function () use ($validated, $actor, $access, $existing, $reportUuid, $storedMedia, &$removedPaths, $previousCaseIds): Report {
                 $report = $existing ?? Report::query()->create([
                     'uuid' => $reportUuid,
                     'body' => trim($validated['body']),
@@ -236,6 +238,12 @@ class ReportWorkspace extends Component
 
                 if ($access->canLinkCases($actor)) {
                     $report->cases()->sync(array_map('intval', $validated['caseIds']));
+                    app(CaseAnalysisCache::class)->invalidateMany(
+                        array_diff(
+                            array_map('intval', $validated['caseIds']),
+                            $previousCaseIds->map(fn ($id): int => (int) $id)->all(),
+                        ),
+                    );
                 }
                 if ($access->canLinkPeople($actor)) {
                     $report->people()->sync(array_map('intval', $validated['personIds']));

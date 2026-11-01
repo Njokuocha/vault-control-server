@@ -122,6 +122,11 @@ class FinalizeUploadTransferJob implements ShouldBeUnique, ShouldQueue
         if (! is_string($mimeType) || $mimeType === '') {
             $mimeType = 'application/octet-stream';
         }
+        $mimeType = $attachmentTypes->normalizeDetectedMimeType(
+            $upload->original_name,
+            $mimeType,
+            $assembledAbsolutePath,
+        );
 
         $assembledUpload = new UploadedFile($assembledAbsolutePath, $upload->original_name, $mimeType, UPLOAD_ERR_OK, true);
         try {
@@ -132,7 +137,7 @@ class FinalizeUploadTransferJob implements ShouldBeUnique, ShouldQueue
                     $upload->attachment_purpose,
                 );
             }
-            $uploads->assertWithinLimit($assembledUpload);
+            $uploads->assertWithinLimit($assembledUpload, $mimeType);
         } catch (ValidationException $exception) {
             $this->rejectUpload($upload, $exception, $directory, $statusUpdates);
 
@@ -144,6 +149,7 @@ class FinalizeUploadTransferJob implements ShouldBeUnique, ShouldQueue
             null,
             'manual',
             $upload->admin ?? $upload->user,
+            $mimeType,
         );
 
         try {

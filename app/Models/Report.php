@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\VersionedCache;
+use App\Support\CaseAnalysisCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -30,6 +31,10 @@ class Report extends Model
             $cache = app(VersionedCache::class);
             $cache->bumpAfterCommit('reports');
             $cache->bumpAfterCommit('report-content-'.$report->getKey());
+            app(CaseAnalysisCache::class)->invalidateMany($report->cases()->pluck('case_files.id')->all());
+        });
+        static::deleting(function (Report $report): void {
+            app(CaseAnalysisCache::class)->invalidateMany($report->cases()->pluck('case_files.id')->all());
         });
         static::deleted(function (Report $report): void {
             $cache = app(VersionedCache::class);

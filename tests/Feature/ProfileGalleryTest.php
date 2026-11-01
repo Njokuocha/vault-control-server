@@ -7,9 +7,11 @@ use App\Models\Person;
 use App\Models\PersonGalleryCategory;
 use App\Models\PersonImage;
 use App\Models\User;
+use App\Services\SettingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -77,6 +79,52 @@ test('admin and profile manager gallery navigation links use Livewire navigation
         $gallery = $this->get($galleryUrl);
         $gallery->assertOk()
             ->assertSee('href="'.route($showRoute, $person).'" wire:navigate', false);
+    }
+});
+
+test('person gallery PIN stays authenticated when switching categories for admin and profile management', function () {
+    $person = profileGalleryPerson('PIN Gallery Subject');
+    $firstCategory = $person->galleryCategories()->create(['title' => 'First']);
+    $secondCategory = $person->galleryCategories()->create(['title' => 'Second']);
+    $image = profileGalleryImage($person, 'private-gallery.png', $secondCategory->id);
+    app(SettingService::class)->set('person_image_pin_hash', Hash::make('0427'));
+
+    $admin = Admin::query()->create([
+        'name' => 'Gallery PIN Administrator',
+        'email' => 'gallery-pin-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $staff = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
+
+    foreach ([
+        [$admin, 'admin', 'people.gallery', 'people.images.unlock', 'people.index', 'people.image'],
+        [$staff, 'web', 'pm.people.gallery', 'pm.people.images.unlock', 'pm.people.index', 'pm.people.image'],
+    ] as [$user, $guard, $galleryRoute, $unlockRoute, $indexRoute, $imageRoute]) {
+        $this->actingAs($user, $guard)
+            ->postJson(route($unlockRoute, $person), ['pin' => '0427'])
+            ->assertOk();
+
+        $this->get(route($galleryRoute, ['person' => $person, 'category' => $firstCategory->id]))
+            ->assertOk()
+            ->assertSee('data-image-pin-unlocked="true"', false);
+
+        $this->get(route($galleryRoute, ['person' => $person, 'category' => $secondCategory->id]))
+            ->assertOk()
+            ->assertSee('data-image-pin-unlocked="true"', false);
+
+        $this->get(route($galleryRoute, ['person' => $person, 'category' => $firstCategory->id]))
+            ->assertOk()
+            ->assertSee('data-image-pin-unlocked="true"', false);
+
+        $this->get(route($imageRoute, ['person' => $person, 'image' => $image->id]))
+            ->assertNotFound();
+
+        $this->get(route($indexRoute))->assertOk();
+        $this->get(route($galleryRoute, ['person' => $person, 'category' => $secondCategory->id]))
+            ->assertOk()
+            ->assertSee('data-image-pin-unlocked="false"', false);
+        $this->get(route($imageRoute, ['person' => $person, 'image' => $image->id]))
+            ->assertForbidden();
     }
 });
 

@@ -33,10 +33,10 @@ class FileUploadService
         }
     }
 
-    public function assertWithinLimit(UploadedFile $upload): void
+    public function assertWithinLimit(UploadedFile $upload, ?string $verifiedMimeType = null): void
     {
         $this->assertUploadsAllowed();
-        $mimeType = $this->detectedMimeType($upload);
+        $mimeType = $verifiedMimeType ?? $this->detectedMimeType($upload);
 
         if (str_starts_with($mimeType, 'video/')) {
             $videoMaxMb = $this->settings->maxVideoUploadMegabytes();
@@ -57,17 +57,23 @@ class FileUploadService
         }
     }
 
-    public function store(UploadedFile $upload, ?string $sourceIp, string $uploadMethod, ?Authenticatable $actor = null): File
+    public function store(
+        UploadedFile $upload,
+        ?string $sourceIp,
+        string $uploadMethod,
+        ?Authenticatable $actor = null,
+        ?string $verifiedMimeType = null,
+    ): File
     {
         if (! in_array($uploadMethod, ['api', 'manual'], true)) {
             throw new \InvalidArgumentException('The upload method must be api or manual.');
         }
 
-        $this->assertWithinLimit($upload);
+        $this->assertWithinLimit($upload, $verifiedMimeType);
 
         $realPath = $upload->getRealPath();
         $checksum = is_string($realPath) ? hash_file('sha256', $realPath) : false;
-        $mimeType = $this->detectedMimeType($upload);
+        $mimeType = $verifiedMimeType ?? $this->detectedMimeType($upload);
 
         if (! is_string($checksum)) {
             throw new \RuntimeException('Unable to calculate the uploaded file checksum.');

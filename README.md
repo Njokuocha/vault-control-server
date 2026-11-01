@@ -7,6 +7,8 @@
 **Design language:** Federal-intelligence-style command console: dark, authoritative, restrained, animated, glass-morphism overlays.
 **Departmental rollout:** The public department selector, separate login entry points, Admin identity, and admin-controlled staff lifecycle are implemented. Case File Management supports case creation, viewing, editing, evidence uploads, and owner-scoped background-transfer tracking. Profile Management provides an isolated person-profile workspace with protected media handling. File Management now provides the private archive, owner-scoped manual chunked uploads, PIN-protected person media viewing, and the restricted vault shell. All active agency accounts can publish and read internal reports through the shared Report System.
 
+The **Case Analysis Portal** is available to Admin and active CFM staff at `/admin/case-analysis` and `/cfm/case-analysis`. It provides a pannable, zoomable relationship canvas with case search/import, directly linked Reports and people, the case creator, authorized attachment metadata, and the five latest case-management updates. It also provides per-identity recent imports (up to ten) and shared, version-checked analysis notes. The portal uses the existing case-person, report-case, case-category/media and activity-log records; a case creator is not presented as an assigned investigator, because no separate case-staff assignment relationship exists. Existing Reports have no title column, so their body excerpt is used as the display headline. New `case_analysis_notes` and `case_analysis_recent_accesses` tables persist the requested shared notes and user-specific recent history.
+
 ---
 
 ## Table of Contents
@@ -287,8 +289,10 @@ All profile and case images are limited to raster formats and 10 MB per image.
 Their bytes remain on the private `vault` disk and are served only through
 authenticated routes. Person images additionally require a four-digit
 administrator-configured PIN; the PIN is stored as an encrypted password hash,
-and unlocking applies only to the current person profile visit. Main images and
-galleries are not requested by the browser before PIN verification. Male,
+and unlocking applies only to the current person profile visit. Successful PIN
+checks are not throttled; only repeated incorrect attempts are limited per
+authenticated account, so shared office networks do not block other staff.
+Main images and galleries are not requested by the browser before PIN verification. Male,
 Female, and Group GLB avatars are stored on the same private disk; uploads are
 checked for a GLB 2.0 header and external asset references are rejected. The
 model-viewer JavaScript is loaded only on pages that display a 3D model.
@@ -499,6 +503,9 @@ POST  /api/upload                    api.upload       (middleware: VerifyUploadK
 ADMIN (middleware: auth)
 POST  /admin/logout                  auth.logout
 GET   /admin/                        dashboard.index
+GET   /admin/case-analysis           admin.case-analysis.index (Admin analysis portal)
+GET   /admin/case-analysis/search    admin.case-analysis.search (bounded authorized case search)
+GET   /admin/case-analysis/cases/{caseFile}/... (case-scoped diagram, notes, and recent data)
 GET   /admin/archive/files           archive.files
 GET   /admin/calculator              calculator.index
 GET   /admin/uploads                 uploads.create
@@ -521,6 +528,9 @@ GET   /cfm/cases                     cfm.cases.index
 GET   /cfm/cases/create              cfm.cases.create
 POST  /cfm/cases                     cfm.cases.store
 GET   /cfm/cases/{caseFile}          cfm.cases.show
+GET   /cfm/case-analysis             cfm.case-analysis.index (active CFM analysis portal)
+GET   /cfm/case-analysis/search      cfm.case-analysis.search (bounded authorized case search)
+GET   /cfm/case-analysis/cases/{caseFile}/... (case-scoped diagram, notes, and recent data)
 GET   /cfm/cases/{caseFile}/edit     cfm.cases.edit
 PUT   /cfm/cases/{caseFile}          cfm.cases.update
 GET   /cfm/profile                   cfm.profile (read-only)

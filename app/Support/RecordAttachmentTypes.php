@@ -27,7 +27,7 @@ class RecordAttachmentTypes
     ];
 
     private const VIDEO_MIMES = [
-        'mp4' => ['video/mp4'],
+        'mp4' => ['video/mp4', 'application/mp4', 'application/x-isobmff'],
         'mov' => ['video/quicktime'],
         'avi' => ['video/x-msvideo', 'video/avi'],
         'mkv' => ['video/x-matroska'],
@@ -107,6 +107,41 @@ class RecordAttachmentTypes
                 'file' => 'The detected file type does not match an allowed extension for this record. Choose a supported image, video, audio, or document file.',
             ]);
         }
+    }
+
+    public function normalizeDetectedMimeType(string $filename, string $mimeType, string $path): string
+    {
+        $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $mimeType = strtolower($mimeType);
+
+        if ($extension !== 'mp4') {
+            return $mimeType;
+        }
+
+        if (in_array($mimeType, ['video/mp4', 'application/mp4', 'application/x-isobmff'], true)) {
+            return 'video/mp4';
+        }
+
+        if ($mimeType !== 'application/octet-stream') {
+            return $mimeType;
+        }
+
+        $header = file_get_contents($path, false, null, 0, 16);
+        $fileSize = filesize($path);
+        if (! is_string($header) || strlen($header) < 16 || ! is_int($fileSize)) {
+            return $mimeType;
+        }
+
+        $boxSize = unpack('Nsize', substr($header, 0, 4))['size'];
+        $majorBrand = substr($header, 8, 4);
+        if ($boxSize >= 16
+            && $boxSize <= $fileSize
+            && substr($header, 4, 4) === 'ftyp'
+            && preg_match('/^[A-Za-z0-9 ]{4}$/D', $majorBrand) === 1) {
+            return 'video/mp4';
+        }
+
+        return $mimeType;
     }
 
     public function mediaType(string $category): string

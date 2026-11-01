@@ -708,6 +708,46 @@ test('person images require a PIN on every profile visit and downloads stay auth
     $this->get(route('people.image', ['person' => $person, 'image' => 'main']))->assertForbidden();
 });
 
+test('successful image PIN authentication is not limited while failed attempts remain protected', function () {
+    config(['hashing.bcrypt.rounds' => 4]);
+    $admin = Admin::query()->create([
+        'name' => 'PIN Authentication Administrator',
+        'email' => 'pin-auth-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $profileManager = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
+    $fileManager = User::factory()->create(['department' => 'fm', 'account_status' => 'active']);
+    $person = Person::query()->create(['public_id' => 'USR-PIN-REPEAT']);
+    app(SettingService::class)->set('person_image_pin_hash', Hash::make('0427'));
+
+    foreach ([
+        [$admin, 'admin', 'people.images.unlock'],
+        [$profileManager, 'web', 'pm.people.images.unlock'],
+        [$fileManager, 'web', 'fm.person-media.unlock'],
+    ] as [$actor, $guard, $routeName]) {
+        foreach (range(1, 10) as $attempt) {
+            $this->actingAs($actor, $guard)
+                ->postJson(route($routeName, $person), ['pin' => '0427'])
+                ->assertOk()
+                ->assertJsonPath('status', 'unlocked');
+        }
+    }
+
+    $this->actingAs($profileManager, 'web');
+    foreach (range(1, 8) as $attempt) {
+        $this->postJson(route('pm.people.images.unlock', $person), ['pin' => '9999'])
+            ->assertUnprocessable();
+    }
+
+    $this->postJson(route('pm.people.images.unlock', $person), ['pin' => '9999'])
+        ->assertTooManyRequests()
+        ->assertJsonPath('retry_after', fn ($seconds): bool => is_int($seconds) && $seconds > 0);
+
+    $this->postJson(route('pm.people.images.unlock', $person), ['pin' => '0427'])
+        ->assertOk()
+        ->assertJsonPath('status', 'unlocked');
+});
+
 test('case evidence galleries expand beyond four images and provide image download routes', function () {
     $this->actingAs(User::factory()->create())
         ->post(route('cases.store'), [

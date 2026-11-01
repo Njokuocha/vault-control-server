@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\VersionedCache;
+use App\Support\CaseAnalysisCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -15,15 +16,17 @@ class InvestigationCase extends Model
         static::saved(function (InvestigationCase $case): void {
             $cache = app(VersionedCache::class);
             $cache->bumpAfterCommit('cases');
+            app(CaseAnalysisCache::class)->invalidate((int) $case->getKey());
             if ($case->wasChanged(['public_id', 'title'])) {
                 $cache->bumpAfterCommit('report-related');
             }
         });
-        static::deleted(function (): void {
+        static::deleted(function (InvestigationCase $case): void {
             $cache = app(VersionedCache::class);
             $cache->bumpAfterCommit('cases');
             $cache->bumpAfterCommit('reports');
             $cache->bumpAfterCommit('report-related');
+            app(CaseAnalysisCache::class)->invalidate((int) $case->getKey());
         });
     }
 

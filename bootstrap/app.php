@@ -1,6 +1,11 @@
 <?php
 
+use App\Http\Middleware\EnsureAdminWorkspace;
+use App\Http\Middleware\EnsureDepartment;
+use App\Http\Middleware\ExpirePersonImagePinOutsideGallery;
+use App\Http\Middleware\MarkSecurityActivityRead;
 use App\Http\Middleware\MeasureRequestPerformance;
+use App\Http\Middleware\TrackSecurityPresence;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -17,11 +22,12 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withBroadcasting(__DIR__.'/../routes/channels.php', ['middleware' => ['web', 'auth:web,admin']])
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(MeasureRequestPerformance::class);
+        $middleware->web(append: [ExpirePersonImagePinOutsideGallery::class]);
         $middleware->alias([
-            'admin.workspace' => \App\Http\Middleware\EnsureAdminWorkspace::class,
-            'department' => \App\Http\Middleware\EnsureDepartment::class,
-            'security.presence' => \App\Http\Middleware\TrackSecurityPresence::class,
-            'security.read' => \App\Http\Middleware\MarkSecurityActivityRead::class,
+            'admin.workspace' => EnsureAdminWorkspace::class,
+            'department' => EnsureDepartment::class,
+            'security.presence' => TrackSecurityPresence::class,
+            'security.read' => MarkSecurityActivityRead::class,
         ]);
         $middleware->redirectGuestsTo(fn (Request $request): string => match (true) {
             $request->is('cfm', 'cfm/*') => route('cfm.login'),

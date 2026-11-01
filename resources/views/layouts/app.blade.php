@@ -46,6 +46,9 @@
                     <a class="nav-item {{ request()->routeIs('cases.*') ? 'is-active' : '' }}" href="{{ route('cases.index') }}" wire:navigate @if(request()->routeIs('cases.*')) aria-current="page" @endif>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h6l2 2h8v10.8H4z"/><path d="M8 13h8M8 16.5h5"/></svg><span>Case files</span>
                     </a>
+                    <a class="nav-item {{ request()->routeIs('admin.case-analysis.*') ? 'is-active' : '' }}" href="{{ route('admin.case-analysis.index') }}" wire:navigate @if(request()->routeIs('admin.case-analysis.*')) aria-current="page" @endif>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5"/><circle cx="5" cy="5" r="1.5"/><circle cx="19" cy="5" r="1.5"/><circle cx="5" cy="19" r="1.5"/><circle cx="19" cy="19" r="1.5"/><path d="m10.2 10.2-4-4M13.8 10.2l4-4m-7.6 7.6-4 4m7.6-4 4 4"/></svg><span>Case analysis</span>
+                    </a>
                     <a class="nav-item {{ request()->routeIs('avatar-models.*') ? 'is-active' : '' }}" href="{{ route('avatar-models.index') }}" wire:navigate @if(request()->routeIs('avatar-models.*')) aria-current="page" @endif>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4.5 7.7 7.5 4.4 7.5-4.4M12 12v8.5"/></svg><span>Avatar models</span>
                     </a>

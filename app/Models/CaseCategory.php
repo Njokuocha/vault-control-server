@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\VersionedCache;
+use App\Support\CaseAnalysisCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -19,8 +20,12 @@ class CaseCategory extends Model
 
     protected static function booted(): void
     {
-        static::saved(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('cases'));
-        static::deleted(fn (): mixed => app(VersionedCache::class)->bumpAfterCommit('cases'));
+        $invalidate = static function (CaseCategory $category): void {
+            app(VersionedCache::class)->bumpAfterCommit('cases');
+            app(CaseAnalysisCache::class)->invalidate((int) $category->case_file_id);
+        };
+        static::saved($invalidate);
+        static::deleted($invalidate);
     }
 
     public function caseFile(): BelongsTo

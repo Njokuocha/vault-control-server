@@ -1,9 +1,11 @@
 <?php
 
 use App\Models\Admin;
+use App\Models\InvestigationCase;
 use App\Models\Report;
 use App\Models\User;
 use App\Services\ReportAccess;
+use App\Support\CaseAnalysisAccess;
 use Illuminate\Support\Facades\Broadcast;
 
 Broadcast::channel('admin.vault', function ($user): bool {
@@ -30,6 +32,15 @@ Broadcast::channel('fm.vault', function ($user): bool {
 
 Broadcast::channel('uploads.{userId}', function ($user, int $userId): bool {
     return $user instanceof User && (int) $user->getAuthIdentifier() === $userId;
+});
+
+Broadcast::channel('case-analysis.{caseId}', function ($user, int $caseId): bool {
+    $access = app(CaseAnalysisAccess::class);
+    if (! $access->isAdministrator($user) && ! $access->isCfmStaff($user)) {
+        return false;
+    }
+
+    return InvestigationCase::query()->whereKey($caseId)->exists();
 });
 
 Broadcast::channel('admin.uploads.{adminId}', function ($user, int $adminId): bool {

@@ -9,6 +9,7 @@ import './admin-mail';
 import './staff-status';
 import './case-media-previews';
 import './gallery-management';
+import './case-analysis';
 import { openImageViewer } from './image-viewer.js';
 import { evaluateTriggerExpression } from './shell-math.mjs';
 import Echo from 'laravel-echo';
@@ -203,6 +204,9 @@ let pageCleanup = [];
 let clockInterval = null;
 let navigationInProgress = false;
 let pageMediaClickHandler = null;
+let unlockedPersonGalleryPath = document.querySelector('[data-profile-gallery-page][data-image-pin-unlocked="true"]')
+    ? window.location.pathname
+    : null;
 
 document.addEventListener('click', (event) => {
     if (!(event.target instanceof Element) || !event.target.closest('[data-image-viewer], [data-video-viewer], [data-expand-gallery]')) return;
@@ -1944,7 +1948,9 @@ const imagePinForm = imagePinDialog?.querySelector('[data-image-pin-form]');
 const submitImagePin = imagePinDialog?.querySelector('[data-submit-image-pin]');
 const profileImageToggle = document.querySelector('[data-profile-visual-toggle]');
 const profileMainImage = document.querySelector('[data-profile-main-image]');
-let personViewablesUnlocked = false;
+const profileGalleryPage = document.querySelector('[data-profile-gallery-page]');
+let personViewablesUnlocked = profileGalleryPage?.dataset.imagePinUnlocked === 'true'
+    || unlockedPersonGalleryPath === window.location.pathname;
 
 const loadProtectedImage = (image) => {
     if (image && !image.getAttribute('src')) {
@@ -1955,6 +1961,7 @@ const loadProtectedImage = (image) => {
 
 const activatePersonViewables = () => {
     personViewablesUnlocked = true;
+    if (profileGalleryPage) unlockedPersonGalleryPath = window.location.pathname;
     document.querySelectorAll('[data-protected-image]').forEach((image) => {
         image.hidden = false;
         if (!image.closest('[hidden]')) loadProtectedImage(image);
@@ -1979,6 +1986,8 @@ const activatePersonViewables = () => {
         unlockButton.setAttribute('aria-pressed', 'true');
     }
 };
+
+if (personViewablesUnlocked) activatePersonViewables();
 
 const authenticateImagePin = async () => {
     if (!imagePinDialog || !submitImagePin || submitImagePin.disabled) return;
@@ -2666,8 +2675,16 @@ pageCleanup.push(() => {
 });
 };
 
-document.addEventListener('livewire:navigating', () => {
+document.addEventListener('livewire:navigating', (event) => {
     navigationInProgress = true;
+    const destinationPath = new URL(event.detail.url, window.location.href).pathname;
+    if (unlockedPersonGalleryPath && destinationPath !== unlockedPersonGalleryPath) {
+        unlockedPersonGalleryPath = null;
+    }
+    const galleryPage = document.querySelector('[data-profile-gallery-page]');
+    if (galleryPage && destinationPath !== window.location.pathname) {
+        galleryPage.dataset.imagePinUnlocked = 'false';
+    }
 });
 document.addEventListener('livewire:navigated', () => {
     if (!navigationInProgress) return;

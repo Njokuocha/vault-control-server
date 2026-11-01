@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Jobs\BuildImageThumbnailJob;
 use App\Jobs\DeleteImageThumbnailJob;
 use App\Support\VersionedCache;
+use App\Support\CaseAnalysisCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -31,6 +32,10 @@ class CaseImage extends Model
             $cache->bumpAfterCommit('media');
             $cache->bumpAfterCommit('cases');
             $cache->bumpAfterCommit('files');
+            $caseId = $image->category()->value('case_file_id');
+            if ($caseId !== null) {
+                app(CaseAnalysisCache::class)->invalidate((int) $caseId);
+            }
         };
         static::saved($invalidate);
         static::deleted(function (CaseImage $image) use ($invalidate): void {

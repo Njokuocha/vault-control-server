@@ -18,7 +18,7 @@
         </div>
     </section>
 
-    <section class="profile-gallery-page">
+    <section class="profile-gallery-page" data-profile-gallery-page data-image-pin-unlocked="{{ $imagePinUnlocked ? 'true' : 'false' }}">
         <aside class="profile-gallery-category-panel">
             <div class="profile-section-heading">
                 <div><span class="section-kicker">PROFILE ORGANISATION</span><h3>Categories</h3></div>

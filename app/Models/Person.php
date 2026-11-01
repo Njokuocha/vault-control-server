@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\VersionedCache;
+use App\Support\CaseAnalysisCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -27,6 +28,9 @@ class Person extends Model
             $cache->bumpAfterCommit('people');
             $cache->bumpAfterCommit('reports');
             $cache->bumpAfterCommit('report-related');
+        });
+        static::deleting(function (Person $person): void {
+            app(CaseAnalysisCache::class)->invalidateMany($person->cases()->pluck('case_files.id')->all());
         });
     }
 

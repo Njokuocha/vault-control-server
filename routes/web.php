@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\AuthSecurityController;
 use App\Http\Controllers\AvatarModelController;
 use App\Http\Controllers\CaseManagerDashboardController;
+use App\Http\Controllers\CaseAnalysisController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\FileManagerController;
@@ -72,6 +73,19 @@ foreach ($departments as $department => $departmentName) {
     Route::middleware(['auth:web', 'department:'.$department, 'security.presence'])->prefix($department)->name($department.'.')->group(function () use ($department, $departmentName): void {
         if ($department === 'cfm') {
             Route::get('/', [CaseManagerDashboardController::class, 'index'])->name('dashboard');
+            Route::prefix('/case-analysis')->name('case-analysis.')->group(function (): void {
+                Route::get('/', [CaseAnalysisController::class, 'index'])->name('index');
+                Route::get('/search', [CaseAnalysisController::class, 'search'])->name('search');
+                Route::get('/recent', [CaseAnalysisController::class, 'recent'])->name('recent');
+                Route::post('/cases/{caseFile}/import', [CaseAnalysisController::class, 'import'])->whereNumber('caseFile')->name('import');
+                Route::get('/cases/{caseFile}/summary', [CaseAnalysisController::class, 'summary'])->whereNumber('caseFile')->name('summary');
+                Route::get('/cases/{caseFile}/primary', [CaseAnalysisController::class, 'primary'])->whereNumber('caseFile')->name('primary');
+                Route::get('/cases/{caseFile}/secondary', [CaseAnalysisController::class, 'secondary'])->whereNumber('caseFile')->name('secondary');
+                Route::get('/cases/{caseFile}/notes', [CaseAnalysisController::class, 'notes'])->whereNumber('caseFile')->name('notes.index');
+                Route::post('/cases/{caseFile}/notes', [CaseAnalysisController::class, 'storeNote'])->whereNumber('caseFile')->name('notes.store');
+                Route::put('/cases/{caseFile}/notes/{note}', [CaseAnalysisController::class, 'updateNote'])->whereNumber(['caseFile', 'note'])->name('notes.update');
+                Route::delete('/cases/{caseFile}/notes/{note}', [CaseAnalysisController::class, 'destroyNote'])->whereNumber(['caseFile', 'note'])->name('notes.destroy');
+            });
             Route::get('/cases', [InvestigationCaseController::class, 'index'])->name('cases.index');
             Route::get('/cases/create', [InvestigationCaseController::class, 'create'])->name('cases.create');
             Route::post('/cases', [InvestigationCaseController::class, 'store'])->name('cases.store');
@@ -107,7 +121,7 @@ foreach ($departments as $department => $departmentName) {
             Route::get('/people/{person}/images/{image}/thumbnail', [PersonController::class, 'image'])->defaults('download', false)->defaults('thumbnail', true)->name('people.images.thumbnail');
             Route::get('/people/{person}/images/{image}/download', [PersonController::class, 'image'])->defaults('download', true)->name('people.images.download');
             Route::get('/people/{person}/images/{image}/poster', [PersonController::class, 'imagePoster'])->name('people.images.poster');
-            Route::post('/people/{person}/images/unlock', [PersonController::class, 'authenticateImages'])->middleware('throttle:8,1')->name('people.images.unlock');
+            Route::post('/people/{person}/images/unlock', [PersonController::class, 'authenticateImages'])->name('people.images.unlock');
             Route::delete('/people/{person}/images/{image}', [PersonController::class, 'destroyImage'])->name('people.images.destroy');
             Route::get('/avatar-models/{group}/file', [AvatarModelController::class, 'stream'])->name('avatar-models.stream');
         } elseif ($department === 'fm') {
@@ -124,7 +138,6 @@ foreach ($departments as $department => $departmentName) {
             Route::get('/person-media', [FileManagerController::class, 'personMediaIndex'])->name('person-media.index');
             Route::get('/person-media/{person}', [FileManagerController::class, 'personMedia'])->name('person-media.show');
             Route::post('/person-media/{person}/unlock', [PersonController::class, 'authenticateImages'])
-                ->middleware('throttle:8,1')
                 ->name('person-media.unlock');
             Route::get('/person-media/{person}/images/{image}', [FileManagerController::class, 'personMediaFile'])->name('person-media.image');
             Route::get('/person-media/{person}/images/{image}/thumbnail', [FileManagerController::class, 'personMediaFile'])->defaults('download', false)->defaults('thumbnail', true)->name('person-media.thumbnail');
@@ -207,6 +220,19 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     });
 
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard.index');
+    Route::prefix('/case-analysis')->name('admin.case-analysis.')->group(function (): void {
+        Route::get('/', [CaseAnalysisController::class, 'index'])->name('index');
+        Route::get('/search', [CaseAnalysisController::class, 'search'])->name('search');
+        Route::get('/recent', [CaseAnalysisController::class, 'recent'])->name('recent');
+        Route::post('/cases/{caseFile}/import', [CaseAnalysisController::class, 'import'])->whereNumber('caseFile')->name('import');
+        Route::get('/cases/{caseFile}/summary', [CaseAnalysisController::class, 'summary'])->whereNumber('caseFile')->name('summary');
+        Route::get('/cases/{caseFile}/primary', [CaseAnalysisController::class, 'primary'])->whereNumber('caseFile')->name('primary');
+        Route::get('/cases/{caseFile}/secondary', [CaseAnalysisController::class, 'secondary'])->whereNumber('caseFile')->name('secondary');
+        Route::get('/cases/{caseFile}/notes', [CaseAnalysisController::class, 'notes'])->whereNumber('caseFile')->name('notes.index');
+        Route::post('/cases/{caseFile}/notes', [CaseAnalysisController::class, 'storeNote'])->whereNumber('caseFile')->name('notes.store');
+        Route::put('/cases/{caseFile}/notes/{note}', [CaseAnalysisController::class, 'updateNote'])->whereNumber(['caseFile', 'note'])->name('notes.update');
+        Route::delete('/cases/{caseFile}/notes/{note}', [CaseAnalysisController::class, 'destroyNote'])->whereNumber(['caseFile', 'note'])->name('notes.destroy');
+    });
     Route::get('/dashboard/snapshot', [DashboardController::class, 'snapshot'])->name('dashboard.snapshot');
     Route::get('/archive/files', [DashboardController::class, 'archiveFiles'])->name('archive.files');
     Route::get('/files/{file:uuid}/preview', [FileController::class, 'preview'])->name('files.preview');
@@ -232,7 +258,7 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::get('/people/{person}/images/{image}/thumbnail', [PersonController::class, 'image'])->defaults('download', false)->defaults('thumbnail', true)->name('people.images.thumbnail');
     Route::get('/people/{person}/images/{image}/download', [PersonController::class, 'image'])->defaults('download', true)->name('people.images.download');
     Route::get('/people/{person}/images/{image}/poster', [PersonController::class, 'imagePoster'])->name('people.images.poster');
-    Route::post('/people/{person}/images/unlock', [PersonController::class, 'authenticateImages'])->middleware('throttle:8,1')->name('people.images.unlock');
+    Route::post('/people/{person}/images/unlock', [PersonController::class, 'authenticateImages'])->name('people.images.unlock');
     Route::delete('/people/{person}/images/{image}', [PersonController::class, 'destroyImage'])->name('people.images.destroy');
     Route::get('/people/{person}/linkable-cases', [PersonController::class, 'linkableCases'])->name('people.cases.search');
     Route::post('/people/{person}/cases', [PersonController::class, 'attachCase'])->name('people.cases.attach');
