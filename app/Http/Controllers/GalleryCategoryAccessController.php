@@ -6,6 +6,7 @@ use App\Models\CaseCategory;
 use App\Models\InvestigationCase;
 use App\Models\Person;
 use App\Models\PersonGalleryCategory;
+use App\Models\StaffGalleryCategory;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\GalleryCategoryAccess;
@@ -40,6 +41,18 @@ class GalleryCategoryAccessController extends Controller
         return $this->staffResponse($request, $category, 'cfm');
     }
 
+    public function staffGalleryStaff(
+        Request $request,
+        User $staff,
+        StaffGalleryCategory $category,
+        GalleryCategoryAccess $access,
+    ): JsonResponse {
+        $this->authorizeAdministrator($request, $access);
+        abort_unless($category->user_id === $staff->getKey(), 404);
+
+        return $this->staffResponse($request, $category, 'sm');
+    }
+
     public function updatePersonLock(
         Request $request,
         Person $person,
@@ -66,6 +79,20 @@ class GalleryCategoryAccessController extends Controller
         abort_unless($category->case_file_id === $caseFile->getKey(), 404);
 
         return $this->updateLock($request, $category, 'case_category', $logger, $cache, 'cases');
+    }
+
+    public function updateStaffGalleryLock(
+        Request $request,
+        User $staff,
+        StaffGalleryCategory $category,
+        GalleryCategoryAccess $access,
+        ActivityLogger $logger,
+        VersionedCache $cache,
+    ): JsonResponse {
+        $this->authorizeAdministrator($request, $access);
+        abort_unless($category->user_id === $staff->getKey(), 404);
+
+        return $this->updateLock($request, $category, 'staff_gallery_category', $logger, $cache, 'staff-gallery');
     }
 
     public function grantPerson(
@@ -128,9 +155,39 @@ class GalleryCategoryAccessController extends Controller
         return $this->changeGrant($request, $category, $user, 'cfm', false, 'case_category', $logger, $cache, 'cases');
     }
 
+    public function grantStaffGallery(
+        Request $request,
+        User $staff,
+        StaffGalleryCategory $category,
+        User $user,
+        GalleryCategoryAccess $access,
+        ActivityLogger $logger,
+        VersionedCache $cache,
+    ): JsonResponse {
+        $this->authorizeAdministrator($request, $access);
+        abort_unless($category->user_id === $staff->getKey(), 404);
+
+        return $this->changeGrant($request, $category, $user, 'sm', true, 'staff_gallery_category', $logger, $cache, 'staff-gallery');
+    }
+
+    public function revokeStaffGallery(
+        Request $request,
+        User $staff,
+        StaffGalleryCategory $category,
+        User $user,
+        GalleryCategoryAccess $access,
+        ActivityLogger $logger,
+        VersionedCache $cache,
+    ): JsonResponse {
+        $this->authorizeAdministrator($request, $access);
+        abort_unless($category->user_id === $staff->getKey(), 404);
+
+        return $this->changeGrant($request, $category, $user, 'sm', false, 'staff_gallery_category', $logger, $cache, 'staff-gallery');
+    }
+
     private function staffResponse(
         Request $request,
-        CaseCategory|PersonGalleryCategory $category,
+        CaseCategory|PersonGalleryCategory|StaffGalleryCategory $category,
         string $department,
     ): JsonResponse {
         $validated = $request->validate(['q' => ['sometimes', 'string', 'max:100']]);
@@ -163,7 +220,7 @@ class GalleryCategoryAccessController extends Controller
 
     private function updateLock(
         Request $request,
-        CaseCategory|PersonGalleryCategory $category,
+        CaseCategory|PersonGalleryCategory|StaffGalleryCategory $category,
         string $subject,
         ActivityLogger $logger,
         VersionedCache $cache,
@@ -204,7 +261,7 @@ class GalleryCategoryAccessController extends Controller
 
     private function changeGrant(
         Request $request,
-        CaseCategory|PersonGalleryCategory $category,
+        CaseCategory|PersonGalleryCategory|StaffGalleryCategory $category,
         User $user,
         string $department,
         bool $grant,

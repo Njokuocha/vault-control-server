@@ -11,8 +11,10 @@ use App\Models\PersonImage;
 use App\Models\Report;
 use App\Models\User;
 use App\Services\ImageThumbnailService;
+use App\Services\SettingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -194,8 +196,15 @@ test('case and PIN-protected person thumbnails serve private previews without ch
     $this->actingAs($user, 'web')
         ->get(route('people.images.thumbnail', [$person, $personImage]))
         ->assertForbidden();
-    $this->withSession(['unlocked_person_images' => $person->id]);
-    $personResponse = $this->get(route('people.images.thumbnail', [$person, $personImage]))
+    app(SettingService::class)->set('person_image_pin_hash', Hash::make('1234'));
+    $authToken = $this->postJson(route('people.images.unlock', $person), ['pin' => '1234'])
+        ->assertOk()
+        ->json('token');
+    $personResponse = $this->get(route('people.images.thumbnail', [
+        'person' => $person,
+        'image' => $personImage,
+        'auth' => $authToken,
+    ]))
         ->assertOk()
         ->assertHeader('Content-Type', 'image/jpeg');
     expect(imageThumbnailResponseBody($personResponse))->toBe('private-thumbnail');

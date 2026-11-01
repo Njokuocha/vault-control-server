@@ -43,11 +43,17 @@ class StaffManagement extends Component
     #[Url(as: 'search', history: true)]
     public string $search = '';
 
+    #[Url(as: 'display', history: true)]
+    public string $display = 'compact';
+
     public string $departmentFilter = '';
 
     public function mount(): void
     {
         $this->departmentId = (string) (Department::query()->where('code', 'cfm')->value('id') ?? '');
+        if ($this->display !== 'full') {
+            $this->display = 'compact';
+        }
     }
 
     public function edit(int $id): void
@@ -221,6 +227,7 @@ class StaffManagement extends Component
                 ->orderBy('name')
                 ->get(),
             'departments' => Department::query()->orderBy('name')->get(),
+            'fullDisplay' => $this->display === 'full',
         ])->extends('layouts.app', [
             'page_title' => 'Staff Management — '.config('app.name'),
             'page_label' => 'STAFF MANAGEMENT',

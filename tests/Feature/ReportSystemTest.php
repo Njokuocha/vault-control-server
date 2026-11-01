@@ -48,7 +48,7 @@ test('active staff in each department and administrators can open the agency rep
     ]);
     $report = createTestReport($reporter, 'Cross-agency incident update.');
 
-    foreach (['cfm', 'pm', 'fm'] as $department) {
+    foreach (['cfm', 'pm', 'fm', 'sm'] as $department) {
         $staff = User::factory()->create([
             'department' => $department,
             'account_status' => 'active',

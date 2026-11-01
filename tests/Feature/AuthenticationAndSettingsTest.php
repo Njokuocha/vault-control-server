@@ -157,9 +157,9 @@ test('authenticated staff are redirected from the public landing page to their d
 test('admins can create departments and assign staff through their department relationship', function () {
     $component = Livewire::test(DepartmentManagement::class)
         ->call('addRow')
-        ->set('rows.3.name', 'Evidence Operations')
-        ->set('rows.3.rank_short', 'EVO')
-        ->set('rows.3.rank', 'Evidence Officer')
+        ->set('rows.4.name', 'Evidence Operations')
+        ->set('rows.4.rank_short', 'EVO')
+        ->set('rows.4.rank', 'Evidence Officer')
         ->call('save')
         ->assertHasNoErrors()
         ->assertDispatched('alert', type: 'success');

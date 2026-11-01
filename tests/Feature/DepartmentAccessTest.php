@@ -299,13 +299,17 @@ test('profile management gets an isolated profile workspace with complete person
         ->assertSee('Profile Subject')
         ->assertDontSee('Linked case files')
         ->assertDontSee('Restricted Case Title');
-    $this->get(route('pm.people.edit', $person))
+    app(SettingService::class)->set('person_image_pin_hash', Hash::make('1234'));
+    $authToken = $this->postJson(route('pm.people.images.unlock', $person), ['pin' => '1234'])
+        ->assertOk()
+        ->json('token');
+    $this->get(route('pm.people.edit', ['person' => $person, 'auth' => $authToken]))
         ->assertOk()
         ->assertSee('SAVING PROFILE…')
-        ->assertSee(route('pm.people.update', $person), false);
+        ->assertSee(route('pm.people.update', ['person' => $person, 'auth' => $authToken]), false);
 
-    $this->put(route('pm.people.update', $person), ['name' => 'Updated Profile Subject'])
-        ->assertRedirect(route('pm.people.show', $person));
+    $this->put(route('pm.people.update', ['person' => $person, 'auth' => $authToken]), ['name' => 'Updated Profile Subject'])
+        ->assertRedirect(route('pm.people.show', ['person' => $person, 'auth' => $authToken]));
     expect($person->fresh()->name)->toBe('Updated Profile Subject');
 
     $response = $this->post(route('pm.people.store'), ['name' => 'New Profile Subject']);
@@ -342,7 +346,7 @@ test('profile management dashboard distinguishes creations from later profile ed
         && $summary['updated_this_month'] === 0);
 
     $this->put(route('pm.people.update', $existing), ['name' => 'Edited Existing Profile'])
-        ->assertRedirect(route('pm.people.show', $existing));
+        ->assertRedirect(route('pm.people.show', ['person' => $existing, 'auth' => 'unauthed']));
 
     $this->get('/pm')->assertViewHas('summary', fn (array $summary): bool => $summary['created_this_month'] === 1
         && $summary['updated_this_month'] === 1);

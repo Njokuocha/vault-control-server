@@ -85,6 +85,16 @@ class User extends Authenticatable
         return $this->hasMany(UploadTransfer::class);
     }
 
+    public function staffGalleryImages(): HasMany
+    {
+        return $this->hasMany(StaffGalleryImage::class);
+    }
+
+    public function staffGalleryCategories(): HasMany
+    {
+        return $this->hasMany(StaffGalleryCategory::class)->orderBy('sort_order')->orderBy('id');
+    }
+
     public function departmentRecord(): BelongsTo
     {
         return $this->belongsTo(Department::class, 'department_id');

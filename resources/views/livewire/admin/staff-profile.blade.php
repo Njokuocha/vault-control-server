@@ -22,7 +22,10 @@
                 <h2>{{ $staff->name }}</h2>
                 <p>{{ $department?->name ?? $staff->department }} · {{ $department?->rank ?? 'Agency staff' }}</p>
             </div>
-            <a class="button-secondary" href="{{ route('admin.staff.index', ['search' => $staff->username]) }}" wire:navigate>MANAGE ACCOUNT</a>
+            <div class="agency-staff-profile-actions">
+                <a class="button-secondary" href="{{ route('admin.staff.index', ['search' => $staff->username]) }}" wire:navigate>MANAGE ACCOUNT</a>
+                <a class="button-primary" href="{{ route('admin.staff.gallery.index', $staff) }}" wire:navigate>VIEW GALLERY</a>
+            </div>
         </section>
 
         <section class="agency-staff-profile-facts" aria-label="Staff account details">

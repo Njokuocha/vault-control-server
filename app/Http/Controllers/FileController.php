@@ -7,8 +7,10 @@ use App\Models\CaseImage;
 use App\Models\File;
 use App\Models\Person;
 use App\Models\PersonImage;
+use App\Models\StaffGalleryImage;
 use App\Services\GalleryCategoryAccess;
 use App\Services\PersonMediaAccess;
+use App\Services\StaffMediaAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -348,6 +350,17 @@ class FileController extends Controller
         }
         foreach ($personImages as $image) {
             abort_unless($access->canViewPersonImage($image, $request), 403);
+        }
+
+        $staffImages = StaffGalleryImage::query()
+            ->where(fn ($query) => $query->where('file_id', $file->getKey())->orWhere('path', $file->stored_path))
+            ->get();
+        foreach ($staffImages as $image) {
+            abort_unless(
+                app(StaffMediaAccess::class)->allows($request, $image->user_id)
+                    && $access->canViewStaffImage($image, $request),
+                403,
+            );
         }
 
         $caseImages = CaseImage::query()

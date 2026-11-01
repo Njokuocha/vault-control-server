@@ -22,18 +22,19 @@
             $departmentRecord = auth('web')->user()->departmentRecord;
             $profileManagement = $department === 'pm';
             $fileManagement = $department === 'fm';
+            $staffManagement = $department === 'sm';
         @endphp
-        @if (in_array($department, ['cfm', 'pm', 'fm'], true))
+        @if (in_array($department, ['cfm', 'pm', 'fm', 'sm'], true))
             <div class="app-shell cfm-app-shell">
-                <aside class="sidebar" id="sidebar" aria-label="{{ $fileManagement ? 'File Management' : ($profileManagement ? 'Profile Management' : 'Case File Management') }} navigation">
-                    <a class="brand" href="{{ route($department.'.dashboard') }}" wire:navigate aria-label="{{ config('app.name') }} {{ $fileManagement ? 'File Management' : ($profileManagement ? 'Profile Management' : 'Case File Management') }} home">
+                <aside class="sidebar" id="sidebar" aria-label="{{ $staffManagement ? 'Staff Management' : ($fileManagement ? 'File Management' : ($profileManagement ? 'Profile Management' : 'Case File Management')) }} navigation">
+                    <a class="brand" href="{{ route($department.'.dashboard') }}" wire:navigate aria-label="{{ config('app.name') }} {{ $staffManagement ? 'Staff Management' : ($fileManagement ? 'File Management' : ($profileManagement ? 'Profile Management' : 'Case File Management')) }} home">
                         <span class="brand-seal" aria-hidden="true">
                             <svg viewBox="0 0 48 48" fill="none"><path d="M24 4.5 39 10v12.4c0 9.8-6.1 16.4-15 21.1-8.9-4.7-15-11.3-15-21.1V10l15-5.5Z" stroke="currentColor" stroke-width="1.5"/><path d="M24 14a6 6 0 0 0-3.6 10.8v7.7h7.2v-7.7A6 6 0 0 0 24 14Z" stroke="currentColor" stroke-width="1.5"/><circle cx="24" cy="20" r="1.5" fill="currentColor"/><path d="M24 21.5v4" stroke="currentColor" stroke-width="1.5"/><path d="M18 36h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
                         </span>
-                        <span class="brand-copy"><span class="brand-name">{{ config('app.short_name') }}</span><span class="brand-caption">{{ $fileManagement ? 'FILE OPERATIONS' : ($profileManagement ? 'IDENTITY OPERATIONS' : 'CASE OPERATION') }}</span></span>
+                        <span class="brand-copy"><span class="brand-name">{{ config('app.short_name') }}</span><span class="brand-caption">{{ $staffManagement ? 'PERSONNEL OPERATIONS' : ($fileManagement ? 'FILE OPERATIONS' : ($profileManagement ? 'IDENTITY OPERATIONS' : 'CASE OPERATION')) }}</span></span>
                     </a>
                     <div class="sidebar-rule"></div>
-                    <p class="nav-label">{{ $fileManagement ? 'FILE MANAGEMENT' : ($profileManagement ? 'PROFILE MANAGEMENT' : 'CASE FILE MANAGEMENT') }}</p>
+                    <p class="nav-label">{{ $staffManagement ? 'STAFF MANAGEMENT' : ($fileManagement ? 'FILE MANAGEMENT' : ($profileManagement ? 'PROFILE MANAGEMENT' : 'CASE FILE MANAGEMENT')) }}</p>
                     <nav class="nav-list" aria-label="Workspace">
                         <a class="nav-item {{ request()->routeIs($department.'.dashboard') ? 'is-active' : '' }}" href="{{ route($department.'.dashboard') }}" wire:navigate @if (request()->routeIs($department.'.dashboard')) aria-current="page" @endif>
                             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1"/><rect x="13.5" y="3.5" width="7" height="7" rx="1"/><rect x="3.5" y="13.5" width="7" height="7" rx="1"/><rect x="13.5" y="13.5" width="7" height="7" rx="1"/></svg><span>{{ $fileManagement ? 'Archive' : 'Workspace' }}</span>
@@ -48,6 +49,10 @@
                         @elseif ($profileManagement)
                             <a class="nav-item {{ request()->routeIs('pm.people.*') ? 'is-active' : '' }}" href="{{ route('pm.people.index') }}" wire:navigate @if (request()->routeIs('pm.people.*')) aria-current="page" @endif>
                                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20v-1a5.5 5.5 0 0 1 11 0v1z"/><path d="M16 5.5a3 3 0 0 1 0 5.8M17 15a5 5 0 0 1 3.5 4.8"/></svg><span>Person profiles</span>
+                            </a>
+                        @elseif ($staffManagement)
+                            <a class="nav-item {{ request()->routeIs('sm.staff.*') ? 'is-active' : '' }}" href="{{ route('sm.staff.index') }}" wire:navigate @if (request()->routeIs('sm.staff.*')) aria-current="page" @endif>
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20v-1a5.5 5.5 0 0 1 11 0v1z"/><path d="M16 5.5a3 3 0 0 1 0 5.8M17 15a5 5 0 0 1 3.5 4.8"/></svg><span>Staff profiles</span>
                             </a>
                         @else
                             <a class="nav-item {{ request()->routeIs('cfm.cases.*') ? 'is-active' : '' }}" href="{{ route('cfm.cases.index') }}" wire:navigate @if (request()->routeIs('cfm.cases.*')) aria-current="page" @endif>
@@ -74,7 +79,7 @@
                     <div class="sidebar-bottom">
                         <div class="storage-card">
                             <div class="storage-heading"><span class="storage-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 20 6v6c0 5-3.3 7.7-8 9-4.7-1.3-8-4-8-9V6z"/><path d="m8 12 2.5 2.5L16 9"/></svg></span><span>SECURE SESSION</span></div>
-                            <p>{{ $fileManagement ? 'Archive and media operations are restricted to your assigned department.' : ($profileManagement ? 'Profile operations are restricted to your assigned department.' : 'Case operations are restricted to your assigned department.') }}</p>
+                            <p>{{ $staffManagement ? 'Staff identity and gallery operations are restricted to your assigned department.' : ($fileManagement ? 'Archive and media operations are restricted to your assigned department.' : ($profileManagement ? 'Profile operations are restricted to your assigned department.' : 'Case operations are restricted to your assigned department.')) }}</p>
                             <div class="storage-status"><span class="status-dot"></span> ACCESS <span class="status-value">AUTHORIZED</span></div>
                         </div>
                         <div class="sidebar-footer"><span class="footer-mark">{{ config('app.symbol') }}</span><span>{{ strtoupper(config('app.short_name')) }} SYSTEMS<br><span class="footer-muted">{{ strtoupper($departmentRecord?->rank ?? 'AUTHORIZED STAFF') }}</span></span><span class="connection-indicator"></span></div>
@@ -82,10 +87,10 @@
                     </div>
                 </aside>
                 <main class="main-panel">
-                    <div class="classification-strip"><span class="classification-marker"></span><span>RESTRICTED</span><span class="classification-divider">/</span><span>AUTHORIZED PERSONNEL ONLY</span><span class="classification-right">{{ strtoupper(config('app.name')) }} SYSTEMS <span>•</span> {{ $fileManagement ? 'FILE MANAGEMENT' : ($profileManagement ? 'PROFILE MANAGEMENT' : 'CASE OPERATIONS') }}</span></div>
+                    <div class="classification-strip"><span class="classification-marker"></span><span>RESTRICTED</span><span class="classification-divider">/</span><span>AUTHORIZED PERSONNEL ONLY</span><span class="classification-right">{{ strtoupper(config('app.name')) }} SYSTEMS <span>•</span> {{ $staffManagement ? 'STAFF MANAGEMENT' : ($fileManagement ? 'FILE MANAGEMENT' : ($profileManagement ? 'PROFILE MANAGEMENT' : 'CASE OPERATIONS')) }}</span></div>
                     <header class="topbar">
                         <button class="mobile-menu" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false" data-menu-toggle><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-                        <div class="breadcrumb"><span>{{ strtoupper(config('app.acronym')) }}</span><span class="breadcrumb-slash">/</span><strong>{{ $fileManagement ? 'FILE MANAGEMENT' : ($profileManagement ? 'PROFILE MANAGEMENT' : 'CASE FILE MANAGEMENT') }}</strong></div>
+                        <div class="breadcrumb"><span>{{ strtoupper(config('app.acronym')) }}</span><span class="breadcrumb-slash">/</span><strong>{{ $staffManagement ? 'STAFF MANAGEMENT' : ($fileManagement ? 'FILE MANAGEMENT' : ($profileManagement ? 'PROFILE MANAGEMENT' : 'CASE FILE MANAGEMENT')) }}</strong></div>
                         <div class="topbar-tools">
                             @if ($fileManagement)
                                 <button class="console-launch-button" type="button" data-shell-open aria-label="Open Vault Shell (Ctrl+Shift+X)" title="Open Vault Shell · Ctrl+Shift+X">

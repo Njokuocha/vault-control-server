@@ -5,7 +5,7 @@
 **Application name:** `Vault Intelligence Agency` · **Short name:** `Vault` · **Acronym:** `VIA` · **Symbol:** `V`
 **Stack:** Laravel 12 · Blade + Livewire 3 · Alpine.js (provided by Livewire) · Echo/Pusher · configured database driver · Remix Icon
 **Design language:** Federal-intelligence-style command console: dark, authoritative, restrained, animated, glass-morphism overlays.
-**Departmental rollout:** The public department selector, separate login entry points, Admin identity, and admin-controlled staff lifecycle are implemented. Case File Management supports case creation, viewing, editing, evidence uploads, and owner-scoped background-transfer tracking. Profile Management provides an isolated person-profile workspace with protected media handling. File Management now provides the private archive, owner-scoped manual chunked uploads, PIN-protected person media viewing, and the restricted vault shell. All active agency accounts can publish and read internal reports through the shared Report System.
+**Departmental rollout:** The public department selector, separate login entry points, Admin identity, and admin-controlled staff lifecycle are implemented. Case File Management supports case creation, viewing, editing, evidence uploads, and owner-scoped background-transfer tracking. Profile Management provides an isolated person-profile workspace with protected media handling. File Management provides the private archive, owner-scoped manual chunked uploads, PIN-protected person media viewing, and the restricted vault shell. Staff Management provides a limited staff-identity workspace and PIN-protected image/video galleries. All active agency accounts can publish and read internal reports through the shared Report System.
 
 The **Case Analysis Portal** is available to Admin and active CFM staff at `/admin/case-analysis` and `/cfm/case-analysis`. It provides a pannable, zoomable relationship canvas with case search/import, directly linked Reports and people, the case creator, authorized attachment metadata, and the five latest case-management updates. It also provides per-identity recent imports (up to ten) and shared, version-checked analysis notes. The portal uses the existing case-person, report-case, case-category/media and activity-log records; a case creator is not presented as an assigned investigator, because no separate case-staff assignment relationship exists. Existing Reports have no title column, so their body excerpt is used as the display headline. New `case_analysis_notes` and `case_analysis_recent_accesses` tables persist the requested shared notes and user-specific recent history.
 
@@ -79,6 +79,7 @@ Vault Intelligence Agency is a private intelligence and security system. Adminis
 | 14 | Agency staff management | Admin-created department accounts, username login, password reset, suspend/disable, and removal |
 | 15 | Agency Report System | Cross-department reports, private image/video attachments, linked case/person records, discussion threads, and admin moderation |
 | 16 | Administrator Mail Center | Laravel mail transport, rich-text composition, CC/BCC, private attachments, sent register, resend/forward/delete, and optional email OTP sign-in |
+| 17 | Staff Management department | Staff identity directory and profile editing, limited staff-account creation, and PIN-protected image/video galleries |
 
 Department roles and account management are implemented. CFM case management, PM person-profile management, and FM archive/media operations are implemented. Sharing links, folders, tags, versions UI, and bulk operations remain outside the current scope.
 
@@ -285,16 +286,18 @@ evidence categories. Existing media tables retain image behavior and can also
 reference uploaded video files. People and cases are linked through the
 `case_person` pivot.
 
-All profile and case images are limited to raster formats and 10 MB per image.
-Their bytes remain on the private `vault` disk and are served only through
-authenticated routes. Person images additionally require a four-digit
-administrator-configured PIN; the PIN is stored as an encrypted password hash.
-Person and case record uploads accept supported image/video formats based on
-their detected media family, so valid files are not rejected when the server
-reports a MIME variant such as `video/quicktime` for an MP4. When the server
-reports a generic/ambiguous MIME type, the uploader falls back to the supported
-extension's canonical MIME type. Unsupported extensions and files with a
-specific incompatible MIME type are still rejected.
+Profile and case record uploads accept supported image/video formats, and case
+evidence also accepts the configured document and audio types. Their bytes
+remain on the private `vault` disk and are served only through authenticated
+routes. Upload limits are managed centrally in Settings. Person media uses a
+four-digit administrator-configured PIN in protected contexts; Staff
+Management galleries require the same PIN for every Admin or Staff Manager
+viewer. The PIN is stored as an encrypted password hash.
+Record uploads validate the detected media family, so valid files are not
+rejected when the server reports a MIME variant such as `video/quicktime` for
+an MP4. When the server reports a generic/ambiguous MIME type, the uploader
+falls back to the supported extension's canonical MIME type. Unsupported
+extensions and files with a specific incompatible MIME type are still rejected.
 Successful PIN verification issues a cryptographically random 32-character
 token stored server-side for one hour and bound to the authenticated account
 and profile. The profile, gallery, category-navigation, and media URLs carry
@@ -325,6 +328,20 @@ existing image PIN as well as any applicable category grant. Lock, unlock,
 grant, and revoke operations are recorded in the activity log. The migration
 `2026_11_01_000001_add_gallery_category_access_controls.php` adds the lock
 flags and category-to-staff grant tables.
+
+Staff gallery media is stored in `staff_gallery_images` and organized by
+`staff_gallery_categories`; each image/video is attached to one staff profile
+and can be assigned to multiple categories. Admin and Staff Management routes
+share the one-hour PIN-token flow, with tokens scoped to the authenticated
+account and target profile and restored on return while still active. Direct
+image, video, poster, thumbnail, and download endpoints verify the token and
+category permissions independently. Admin controls category locks and grants
+only to active Staff Management accounts. Staff gallery uploads accept image
+and video formats only and use the owner-scoped background transfer pipeline;
+category assignment is done from the gallery after upload. The additive
+migrations `2026_11_03_000001_add_staff_management_department.php` and
+`2026_11_03_000002_create_staff_gallery_tables.php` add the department and
+gallery schema.
 
 ### Example migration (files)
 
@@ -385,15 +402,16 @@ Rules:
 
 ## 9. Authentication and Departmental Access
 
-- The public landing page at `/` links to department-specific login routes: `/admin/login`, `/cfm/login`, `/pm/login`, and `/fm/login`. Authenticated staff are redirected from `/` to their department workspace; authenticated admins go to `/admin`.
+- The public landing page at `/` links to department-specific login routes: `/admin/login`, `/cfm/login`, `/pm/login`, `/fm/login`, and `/sm/login`. Authenticated staff are redirected from `/` to their department workspace; authenticated admins go to `/admin`.
 - The central administrator authenticates only against the separate `Admin` model and `admin` guard. An administrator does not need a matching record in `users`.
-- The additive identity migration copies the configured existing admin's identity and already-hashed password to `admins`, and adds username, department, account status, and private photo-path fields to `users`. A Department registry seeds CFM, PM, and FM and connects staff through `users.department_id`, while retaining the department code field for existing authorization logic. It does not delete the original account or its file history.
+- The additive identity migration copies the configured existing admin's identity and already-hashed password to `admins`, and adds username, department, account status, and private photo-path fields to `users`. A Department registry seeds CFM, PM, FM, and SM and connects staff through `users.department_id`, while retaining the department code field for existing authorization logic. It does not delete the original account or its file history.
 - `AdminSeeder` creates the administrator in `admins` and does not create an administrator row in `users`.
 - All management routes under `/admin/` require the Admin guard. A narrowly restricted configured legacy `User` session remains accepted temporarily for compatibility with existing user-owned admin operations; it is not used by the Admin login flow and is not recreated by the seeder. `/admin/staff` provides the central account controls.
-- Staff sign in by username at their assigned department route. Department codes are stored with each account. Active accounts authenticate normally; frozen and disabled accounts are refused with status-specific guidance after valid credentials are supplied. A timed freeze lasts 0.5–8,760 hours and automatically returns the account to Active; disabled accounts remain blocked until an administrator changes their status. The middleware also expires due freezes, so scheduled-job delays cannot lock out an expired account. Department middleware blocks cross-department route access. Newly registered departments receive a generic workspace and login route until department-specific tools are implemented.
-- Admins manage the department registry at `/admin/departments` and staff accounts at `/admin/staff`. Department names and ranks can be edited; saved departments cannot be deleted. A new department's route code is initialized from its short rank and remains stable if the displayed short rank is later edited. Staff accounts reference their Department record. Admins can search and filter the two-column staff directory, set initial passwords, explicitly choose replacement passwords, and delete accounts. Status changes are made from a staff profile or the linked `/admin/staff/non-active` directory; each status change revokes that staff member's tracked database sessions. Freeze expirations are swept by the scheduled `staff:expire-freezes` command. Immediate cross-device logout requires `SESSION_DRIVER=database` and the security session-presence table. Staff can view a read-only profile at `/{department}/profile` and change their own login password. Profile photos are served only through authenticated private-storage routes.
+- Staff sign in by username at their assigned department route. Department codes are stored with each account. Active accounts authenticate normally; frozen and disabled accounts are refused with status-specific guidance after valid credentials are supplied. A timed freeze lasts 0.5–8,760 hours and automatically returns the account to Active; disabled accounts remain blocked until an administrator changes their status. The middleware also expires due freezes, so scheduled-job delays cannot lock out an expired account. Department middleware blocks cross-department route access. Newly registered departments receive a generic workspace and login route until department-specific tools are implemented; CFM, PM, FM, and SM have dedicated workspaces.
+- Admins manage the department registry at `/admin/departments` and staff accounts at `/admin/staff`. Department names and ranks can be edited; saved departments cannot be deleted. A new department's route code is initialized from its short rank and remains stable if the displayed short rank is later edited. Staff accounts reference their Department record. Admins can search and filter the two-column staff directory, switch to `/admin/staff?display=full`, set initial and replacement passwords, and delete accounts. Status changes are made from a staff profile or the linked `/admin/staff/non-active` directory; each status change revokes that staff member's tracked database sessions. Freeze expirations are swept by the scheduled `staff:expire-freezes` command. Immediate cross-device logout requires `SESSION_DRIVER=database` and the security session-presence table. Staff can view a read-only profile at `/{department}/profile` and change their own login password. Profile photos are served only through authenticated private-storage routes.
 - CFM staff can create, view, and edit case files and their evidence, with uploads tracked privately per staff owner. They cannot access person-management routes or delete case files; only Admin can delete cases.
 - PM staff can create, view, and edit person profiles and their media through `/pm/people`. Opening a profile gallery makes its media viewable without a PIN; category-level access restrictions still apply. The profile's main image and File Management's person-media area retain their existing PIN protections. PM staff can also use private avatar previews but cannot access case-management routes or case-linking features. The PM workspace uses the department shell and owner-scoped upload tracker; only Admin can manage settings and avatar models.
+- Staff Managers use `/sm/staff` to find and edit staff identity information and view staff profiles. They may create active login accounts with an initial password and a required non-SM department, but cannot reset passwords, change account status, delete accounts, reassign departments, or access Admin settings. Admin and Staff Managers can open a staff profile's separate gallery; the profile page itself does not display gallery media. Gallery access requires the configured four-digit PIN and uses an account/profile-scoped one-hour token. The separate image/video upload page previews selected files, starts explicit background transfers, and reports per-file progress; category assignment happens in the gallery. Admin alone controls category locks and per-account grants.
 - FM staff can browse and preview/download the private file archive, manually upload arbitrary files through the shared owner-scoped chunked transfer pipeline, and view PIN-protected person images/videos without seeing profile or case dossier details. The department shell is available to FM and Admin only. Each FM staff member sees only their own upload tracker; archive status is refreshed over the authenticated `fm.vault` channel.
 - Login throttling: 5 attempts/minute per IP and identity; sessions regenerate on login and invalidate on logout.
 - Admin password changes through Settings update the Admin identity only.
@@ -511,6 +529,7 @@ POST  /admin/login                   auth.attempt     (throttled)
 GET   /cfm/login                     cfm.login
 GET   /pm/login                      pm.login
 GET   /fm/login                      fm.login
+GET   /sm/login                      sm.login
 
 API (stateless, key-gated)
 POST  /api/upload                    api.upload       (middleware: VerifyUploadKey, throttle)
@@ -526,6 +545,9 @@ GET   /admin/calculator              calculator.index
 GET   /admin/uploads                 uploads.create
 GET   /admin/settings                settings.index
 GET   /admin/staff                   admin.staff.index
+GET   /admin/staff?display=full      admin.staff.index (full-page account directory)
+GET   /admin/staff/{user}/gallery   admin.staff.gallery.index (PIN protected)
+GET   /admin/staff/{user}/gallery/uploads admin.staff.gallery.uploads (image/video background uploads)
 GET   /admin/departments             admin.departments.index
 GET   /admin/reports                 admin.reports.index
 GET   /admin/reports/manage          admin.reports.manage (Admin moderation)
@@ -569,6 +591,15 @@ GET   /fm/profile                    fm.profile (read-only)
 GET   /fm/profile/photo              fm.profile.photo (private)
 GET   /fm/reports                    fm.reports.index
 POST  /fm/logout                     fm.logout
+GET   /sm/                           sm.dashboard
+GET   /sm/staff                      sm.staff.index
+GET   /sm/staff/{user}               sm.staff.show
+GET   /sm/staff/{user}/gallery       sm.staff.gallery.index (PIN protected)
+GET   /sm/staff/{user}/gallery/uploads sm.staff.gallery.uploads (image/video background uploads)
+GET   /sm/profile                    sm.profile (read-only)
+GET   /sm/profile/photo              sm.profile.photo (private)
+GET   /sm/reports                    sm.reports.index
+POST  /sm/logout                     sm.logout
 GET   /admin/shell/directory         shell.directory (Admin only)
 GET   /fm/shell/directory            fm.shell.directory (FM only)
 ```

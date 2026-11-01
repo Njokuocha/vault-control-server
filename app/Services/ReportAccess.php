@@ -33,7 +33,7 @@ class ReportAccess
         $actor ??= Auth::guard('admin')->user() ?? Auth::guard('web')->user();
 
         return $actor instanceof User
-            && in_array($actor->department, ['cfm', 'pm', 'fm'], true)
+            && in_array($actor->department, ['cfm', 'pm', 'fm', 'sm'], true)
             && $actor->account_status === 'active';
     }
 

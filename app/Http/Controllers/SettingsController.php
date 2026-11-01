@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Admin;
 use App\Services\ActivityLogger;
 use App\Services\PersonMediaAccess;
+use App\Services\StaffMediaAccess;
 use App\Services\SettingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -90,6 +91,7 @@ class SettingsController extends Controller
         Request $request,
         SettingService $settings,
         PersonMediaAccess $personMediaAccess,
+        StaffMediaAccess $staffMediaAccess,
     ): RedirectResponse
     {
         $validated = $request->validate([
@@ -98,13 +100,14 @@ class SettingsController extends Controller
 
         $settings->set('person_image_pin_hash', Hash::make($validated['image_pin']));
         $personMediaAccess->invalidateAll();
+        $staffMediaAccess->invalidateAll();
         $request->session()->forget('unlocked_person_images');
         app(ActivityLogger::class)->record(
             'configuration',
             'settings.person-image-pin-updated',
-            'Administrator updated the protected person-media access PIN.',
+            'Administrator updated the protected gallery access PIN.',
         );
 
-        return back()->with('status', 'Person image access PIN updated.');
+        return back()->with('status', 'Gallery access PIN updated.');
     }
 }

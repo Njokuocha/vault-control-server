@@ -7,7 +7,8 @@
         </div>
     </div>
 
-    <div class="agency-staff-grid">
+    <div class="agency-staff-grid {{ $fullDisplay ? 'agency-staff-grid--full' : '' }}">
+        @if (! $fullDisplay || $editingId !== null)
         <section class="glass-panel agency-staff-form">
             <div class="calc-panel-heading"><div><span class="section-kicker">{{ $editingId ? 'EDIT ACCOUNT' : 'NEW ACCOUNT' }}</span><h2>{{ $editingId ? 'Staff credentials' : 'Create staff account' }}</h2></div></div>
             <form class="agency-staff-form__fields" data-staff-account-form>
@@ -48,12 +49,13 @@
                 </div>
             </form>
         </section>
+        @endif
 
         <section class="glass-panel agency-staff-list">
             <div class="agency-staff-list__heading">
-                <div class="agency-staff-accounts-heading"><div class="calc-panel-heading"><div><span class="section-kicker">AGENCY ACCOUNTS</span><h2>{{ $staffMembers->count() }} Staff</h2></div></div><a class="button-secondary" href="{{ route('admin.staff.inactive') }}" wire:navigate><i class="ri ri-user-unfollow-line" aria-hidden="true"></i> NON-ACTIVE ACCOUNTS</a></div>
+                <div class="agency-staff-accounts-heading"><div class="calc-panel-heading"><div><span class="section-kicker">AGENCY ACCOUNTS</span><h2>{{ $staffMembers->count() }} Staff</h2></div></div><div class="agency-staff-directory-links">@if($fullDisplay)<a class="button-secondary" href="{{ route('admin.staff.index', array_filter(['search' => $search ?: null])) }}" wire:navigate><i class="ri ri-layout-grid-line" aria-hidden="true"></i> COMPACT VIEW</a>@else<a class="button-secondary" href="{{ route('admin.staff.index', array_filter(['search' => $search ?: null, 'display' => 'full'])) }}" wire:navigate><i class="ri ri-fullscreen-line" aria-hidden="true"></i> FULL DISPLAY</a>@endif<a class="button-secondary" href="{{ route('admin.staff.inactive') }}" wire:navigate><i class="ri ri-user-unfollow-line" aria-hidden="true"></i> NON-ACTIVE ACCOUNTS</a></div></div>
                 <div class="agency-staff-filters">
-                    <label><span>SEARCH STAFF</span><input type="search" wire:model.live.debounce.250ms="search" placeholder="Name, username, or email"></label>
+                    <label><span>SEARCH STAFF</span><span class="agency-staff-search-field"><input type="search" wire:model.live.debounce.250ms="search" placeholder="Name, username, or email"><i class="agency-staff-search-spinner" wire:loading wire:target="search" aria-label="Filtering staff" role="status"></i></span></label>
                     <label><span>DEPARTMENT</span><select wire:model.live="departmentFilter"><option value="">All departments</option>@foreach ($departments as $availableDepartment)<option value="{{ $availableDepartment->id }}">{{ $availableDepartment->name }}</option>@endforeach</select></label>
                 </div>
             </div>

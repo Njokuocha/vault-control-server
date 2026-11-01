@@ -67,6 +67,7 @@ const ensureRecordDraftToken = (form) => {
 const recordTokenFieldName = (purpose, attachment) => {
     if (purpose === 'person-main-image') return 'main_image_upload_token';
     if (purpose === 'person-gallery') return 'gallery_upload_tokens[]';
+    if (purpose === 'staff-gallery') return 'staff_gallery_upload_tokens[]';
     return `categories[${attachment.categoryIndex}][upload_transfer_tokens][]`;
 };
 
@@ -101,7 +102,7 @@ const addCaseCategoryTargetKey = (form, category) => {
 
 const addRecordTokenToForm = (form, task) => {
     const attachment = task.attachment;
-    if (!attachment) return;
+    if (!attachment || attachment.commitImmediately) return;
     if (attachment.recordId) {
         if (Number(form.dataset.recordId) !== Number(attachment.recordId)) return;
     } else if (attachment.draftToken && form.dataset.recordDraftToken !== attachment.draftToken) {
@@ -193,11 +194,17 @@ const isAllowedByAccept = (file, input) => {
 
 const createRecordFilePreview = (file, onRemove, purpose) => {
     const wrapper = document.createElement('div');
-    const galleryPreview = purpose === 'person-gallery';
+    const galleryPreview = ['person-gallery', 'staff-gallery'].includes(purpose);
+    const staffGalleryPreview = purpose === 'staff-gallery';
     wrapper.className = galleryPreview
         ? 'new-upload-image case-evidence-thumb--staged'
         : 'case-evidence-thumb case-evidence-thumb--staged';
     wrapper.dataset.stagedRecordFile = '';
+    const visual = staffGalleryPreview ? document.createElement('div') : wrapper;
+    if (staffGalleryPreview) {
+        visual.className = 'staff-gallery-upload-preview__visual';
+        wrapper.classList.add('staff-gallery-upload-preview');
+    }
 
     const rawExtension = file.name.split('.').pop()?.toLowerCase() ?? '';
     const extension = rawExtension.toUpperCase() || 'FILE';
@@ -209,7 +216,7 @@ const createRecordFilePreview = (file, onRemove, purpose) => {
         const preview = document.createElement('img');
         preview.src = objectUrl;
         preview.alt = file.name;
-        wrapper.append(preview);
+        visual.append(preview);
     } else if (file.type.startsWith('video/') || videoExtensions.has(rawExtension)) {
         const preview = document.createElement('video');
         preview.src = objectUrl;
@@ -220,14 +227,14 @@ const createRecordFilePreview = (file, onRemove, purpose) => {
         preview.addEventListener('loadeddata', () => {
             if (preview.duration > 0) preview.currentTime = Math.min(0.1, preview.duration / 2);
         }, { once: true });
-        wrapper.append(preview);
+        visual.append(preview);
         const mark = document.createElement('span');
         mark.className = 'case-evidence-video-mark case-evidence-video-mark--centered';
         mark.setAttribute('aria-hidden', 'true');
         const playIcon = document.createElement('i');
         playIcon.className = 'ri ri-play-fill';
         mark.append(playIcon);
-        wrapper.append(mark);
+        visual.append(mark);
     } else {
         const badge = document.createElement('span');
         badge.className = 'case-evidence-document';
@@ -244,7 +251,34 @@ const createRecordFilePreview = (file, onRemove, purpose) => {
             name.title = file.name;
             badge.append(name);
         }
-        wrapper.append(badge);
+        visual.append(badge);
+    }
+    if (staffGalleryPreview) {
+        wrapper.append(visual);
+        const details = document.createElement('div');
+        details.className = 'staff-gallery-upload-preview__details';
+        const filename = document.createElement('span');
+        filename.className = 'staff-gallery-upload-preview__name';
+        filename.textContent = file.name;
+        filename.title = file.name;
+        details.append(filename);
+        const status = document.createElement('small');
+        status.dataset.staffUploadStatus = '';
+        status.textContent = 'READY TO UPLOAD';
+        details.append(status);
+        const progress = document.createElement('progress');
+        progress.max = 100;
+        progress.value = 0;
+        progress.hidden = true;
+        progress.setAttribute('aria-label', `Upload progress for ${file.name}`);
+        progress.dataset.staffUploadProgress = '';
+        details.append(progress);
+        const error = document.createElement('small');
+        error.className = 'staff-gallery-upload-preview__error';
+        error.dataset.staffUploadError = '';
+        error.hidden = true;
+        details.append(error);
+        wrapper.append(details);
     }
 
     const remove = document.createElement('button');
@@ -259,6 +293,58 @@ const createRecordFilePreview = (file, onRemove, purpose) => {
     wrapper.append(remove);
     wrapper.title = `${file.name} (${formatBytes(file.size)})`;
     return wrapper;
+};
+
+const updateStaffGalleryPreview = (selection, task = null, statusOverride = null, errorOverride = null) => {
+    const preview = selection.preview;
+    if (!(preview instanceof HTMLElement)) return;
+
+    const status = statusOverride ?? task?.status ?? 'ready';
+    const progressValue = Math.max(0, Math.min(100, Number(task?.progress ?? 0)));
+    const statusLabels = {
+        ready: 'READY TO UPLOAD',
+        preparing: 'PREPARING TRANSFER…',
+        uploading: `UPLOADING · ${Math.floor(progressValue)}%`,
+        pending: 'TRANSFER COMPLETE · PROCESSING',
+        processing: 'PROCESSING',
+        done: 'UPLOADED',
+        failed: 'UPLOAD FAILED',
+        cancelled: 'UPLOAD CANCELLED',
+    };
+    const statusElement = preview.querySelector('[data-staff-upload-status]');
+    if (statusElement) statusElement.textContent = statusLabels[status] ?? status.toUpperCase();
+
+    const progressElement = preview.querySelector('[data-staff-upload-progress]');
+    if (progressElement instanceof HTMLProgressElement) {
+        progressElement.value = progressValue;
+        progressElement.hidden = !['preparing', 'uploading', 'pending', 'processing'].includes(status);
+    }
+
+    const errorElement = preview.querySelector('[data-staff-upload-error]');
+    const errorMessage = errorOverride ?? task?.error ?? '';
+    if (errorElement) {
+        errorElement.textContent = errorMessage;
+        errorElement.hidden = errorMessage === '';
+    }
+
+    preview.dataset.uploadStatus = status;
+    const removeButton = preview.querySelector('button[aria-label^="Remove "]');
+    if (removeButton instanceof HTMLButtonElement) {
+        removeButton.disabled = ['preparing', 'uploading', 'pending', 'processing'].includes(status);
+    }
+};
+
+const updateStaffGalleryUploadButton = (form) => {
+    const button = form.querySelector('[data-staff-gallery-upload-submit]');
+    if (!(button instanceof HTMLButtonElement)) return;
+
+    const selections = deferredRecordSelections.get(form) ?? [];
+    const canStart = selections.some((selection) => (
+        !selection.task || ['failed', 'cancelled'].includes(selection.task.status)
+    ));
+    const isStarting = form.dataset.staffGalleryStarting === 'true';
+    button.disabled = !canStart || isStarting;
+    button.textContent = 'UPLOAD SELECTED FILES';
 };
 
 const createMainImagePreview = (input, file) => {
@@ -302,9 +388,9 @@ const stageRecordUploads = (input, form, files, attachment) => {
     const scope = category
         ?? (isMainImage
             ? input.closest('[data-main-image-uploader]')
-            : input.closest('[data-person-gallery-upload-list]'));
+            : input.closest('[data-record-gallery-upload-list], [data-person-gallery-upload-list]'));
     const previewList = category?.querySelector('[data-case-image-list]')
-        ?? (!isMainImage ? input.closest('[data-person-gallery-upload-list]') : null);
+        ?? (!isMainImage ? input.closest('[data-record-gallery-upload-list], [data-person-gallery-upload-list]') : null);
     if (!scope || (!isMainImage && !previewList)) {
         throw new Error('The selected file preview area is unavailable.');
     }
@@ -339,10 +425,16 @@ const stageRecordUploads = (input, form, files, attachment) => {
             ? (isAllowedByAccept(file, input) ? createMainImagePreview(input, file) : null)
             : createRecordFilePreview(file, () => {
                 if (form.dataset.submitting === 'true') return false;
+                if (selection.task && ['uploading', 'pending', 'processing'].includes(selection.task.status)) return false;
                 const index = selections.indexOf(selection);
                 if (index >= 0) selections.splice(index, 1);
                 renderTypeErrors();
-                if (selection.task) {
+                if (attachment.purpose === 'staff-gallery') updateStaffGalleryUploadButton(form);
+                if (
+                    selection.task
+                    && attachment.purpose !== 'staff-gallery'
+                    && !['done', 'failed', 'cancelled'].includes(selection.task.status)
+                ) {
                     discardPreparedTransfer(selection.task).catch((failure) => {
                         console.error('Unable to discard the staged record upload.', failure);
                         window.vaultAlert({
@@ -358,10 +450,14 @@ const stageRecordUploads = (input, form, files, attachment) => {
 
         if (!isAllowedByAccept(file, input)) {
             preview?.classList.add('is-invalid');
+            if (attachment.purpose === 'staff-gallery') {
+                updateStaffGalleryPreview(selection, null, 'failed', 'Choose a supported image or video file.');
+            }
         }
         if (previewList && preview instanceof HTMLElement) previewList.append(preview);
     });
     renderTypeErrors();
+    if (attachment.purpose === 'staff-gallery') updateStaffGalleryUploadButton(form);
 };
 
 const prepareDeferredRecordUploads = async (form) => {
@@ -581,6 +677,7 @@ const publishTransfer = (task) => {
         error: task.error,
         actions,
     });
+    if (task.staffGallerySelection) updateStaffGalleryPreview(task.staffGallerySelection, task);
 };
 
 const updateTask = (task, updates) => {
@@ -928,11 +1025,11 @@ const beginRecordUploads = (input) => {
 
     const isMainImage = input.matches('[data-record-main-image-input]');
     const caseCategory = input.closest('[data-case-category]');
-    const purpose = isMainImage
+    const purpose = input.dataset.recordPurpose ?? (isMainImage
         ? 'person-main-image'
         : caseCategory
             ? 'case-evidence'
-            : 'person-gallery';
+            : 'person-gallery');
     const selectedFiles = [...(input.files ?? [])];
     if (selectedFiles.length === 0) return;
 
@@ -976,7 +1073,22 @@ const beginRecordUploads = (input) => {
         targetId,
         targetKey,
         categoryIndex,
+        commitImmediately: form.dataset.commitRecordUploads === 'true',
     };
+    if (form.dataset.uploadOnDemand === 'true') {
+        try {
+            stageRecordUploads(input, form, selectedFiles, attachment);
+        } catch (error) {
+            window.vaultAlert({
+                type: 'error',
+                message: error instanceof Error ? error.message : 'Unable to preview the selected files.',
+            });
+        }
+        queueMicrotask(() => {
+            input.value = '';
+        });
+        return;
+    }
     if (form.dataset.deferRecordUploads === 'true') {
         try {
             stageRecordUploads(input, form, selectedFiles, attachment);
@@ -994,7 +1106,7 @@ const beginRecordUploads = (input) => {
 
     const preparations = recordPreparations.get(form) ?? new Set();
     recordPreparations.set(form, preparations);
-    const errorTarget = input.closest('[data-person-gallery-upload-list]')
+    const errorTarget = input.closest('[data-record-gallery-upload-list], [data-person-gallery-upload-list]')
         ?? input.closest('[data-main-image-uploader]')
         ?? input.closest('[data-case-category]');
     errorTarget
@@ -1066,6 +1178,87 @@ const beginRecordUploads = (input) => {
     });
 };
 
+const startStaffGalleryUploads = async (form) => {
+    if (form.dataset.staffGalleryStarting === 'true') return;
+
+    const selections = deferredRecordSelections.get(form) ?? [];
+    const pendingSelections = selections.filter((selection) => (
+        !selection.task || ['failed', 'cancelled'].includes(selection.task.status)
+    ));
+    if (pendingSelections.length === 0) {
+        window.vaultAlert({ type: 'warning', message: 'Choose images or videos before uploading.' });
+        return;
+    }
+
+    const invalidSelections = pendingSelections.filter((selection) => (
+        !isAllowedByAccept(selection.file, selection.input) || validateFile(selection.file, form)
+    ));
+    if (invalidSelections.length > 0) {
+        invalidSelections.forEach((selection) => {
+            const error = !isAllowedByAccept(selection.file, selection.input)
+                ? 'Choose a supported image or video file.'
+                : validateFile(selection.file, form);
+            selection.preview?.classList.add('is-invalid');
+            updateStaffGalleryPreview(selection, null, 'failed', error);
+        });
+        window.vaultAlert({
+            type: 'warning',
+            message: 'Review the highlighted files. Only supported images and videos within the upload limits can be uploaded.',
+        });
+        return;
+    }
+
+    form.dataset.staffGalleryStarting = 'true';
+    const formStatus = form.querySelector('[data-staff-gallery-upload-status]');
+    if (formStatus) formStatus.textContent = 'PREPARING BACKGROUND TRANSFERS…';
+    updateStaffGalleryUploadButton(form);
+
+    const failures = [];
+    await Promise.all(pendingSelections.map(async (selection) => {
+        const recordId = Number(selection.attachment.recordId);
+        if (!Number.isInteger(recordId) || recordId < 1) {
+            failures.push(`${selection.file.name}: the staff profile could not be identified.`);
+            updateStaffGalleryPreview(selection, null, 'failed', 'The staff profile could not be identified.');
+            return;
+        }
+
+        const attachment = {
+            ...selection.attachment,
+            draftToken: null,
+            recordId,
+            targetId: null,
+            targetKey: null,
+            commitImmediately: true,
+        };
+        updateStaffGalleryPreview(selection, null, 'preparing');
+        try {
+            const task = await prepareTransfer(selection.file, form, null, attachment);
+            selection.task = task;
+            task.staffGallerySelection = selection;
+            updateStaffGalleryPreview(selection, task);
+            void runTransfer(task, selection.file);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : `Unable to start ${selection.file.name}.`;
+            failures.push(`${selection.file.name}: ${message}`);
+            updateStaffGalleryPreview(selection, null, 'failed', message);
+        }
+    }));
+
+    form.dataset.staffGalleryStarting = 'false';
+    if (formStatus) {
+        formStatus.textContent = failures.length > 0
+            ? `${pendingSelections.length - failures.length} TRANSFERS STARTED · ${failures.length} NEED ATTENTION`
+            : `${pendingSelections.length} BACKGROUND TRANSFER${pendingSelections.length === 1 ? '' : 'S'} STARTED`;
+    }
+    updateStaffGalleryUploadButton(form);
+    if (failures.length > 0) {
+        window.vaultAlert({
+            type: 'error',
+            message: failures.join('\n'),
+        });
+    }
+};
+
 window.vaultRecordUploadsReady = async (form) => {
     if (form.dataset.deferRecordUploads === 'true') {
         await prepareDeferredRecordUploads(form);
@@ -1093,6 +1286,8 @@ const selectFileForResume = (task) => {
                         || (task.attachment_target_key && category.dataset.uploadTargetKey === task.attachment_target_key)
                     );
                 })
+                : task.attachment_purpose === 'staff-gallery'
+                    ? document.querySelector('[data-record-gallery-input][data-record-purpose="staff-gallery"]')
                 : null;
     const recordFormElement = recordInput?.closest('[data-record-upload-form]');
     if (recordInput instanceof HTMLInputElement
@@ -1237,7 +1432,7 @@ if (transferWidget) {
         if (input instanceof HTMLInputElement) handleSelection(input);
     });
     document.addEventListener('change', (event) => {
-        const input = event.target.closest('[data-record-main-image-input], [data-person-document-input], [data-case-document-input]');
+        const input = event.target.closest('[data-record-main-image-input], [data-person-document-input], [data-case-document-input], [data-record-gallery-input]');
         if (input instanceof HTMLInputElement) beginRecordUploads(input);
     });
     document.addEventListener('cancel', (event) => {
@@ -1264,7 +1459,7 @@ if (transferWidget) {
         if (!dropzone) return;
         event.preventDefault();
         dropzone.classList.remove('is-dragging');
-        const input = dropzone.querySelector('[data-upload-input]');
+        const input = dropzone.querySelector('[data-upload-input], [data-record-gallery-input]');
         if (input instanceof HTMLInputElement && event.dataTransfer) {
             input.files = event.dataTransfer.files;
             input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1273,6 +1468,17 @@ if (transferWidget) {
 
     document.addEventListener('submit', (event) => {
         const form = event.target;
+        if (form instanceof HTMLFormElement && form.dataset.uploadOnDemand === 'true') {
+            event.preventDefault();
+            startStaffGalleryUploads(form).catch((error) => {
+                console.error('Unable to start staff gallery uploads.', error);
+                window.vaultAlert({
+                    type: 'error',
+                    message: error instanceof Error ? error.message : 'Unable to start the selected uploads.',
+                });
+            });
+            return;
+        }
         if (!isUploadForm(form)) return;
         event.preventDefault();
         const input = form.querySelector('[data-upload-input]');

@@ -7,6 +7,8 @@ use App\Models\CaseCategory;
 use App\Models\CaseImage;
 use App\Models\PersonGalleryCategory;
 use App\Models\PersonImage;
+use App\Models\StaffGalleryCategory;
+use App\Models\StaffGalleryImage;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -57,6 +59,20 @@ class GalleryCategoryAccess
             && $category->authorizedStaff()->whereKey($staff->getKey())->exists();
     }
 
+    public function canViewStaffCategory(StaffGalleryCategory $category, Request $request): bool
+    {
+        if (! $category->is_locked || $this->isAdministrator($request)) {
+            return true;
+        }
+
+        $staff = $request->user('web');
+
+        return $staff instanceof User
+            && $staff->department === 'sm'
+            && $staff->account_status === 'active'
+            && $category->authorizedStaff()->whereKey($staff->getKey())->exists();
+    }
+
     public function visiblePersonCategoryIds(int $personId, Request $request): array
     {
         $query = PersonGalleryCategory::query()->where('person_id', $personId);
@@ -87,6 +103,24 @@ class GalleryCategoryAccess
             $categories->where('is_locked', false);
             if ($staff instanceof User && $staff->department === 'cfm' && $staff->account_status === 'active') {
                 $categories->orWhereHas('authorizedStaff', fn (Builder $users) => $users->whereKey($staff->getKey()));
+            }
+        });
+
+        return $query->pluck('id')->all();
+    }
+
+    public function visibleStaffCategoryIds(int $staffId, Request $request): array
+    {
+        $query = StaffGalleryCategory::query()->where('user_id', $staffId);
+        if ($this->isAdministrator($request)) {
+            return $query->pluck('id')->all();
+        }
+
+        $actor = $request->user('web');
+        $query->where(function (Builder $categories) use ($actor): void {
+            $categories->where('is_locked', false);
+            if ($actor instanceof User && $actor->department === 'sm' && $actor->account_status === 'active') {
+                $categories->orWhereHas('authorizedStaff', fn (Builder $users) => $users->whereKey($actor->getKey()));
             }
         });
 
@@ -139,6 +173,30 @@ class GalleryCategoryAccess
                 $query->where('is_locked', false);
                 if ($staff instanceof User && $staff->department === 'cfm' && $staff->account_status === 'active') {
                     $query->orWhereHas('authorizedStaff', fn (Builder $users) => $users->whereKey($staff->getKey()));
+                }
+            })
+            ->exists();
+    }
+
+    public function canViewStaffImage(StaffGalleryImage $image, Request $request): bool
+    {
+        if ($this->isAdministrator($request)) {
+            return true;
+        }
+
+        if (! $image->categories()->exists()) {
+            return true;
+        }
+
+        $actor = $request->user('web');
+
+        return StaffGalleryCategory::query()
+            ->where('user_id', $image->user_id)
+            ->whereHas('images', fn (Builder $images) => $images->whereKey($image->getKey()))
+            ->where(function (Builder $categories) use ($actor): void {
+                $categories->where('is_locked', false);
+                if ($actor instanceof User && $actor->department === 'sm' && $actor->account_status === 'active') {
+                    $categories->orWhereHas('authorizedStaff', fn (Builder $users) => $users->whereKey($actor->getKey()));
                 }
             })
             ->exists();

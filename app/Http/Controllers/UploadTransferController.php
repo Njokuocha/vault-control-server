@@ -63,6 +63,7 @@ class UploadTransferController extends Controller
                 RecordAttachmentTypes::PERSON_MAIN_IMAGE,
                 RecordAttachmentTypes::PERSON_GALLERY,
                 RecordAttachmentTypes::CASE_EVIDENCE,
+                RecordAttachmentTypes::STAFF_GALLERY,
             ])],
             'attachment.record_id' => ['nullable', 'integer', 'min:1'],
             'attachment.draft_token' => ['nullable', 'uuid'],
@@ -289,6 +290,9 @@ class UploadTransferController extends Controller
                 'caseFile' => $upload->record_id,
                 'file' => $file->uuid,
             ]);
+        }
+        if ($upload->attachment_purpose === RecordAttachmentTypes::STAFF_GALLERY) {
+            $previewUrl = null;
         }
         $receivedChunks = $upload->status === 'uploading' ? $this->receivedChunks($upload) : [];
         $receivedBytes = array_sum(array_map(

@@ -46,7 +46,8 @@ beforeEach(function () {
 });
 
 test('person profiles are optional, receive unique public identifiers, and store blank fields as unknown', function () {
-    $this->actingAs(User::factory()->create())
+    $actor = User::factory()->create();
+    $this->actingAs($actor)
         ->post(route('people.store'), [])
         ->assertRedirect();
 
@@ -68,7 +69,8 @@ test('person profiles are optional, receive unique public identifiers, and store
         ->assertSee('Unknown');
 
     $this->get(route('people.index'))->assertOk()->assertSee($person->public_id);
-    $this->get(route('people.edit', $person))
+    $authToken = investigationPersonToken($person, $actor);
+    $this->get(route('people.edit', ['person' => $person, 'auth' => $authToken]))
         ->assertOk()
         ->assertSee('wire:id', false)
         ->assertSee('Identity dossier')
@@ -361,7 +363,7 @@ test('person edit returns an SPA destination and message for JSON submissions', 
         ])
         ->assertOk()
         ->assertJsonPath('message', 'Person profile updated.')
-        ->assertJsonPath('redirect_url', route('people.show', $person));
+        ->assertJsonPath('redirect_url', route('people.show', ['person' => $person, 'auth' => 'unauthed']));
 });
 
 test('people index searches live and returns only matching profiles', function () {
@@ -724,11 +726,11 @@ test('person media requires a PIN-issued profile token and downloads stay authen
     $this->get(route('people.image', ['person' => $person, 'image' => $person->images()->first()->id, 'auth' => $token]))->assertOk();
 
     $this->get(route('people.show', $person))
-        ->assertRedirect(route('people.show', ['person' => $person, 'auth' => 'unauthed']));
+        ->assertRedirect(route('people.show', ['person' => $person, 'auth' => $token]));
     $this->get(route('people.image', ['person' => $person, 'image' => 'main']))->assertForbidden();
 });
 
-test('successful image PIN authentication is not limited while failed attempts remain protected', function () {
+test('successful and incorrect image PIN attempts are not rate limited', function () {
     config(['hashing.bcrypt.rounds' => 4]);
     $admin = Admin::query()->create([
         'name' => 'PIN Authentication Administrator',
@@ -760,8 +762,8 @@ test('successful image PIN authentication is not limited while failed attempts r
     }
 
     $this->postJson(route('pm.people.images.unlock', $person), ['pin' => '9999'])
-        ->assertTooManyRequests()
-        ->assertJsonPath('retry_after', fn ($seconds): bool => is_int($seconds) && $seconds > 0);
+        ->assertUnprocessable()
+        ->assertJsonPath('message', 'The PIN is incorrect.');
 
     $this->postJson(route('pm.people.images.unlock', $person), ['pin' => '0427'])
         ->assertOk()

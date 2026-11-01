@@ -24,6 +24,18 @@ class StaffProfilePhotoController extends Controller
         return $this->photoResponse($user);
     }
 
+    public function departmentStaff(User $user): Response
+    {
+        abort_unless(
+            auth('web')->user()?->department === 'sm'
+                && auth('web')->user()?->account_status === 'active'
+                && $user->department !== null,
+            404,
+        );
+
+        return $this->photoResponse($user);
+    }
+
     private function photoResponse(User $staff): Response
     {
         $path = $staff->profile_photo_path;

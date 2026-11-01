@@ -28,7 +28,6 @@ use Illuminate\Http\Response;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -620,15 +619,10 @@ class PersonController extends Controller
         $actor = $request->user();
         abort_unless($actor !== null, 401);
 
-        $failureKey = 'person-image-pin:'.hash('sha256', implode('|', [
-            $actor::class,
-            (string) $actor->getAuthIdentifier(),
-        ]));
         $pinHash = $settings->get('person_image_pin_hash');
         $pinIsValid = is_string($pinHash) && Hash::check($validated['pin'], $pinHash);
 
         if ($pinIsValid) {
-            RateLimiter::clear($failureKey);
             if ($request->routeIs('fm.*')) {
                 $request->session()->put('unlocked_person_images', $person->getKey());
 
@@ -649,15 +643,6 @@ class PersonController extends Controller
             ])->header('Cache-Control', 'no-store, private')
                 ->header('Referrer-Policy', 'no-referrer');
         }
-
-        if (RateLimiter::tooManyAttempts($failureKey, 8)) {
-            return response()->json([
-                'message' => 'Too many incorrect PIN attempts. Please try again shortly.',
-                'retry_after' => RateLimiter::availableIn($failureKey),
-            ], 429);
-        }
-
-        RateLimiter::hit($failureKey, 60);
 
         return response()->json([
             'message' => is_string($pinHash) ? 'The PIN is incorrect.' : 'No person image PIN has been configured.',

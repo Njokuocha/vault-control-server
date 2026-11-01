@@ -65,6 +65,11 @@ class File extends Model
                     ->whereColumn('person_images.file_id', 'files.id')
                     ->orWhereColumn('person_images.path', 'files.stored_path')))
             ->whereNotExists(fn ($subquery) => $subquery->selectRaw('1')
+                ->from('staff_gallery_images')
+                ->where(fn ($attachment) => $attachment
+                    ->whereColumn('staff_gallery_images.file_id', 'files.id')
+                    ->orWhereColumn('staff_gallery_images.path', 'files.stored_path')))
+            ->whereNotExists(fn ($subquery) => $subquery->selectRaw('1')
                 ->from('people')
                 ->where(fn ($attachment) => $attachment
                     ->whereColumn('people.main_image_file_id', 'files.id')

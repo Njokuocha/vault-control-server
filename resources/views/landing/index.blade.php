@@ -35,11 +35,12 @@
                 </a>
 
                 <svg class="agency-network__connections" viewBox="0 0 1000 110" preserveAspectRatio="none" aria-hidden="true">
-                    <path d="M500 0V50M500 50H166V104M500 50V104M500 50H834V104" />
+                    <path d="M500 0V50M500 50H125V104M500 50H375V104M500 50H625V104M500 50H875V104" />
                     <circle class="agency-network__junction" cx="500" cy="50" r="5" />
-                    <circle cx="166" cy="104" r="5" />
-                    <circle cx="500" cy="104" r="5" />
-                    <circle cx="834" cy="104" r="5" />
+                    <circle cx="125" cy="104" r="5" />
+                    <circle cx="375" cy="104" r="5" />
+                    <circle cx="625" cy="104" r="5" />
+                    <circle cx="875" cy="104" r="5" />
                 </svg>
 
                 <nav class="agency-departments" aria-label="Select department">
@@ -62,6 +63,13 @@
                         <span class="agency-department__code">FM <span>03</span></span>
                         <strong>File Management</strong>
                         <small>SECURE ARCHIVE ACCESS</small>
+                        <span class="agency-department__enter">OPEN DEPARTMENT <i class="ri ri-arrow-right-line" aria-hidden="true"></i></span>
+                    </a>
+                    <a class="agency-department" href="{{ route('sm.login') }}" wire:navigate data-portal-navigation="Staff Management">
+                        <i class="agency-department__watermark ri ri-team-line" aria-hidden="true"></i>
+                        <span class="agency-department__code">SM <span>04</span></span>
+                        <strong>Staff Management</strong>
+                        <small>PERSONNEL IDENTITY ACCESS</small>
                         <span class="agency-department__enter">OPEN DEPARTMENT <i class="ri ri-arrow-right-line" aria-hidden="true"></i></span>
                     </a>
                 </nav>

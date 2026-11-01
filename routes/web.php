@@ -17,6 +17,7 @@ use App\Http\Controllers\ProfileManagerDashboardController;
 use App\Http\Controllers\ReportMediaController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StaffProfilePhotoController;
+use App\Http\Controllers\StaffGalleryController;
 use App\Http\Controllers\UploadTransferController;
 use App\Http\Controllers\VaultShellController;
 use App\Http\Controllers\VideoUploadController;
@@ -32,6 +33,8 @@ use App\Livewire\Admin\MailCenter;
 use App\Livewire\Admin\ReportManagement;
 use App\Livewire\Admin\StaffManagement;
 use App\Livewire\Admin\StaffProfile;
+use App\Livewire\StaffManager\StaffManagerDirectory;
+use App\Livewire\StaffManager\StaffManagerProfile;
 use App\Livewire\Admin\WhitelistedIpIndex;
 use App\Livewire\ReportWorkspace;
 use App\Models\Department;
@@ -62,6 +65,7 @@ $departments = [
     'cfm' => 'Case File Management',
     'pm' => 'Profile Management',
     'fm' => 'File Management',
+    'sm' => 'Staff Management',
 ];
 
 foreach ($departments as $department => $departmentName) {
@@ -124,6 +128,27 @@ foreach ($departments as $department => $departmentName) {
             Route::post('/people/{person}/images/unlock', [PersonController::class, 'authenticateImages'])->name('people.images.unlock');
             Route::delete('/people/{person}/images/{image}', [PersonController::class, 'destroyImage'])->name('people.images.destroy');
             Route::get('/avatar-models/{group}/file', [AvatarModelController::class, 'stream'])->name('avatar-models.stream');
+        } elseif ($department === 'sm') {
+            Route::view('/', 'departments.staff-management-dashboard', [
+                'department' => $department,
+                'departmentName' => $departmentName,
+            ])->name('dashboard');
+            Route::get('/staff', StaffManagerDirectory::class)->name('staff.index');
+            Route::get('/staff/{user}', StaffManagerProfile::class)->whereNumber('user')->name('staff.show');
+            Route::get('/staff/{user}/photo', [StaffProfilePhotoController::class, 'departmentStaff'])
+                ->whereNumber('user')
+                ->name('staff.photo');
+            Route::get('/staff/{user}/gallery', [StaffGalleryController::class, 'gallery'])->whereNumber('user')->name('staff.gallery.index');
+            Route::post('/staff/{user}/gallery/unlock', [StaffGalleryController::class, 'unlock'])->whereNumber('user')->name('staff.gallery.unlock');
+            Route::get('/staff/{user}/gallery/uploads', [StaffGalleryController::class, 'uploadPage'])->whereNumber('user')->name('staff.gallery.uploads');
+            Route::post('/staff/{user}/gallery/categories', [StaffGalleryController::class, 'createCategory'])->whereNumber('user')->name('staff.gallery.categories.store');
+            Route::put('/staff/{user}/gallery/categories/{category}', [StaffGalleryController::class, 'updateCategory'])->whereNumber(['user', 'category'])->name('staff.gallery.categories.update');
+            Route::delete('/staff/{user}/gallery/categories/{category}', [StaffGalleryController::class, 'deleteCategory'])->whereNumber(['user', 'category'])->name('staff.gallery.categories.destroy');
+            Route::put('/staff/{user}/gallery/images/{image}/categories', [StaffGalleryController::class, 'assignCategories'])->whereNumber(['user', 'image'])->name('staff.gallery.images.categories');
+            Route::get('/staff/{user}/gallery/images/{image}', [StaffGalleryController::class, 'image'])->whereNumber(['user', 'image'])->name('staff.gallery.image');
+            Route::get('/staff/{user}/gallery/images/{image}/thumbnail', [StaffGalleryController::class, 'image'])->defaults('thumbnail', true)->whereNumber(['user', 'image'])->name('staff.gallery.images.thumbnail');
+            Route::get('/staff/{user}/gallery/images/{image}/download', [StaffGalleryController::class, 'image'])->defaults('download', true)->whereNumber(['user', 'image'])->name('staff.gallery.images.download');
+            Route::get('/staff/{user}/gallery/images/{image}/poster', [StaffGalleryController::class, 'poster'])->whereNumber(['user', 'image'])->name('staff.gallery.images.poster');
         } elseif ($department === 'fm') {
             Route::get('/', [FileManagerController::class, 'dashboard'])->name('dashboard');
             Route::get('/archive/files', [DashboardController::class, 'archiveFiles'])->name('archive.files');
@@ -208,6 +233,17 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::get('/staff/{user}/photo', [StaffProfilePhotoController::class, 'admin'])
         ->whereNumber('user')
         ->name('admin.staff.photo');
+    Route::get('/staff/{user}/gallery', [StaffGalleryController::class, 'gallery'])->whereNumber('user')->name('admin.staff.gallery.index');
+    Route::post('/staff/{user}/gallery/unlock', [StaffGalleryController::class, 'unlock'])->whereNumber('user')->name('admin.staff.gallery.unlock');
+    Route::get('/staff/{user}/gallery/uploads', [StaffGalleryController::class, 'uploadPage'])->whereNumber('user')->name('admin.staff.gallery.uploads');
+    Route::post('/staff/{user}/gallery/categories', [StaffGalleryController::class, 'createCategory'])->whereNumber('user')->name('admin.staff.gallery.categories.store');
+    Route::put('/staff/{user}/gallery/categories/{category}', [StaffGalleryController::class, 'updateCategory'])->whereNumber(['user', 'category'])->name('admin.staff.gallery.categories.update');
+    Route::delete('/staff/{user}/gallery/categories/{category}', [StaffGalleryController::class, 'deleteCategory'])->whereNumber(['user', 'category'])->name('admin.staff.gallery.categories.destroy');
+    Route::put('/staff/{user}/gallery/images/{image}/categories', [StaffGalleryController::class, 'assignCategories'])->whereNumber(['user', 'image'])->name('admin.staff.gallery.images.categories');
+    Route::get('/staff/{user}/gallery/images/{image}', [StaffGalleryController::class, 'image'])->whereNumber(['user', 'image'])->name('admin.staff.gallery.image');
+    Route::get('/staff/{user}/gallery/images/{image}/thumbnail', [StaffGalleryController::class, 'image'])->defaults('thumbnail', true)->whereNumber(['user', 'image'])->name('admin.staff.gallery.images.thumbnail');
+    Route::get('/staff/{user}/gallery/images/{image}/download', [StaffGalleryController::class, 'image'])->defaults('download', true)->whereNumber(['user', 'image'])->name('admin.staff.gallery.images.download');
+    Route::get('/staff/{user}/gallery/images/{image}/poster', [StaffGalleryController::class, 'poster'])->whereNumber(['user', 'image'])->name('admin.staff.gallery.images.poster');
     Route::prefix('/gallery-access')->name('admin.gallery-access.')->group(function (): void {
         Route::get('/people/{person}/categories/{category}/staff', [GalleryCategoryAccessController::class, 'personStaff'])->whereNumber('category')->name('people.staff');
         Route::put('/people/{person}/categories/{category}/lock', [GalleryCategoryAccessController::class, 'updatePersonLock'])->whereNumber('category')->name('people.lock');
@@ -217,6 +253,10 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
         Route::put('/cases/{caseFile}/categories/{category}/lock', [GalleryCategoryAccessController::class, 'updateCaseLock'])->whereNumber('category')->name('cases.lock');
         Route::post('/cases/{caseFile}/categories/{category}/staff/{user}', [GalleryCategoryAccessController::class, 'grantCase'])->whereNumber(['category', 'user'])->name('cases.grant');
         Route::delete('/cases/{caseFile}/categories/{category}/staff/{user}', [GalleryCategoryAccessController::class, 'revokeCase'])->whereNumber(['category', 'user'])->name('cases.revoke');
+        Route::get('/staff/{staff}/categories/{category}/staff', [GalleryCategoryAccessController::class, 'staffGalleryStaff'])->whereNumber(['staff', 'category'])->name('staff-gallery.staff');
+        Route::put('/staff/{staff}/categories/{category}/lock', [GalleryCategoryAccessController::class, 'updateStaffGalleryLock'])->whereNumber(['staff', 'category'])->name('staff-gallery.lock');
+        Route::post('/staff/{staff}/categories/{category}/staff/{user}', [GalleryCategoryAccessController::class, 'grantStaffGallery'])->whereNumber(['staff', 'category', 'user'])->name('staff-gallery.grant');
+        Route::delete('/staff/{staff}/categories/{category}/staff/{user}', [GalleryCategoryAccessController::class, 'revokeStaffGallery'])->whereNumber(['staff', 'category', 'user'])->name('staff-gallery.revoke');
     });
 
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard.index');

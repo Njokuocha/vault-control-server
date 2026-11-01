@@ -75,6 +75,19 @@ test('profile pages require a token and preserve it through Livewire gallery nav
         ->and(substr_count($response->getContent(), 'MANAGE MEDIA'))->toBe(1);
 });
 
+test('incorrect gallery PIN attempts return normal validation without a retry throttle', function () {
+    $staff = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
+    $person = profileGalleryPerson('PIN Attempt Subject');
+    app(SettingService::class)->set('person_image_pin_hash', Hash::make('1234'));
+    $this->actingAs($staff, 'web');
+
+    for ($attempt = 0; $attempt < 10; $attempt++) {
+        $this->postJson(route('pm.people.images.unlock', $person), ['pin' => '0000'])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'The PIN is incorrect.');
+    }
+});
+
 test('admin and profile manager edit pages preserve gallery authorization for existing media', function () {
     $person = profileGalleryPerson('Edit Authorization Subject');
     $person->update(['main_image_path' => 'people/main/private-main.jpg']);

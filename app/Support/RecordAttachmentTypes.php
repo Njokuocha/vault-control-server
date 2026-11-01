@@ -12,6 +12,8 @@ class RecordAttachmentTypes
 
     public const CASE_EVIDENCE = 'case-evidence';
 
+    public const STAFF_GALLERY = 'staff-gallery';
+
     private const IMAGE_MIMES = [
         'jpg' => ['image/jpeg'],
         'jpeg' => ['image/jpeg'],
@@ -134,6 +136,7 @@ class RecordAttachmentTypes
         return match ($purpose) {
             self::PERSON_MAIN_IMAGE => $this->imageExtensions(),
             self::PERSON_GALLERY => [...$this->imageExtensions(), ...$this->videoExtensions()],
+            self::STAFF_GALLERY => [...$this->imageExtensions(), ...$this->videoExtensions()],
             self::CASE_EVIDENCE => [
                 ...$this->imageExtensions(),
                 ...$this->videoExtensions(),
@@ -262,6 +265,7 @@ class RecordAttachmentTypes
         return in_array($purpose, [
             self::PERSON_MAIN_IMAGE,
             self::PERSON_GALLERY,
+            self::STAFF_GALLERY,
             self::CASE_EVIDENCE,
         ], true);
     }
@@ -270,6 +274,7 @@ class RecordAttachmentTypes
     {
         return in_array($purpose, [
             self::PERSON_GALLERY,
+            self::STAFF_GALLERY,
             self::CASE_EVIDENCE,
         ], true);
     }
@@ -278,7 +283,7 @@ class RecordAttachmentTypes
     {
         $mimes = self::IMAGE_MIMES;
 
-        if (in_array($purpose, [self::PERSON_GALLERY, self::CASE_EVIDENCE], true)) {
+        if (in_array($purpose, [self::PERSON_GALLERY, self::STAFF_GALLERY, self::CASE_EVIDENCE], true)) {
             $mimes = [...$mimes, ...self::VIDEO_MIMES];
         }
 

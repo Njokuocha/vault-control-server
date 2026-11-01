@@ -10,6 +10,7 @@ use App\Models\File;
 use App\Models\InvestigationCase;
 use App\Models\Person;
 use App\Models\PersonImage;
+use App\Models\StaffGalleryImage;
 use App\Models\UploadTransfer;
 use App\Models\User;
 use App\Support\RecordAttachmentTypes;
@@ -37,18 +38,32 @@ class RecordUploadAttachmentService
             RecordAttachmentTypes::PERSON_MAIN_IMAGE,
             RecordAttachmentTypes::PERSON_GALLERY,
             RecordAttachmentTypes::CASE_EVIDENCE,
+            RecordAttachmentTypes::STAFF_GALLERY,
         ], true)) {
             $this->invalidIntent();
         }
 
-        $requiredDepartment = $purpose === RecordAttachmentTypes::CASE_EVIDENCE ? 'cfm' : 'pm';
+        $requiredDepartment = match ($purpose) {
+            RecordAttachmentTypes::CASE_EVIDENCE => 'cfm',
+            RecordAttachmentTypes::STAFF_GALLERY => 'sm',
+            default => 'pm',
+        };
+        $isActiveStaffManager = $user instanceof User
+            && $user->department === 'sm'
+            && $user->account_status === 'active';
         abort_unless(
             $this->isAdministrator($user)
-                || ($user instanceof User && $user->department === $requiredDepartment),
+                || ($user instanceof User
+                    && $user->department === $requiredDepartment
+                    && ($purpose !== RecordAttachmentTypes::STAFF_GALLERY || $isActiveStaffManager)),
             403,
         );
 
-        $recordType = $purpose === RecordAttachmentTypes::CASE_EVIDENCE ? 'case' : 'person';
+        $recordType = match ($purpose) {
+            RecordAttachmentTypes::CASE_EVIDENCE => 'case',
+            RecordAttachmentTypes::STAFF_GALLERY => 'staff',
+            default => 'person',
+        };
         $recordId = isset($intent['record_id']) ? (int) $intent['record_id'] : null;
         $draftToken = $intent['draft_token'] ?? null;
         $targetId = isset($intent['target_id']) ? (int) $intent['target_id'] : null;
@@ -58,7 +73,7 @@ class RecordUploadAttachmentService
             $this->invalidIntent();
         }
 
-        if ($recordType === 'person' && ($targetId !== null || $targetKey !== null)) {
+        if ($recordType !== 'case' && ($targetId !== null || $targetKey !== null)) {
             $this->invalidIntent();
         }
         if ($recordType === 'case' && (($targetId === null) === ($targetKey === null))) {
@@ -68,7 +83,7 @@ class RecordUploadAttachmentService
         if ($recordId !== null) {
             if ($recordType === 'person') {
                 Person::query()->findOrFail($recordId);
-            } else {
+            } elseif ($recordType === 'case') {
                 InvestigationCase::query()->findOrFail($recordId);
                 if ($targetId !== null) {
                     abort_unless(
@@ -76,6 +91,8 @@ class RecordUploadAttachmentService
                         404,
                     );
                 }
+            } else {
+                User::query()->whereNotNull('department')->findOrFail($recordId);
             }
         } elseif (! is_string($draftToken) || ! Str::isUuid($draftToken)) {
             $this->invalidIntent();
@@ -208,6 +225,17 @@ class RecordUploadAttachmentService
                         'duration' => $file->video_duration,
                     ],
                 );
+            } elseif ($upload->attachment_purpose === RecordAttachmentTypes::STAFF_GALLERY) {
+                User::query()->whereNotNull('department')->findOrFail($upload->record_id);
+                StaffGalleryImage::query()->firstOrCreate(
+                    ['file_id' => $file->getKey()],
+                    [
+                        'user_id' => $upload->record_id,
+                        'path' => $file->stored_path,
+                        'original_name' => $file->original_name,
+                        'type' => $mediaType,
+                    ],
+                );
             } else {
                 $this->invalidIntent();
             }
@@ -229,7 +257,11 @@ class RecordUploadAttachmentService
         $upload = UploadTransfer::query()->ownedBy($user)->where('token', $token)->lockForUpdate()->first();
         if (! $upload instanceof UploadTransfer
             || $upload->attachment_purpose !== $purpose
-            || $upload->record_type !== ($purpose === RecordAttachmentTypes::CASE_EVIDENCE ? 'case' : 'person')
+            || $upload->record_type !== match ($purpose) {
+                RecordAttachmentTypes::CASE_EVIDENCE => 'case',
+                RecordAttachmentTypes::STAFF_GALLERY => 'staff',
+                default => 'person',
+            }
             || ($upload->record_id !== null && $upload->record_id !== $recordId)
             || ($upload->record_id === null && (! is_string($draftToken) || $upload->draft_token !== $draftToken))
             || ($upload->target_id !== null && $upload->target_id !== $targetId)
