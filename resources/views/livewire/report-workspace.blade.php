@@ -108,7 +108,7 @@
                                             <img src="{{ route('reports.media.thumbnail', [$report, $media]) }}" alt="{{ $media->original_name }}" loading="lazy" decoding="async">
                                         @else
                                             <video src="{{ route('reports.media', [$report, $media]) }}" preload="none" muted playsinline aria-label="{{ $media->original_name }}"></video>
-                                            <span class="report-video-mark"><i class="ri ri-play-fill" aria-hidden="true"></i> VIDEO</span>
+                                            <span class="report-video-mark" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                                         @endif
                                         @if ($report->media->count() > 4 && $loop->last)
                                             <span class="report-media-more"><i class="ri ri-gallery-line" aria-hidden="true"></i> +{{ $report->media->count() - 3 }} FILES</span>

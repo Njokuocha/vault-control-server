@@ -53,16 +53,34 @@
     </section>
     @endunless
     <section class="case-evidence-section">
-        <div class="profile-section-heading"><div><span class="section-kicker">SUPPORTING MATERIAL</span><h2>Evidence categories <span>{{ $caseFile->categories->count() }}</span></h2></div></div>
+        <div class="profile-section-heading">
+            <div><span class="section-kicker">SUPPORTING MATERIAL</span><h2>Evidence categories <span>{{ $caseFile->categories->count() }}</span></h2></div>
+            <a class="button-secondary" href="{{ route($routePrefix.'cases.gallery', $caseFile) }}" wire:navigate>MANAGE CATEGORY</a>
+        </div>
         @forelse ($caseFile->categories as $category)
             <article class="case-evidence-category">
-                <header><div><span class="section-kicker">{{ str_pad($loop->iteration, 2, '0', STR_PAD_LEFT) }} / EVIDENCE CATEGORY</span><h3>{{ $category->title }}</h3></div><span>{{ $category->images->count() }} FILE{{ $category->images->count() === 1 ? '' : 'S' }}</span></header>
+                <header>
+                    <div>
+                        <span class="section-kicker">{{ str_pad($loop->iteration, 2, '0', STR_PAD_LEFT) }} / EVIDENCE CATEGORY</span>
+                        <h3>{{ $category->title }} @if($canManageGalleryAccess && $category->is_locked)<i class="ri ri-lock-line gallery-category-lock-indicator" title="Restricted category" aria-label="Restricted category"></i>@endif</h3>
+                    </div>
+                    @unless($category->access_restricted)
+                        <span>{{ $category->images->count() }} FILE{{ $category->images->count() === 1 ? '' : 'S' }}</span>
+                    @endunless
+                </header>
                 <p>{{ $category->description }}</p>
-                @if ($category->images->isNotEmpty())
+                @if ($category->access_restricted)
+                    <div class="gallery-category-restricted" role="status">
+                        <i class="ri ri-lock-line" aria-hidden="true"></i>
+                        <strong>Restricted category</strong>
+                        <span>This category is locked. Contact an administrator if you need access.</span>
+                    </div>
+                @elseif ($category->images->isNotEmpty())
                     <div class="case-evidence-gallery" data-expandable-gallery>
                         @foreach ($category->images as $image)
+                            <div class="case-evidence-entry" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
                             @if ($image->type === 'video')
-                                <button class="evidence-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-title="{{ $image->original_name }}" aria-label="Play {{ $image->original_name }}" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
+                                <button class="evidence-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-title="{{ $image->original_name }}" aria-label="Play {{ $image->original_name }}">
                                     @if ($image->poster_path || $image->file?->video_poster_path)
                                         <img src="{{ route($routePrefix.'cases.images.poster', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="" loading="lazy" decoding="async" onerror="this.remove()">
                                     @else
@@ -80,18 +98,19 @@
                                     'mp3', 'wav', 'm4a', 'ogg' => 'ri-music-2-line',
                                     default => 'ri-file-text-line',
                                 })
-                                <a class="evidence-gallery-tile evidence-gallery-document" href="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" target="_blank" rel="noopener" aria-label="View {{ $image->original_name }}" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
+                                <a class="evidence-gallery-tile evidence-gallery-document" href="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" target="_blank" rel="noopener" aria-label="View {{ $image->original_name }}">
                                     <i class="ri {{ $documentIcon }} evidence-gallery-document__watermark" aria-hidden="true"></i>
                                     <strong>{{ $extension }}</strong>
                                     <span title="{{ $image->original_name }}">{{ \Illuminate\Support\Str::limit(pathinfo($image->original_name, PATHINFO_FILENAME), 22, '...') }}</span>
                                     @if ($loop->index === 3 && $category->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>@endif
                                 </a>
                             @else
-                                <button class="evidence-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-image-title="{{ $image->original_name }}" aria-label="View {{ $image->original_name }}" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
+                                <button class="evidence-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-image-title="{{ $image->original_name }}" aria-label="View {{ $image->original_name }}">
                                     <img src="{{ route($routePrefix.'cases.images.thumbnail', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="{{ $image->original_name }}" loading="lazy" decoding="async">
                                     @if ($loop->index === 3 && $category->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>@endif
                                 </button>
                             @endif
+                            </div>
                         @endforeach
                     </div>
                 @else

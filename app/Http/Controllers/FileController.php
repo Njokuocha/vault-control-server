@@ -3,7 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\BuildArchiveIndexJob;
+use App\Models\CaseImage;
 use App\Models\File;
+use App\Models\Person;
+use App\Models\PersonImage;
+use App\Services\GalleryCategoryAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -18,6 +22,7 @@ class FileController extends Controller
 {
     public function preview(File $file, ?string $routePrefix = null): JsonResponse
     {
+        $this->authorizeGalleryFile($file);
         $routePrefix ??= request()->routeIs('fm.*') ? 'fm.files' : 'files';
         $disk = Storage::disk(config('vault.upload_disk', 'vault'));
         $absolutePath = $this->privateAbsolutePath($file);
@@ -80,6 +85,7 @@ class FileController extends Controller
 
     public function stream(Request $request, File $file): Response
     {
+        $this->authorizeGalleryFile($file, $request);
         $absolutePath = $this->privateAbsolutePath($file);
         $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($absolutePath);
         $mime = is_string($mime) && $mime !== '' ? $mime : 'application/octet-stream';
@@ -173,6 +179,7 @@ class FileController extends Controller
 
     public function download(File $file): BinaryFileResponse|Response
     {
+        $this->authorizeGalleryFile($file);
         $absolutePath = $this->privateAbsolutePath($file);
         $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($absolutePath);
         $mime = is_string($mime) && $mime !== '' ? $mime : 'application/octet-stream';
@@ -192,6 +199,7 @@ class FileController extends Controller
 
     public function videoRendition(File $file): Response
     {
+        $this->authorizeGalleryFile($file);
         abort_unless($file->category === 'video' && is_string($file->video_playable_path), 404);
 
         return $this->streamPrivatePath(request(), $file->video_playable_path, 'video/mp4');
@@ -199,6 +207,7 @@ class FileController extends Controller
 
     public function videoPoster(File $file): Response
     {
+        $this->authorizeGalleryFile($file);
         abort_unless($file->category === 'video' && is_string($file->video_poster_path), 404);
 
         return $this->streamPrivatePath(request(), $file->video_poster_path, 'image/jpeg');
@@ -206,6 +215,7 @@ class FileController extends Controller
 
     public function archiveEntry(Request $request, File $file, ?string $routePrefix = null): JsonResponse|Response
     {
+        $this->authorizeGalleryFile($file, $request);
         $routePrefix ??= $request->routeIs('fm.*') ? 'fm.files' : 'files';
         abort_unless($file->extension === 'zip' || $file->mime_type === 'application/zip', 404);
         $validated = $request->validate([
@@ -310,6 +320,37 @@ class FileController extends Controller
             ...$preview,
             'download_url' => route($routePrefix.'.archive-entry', ['file' => $file, 'path' => $entryPath, 'download' => 1]),
         ]);
+    }
+
+    private function authorizeGalleryFile(File $file, ?Request $request = null): void
+    {
+        $request ??= request();
+        $access = app(GalleryCategoryAccess::class);
+        $personImages = PersonImage::query()
+            ->where(fn ($query) => $query->where('file_id', $file->getKey())->orWhere('path', $file->stored_path))
+            ->get();
+        $personIds = $personImages->pluck('person_id')->merge(
+            Person::query()
+                ->where(fn ($query) => $query->where('main_image_file_id', $file->getKey())->orWhere('main_image_path', $file->stored_path))
+                ->pluck('id'),
+        )->unique();
+
+        foreach ($personIds as $personId) {
+            abort_unless($request->session()->get('unlocked_person_images') === $personId, 403);
+        }
+        foreach ($personImages as $image) {
+            abort_unless($access->canViewPersonImage($image, $request), 403);
+        }
+
+        $caseImages = CaseImage::query()
+            ->where(fn ($query) => $query->where('file_id', $file->getKey())->orWhere('path', $file->stored_path))
+            ->get();
+        if ($caseImages->isNotEmpty()) {
+            $canViewCaseMedia = $caseImages->contains(
+                fn (CaseImage $image): bool => $access->canViewCaseImage($image, $request),
+            );
+            abort_unless($canViewCaseMedia, 403);
+        }
     }
 
     /**

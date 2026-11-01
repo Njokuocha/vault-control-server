@@ -7,10 +7,21 @@ use App\Jobs\DeleteImageThumbnailJob;
 use App\Support\VersionedCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class PersonImage extends Model
 {
-    protected $fillable = ['person_id', 'path', 'original_name', 'type', 'file_id', 'poster_path', 'duration', 'playable_path'];
+    protected $fillable = [
+        'person_id',
+        'gallery_category_id',
+        'path',
+        'original_name',
+        'type',
+        'file_id',
+        'poster_path',
+        'duration',
+        'playable_path',
+    ];
 
     protected function casts(): array
     {
@@ -20,6 +31,9 @@ class PersonImage extends Model
     protected static function booted(): void
     {
         static::created(function (PersonImage $image): void {
+            if ($image->gallery_category_id !== null) {
+                $image->galleryCategories()->syncWithoutDetaching([$image->gallery_category_id]);
+            }
             if ($image->file_id === null && in_array($image->type, [null, 'image'], true)) {
                 BuildImageThumbnailJob::dispatch($image->path)->afterCommit();
             }
@@ -42,6 +56,21 @@ class PersonImage extends Model
     public function person(): BelongsTo
     {
         return $this->belongsTo(Person::class);
+    }
+
+    public function galleryCategory(): BelongsTo
+    {
+        return $this->belongsTo(PersonGalleryCategory::class, 'gallery_category_id');
+    }
+
+    public function galleryCategories(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            PersonGalleryCategory::class,
+            'person_gallery_category_person_image',
+            'person_image_id',
+            'person_gallery_category_id',
+        );
     }
 
     public function file(): BelongsTo

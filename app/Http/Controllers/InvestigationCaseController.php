@@ -11,6 +11,7 @@ use App\Models\UploadTransfer;
 use App\Models\User;
 use App\Models\VideoUpload;
 use App\Services\ActivityLogger;
+use App\Services\GalleryCategoryAccess;
 use App\Services\ImageThumbnailService;
 use App\Services\PublicRecordId;
 use App\Services\RecordUploadAttachmentService;
@@ -114,7 +115,13 @@ class InvestigationCaseController extends Controller
     public function show(InvestigationCase $caseFile): View
     {
         $isCaseManager = request()->routeIs('cfm.*');
-        $relations = ['categories.images.file', 'creator'];
+        $relations = [
+            'categories.images.file',
+            'categories.images.categories',
+            'categories.assignedImages.file',
+            'categories.assignedImages.categories',
+            'creator',
+        ];
         if (! $isCaseManager) {
             $relations[] = 'people';
         }
@@ -125,12 +132,213 @@ class InvestigationCaseController extends Controller
             now()->addSeconds(30),
             fn (): InvestigationCase => $caseFile->load($relations),
         );
-        $caseFile->loadMissing('categories.images.file');
+        $caseFile->loadMissing($relations);
+        foreach ($caseFile->categories as $category) {
+            $images = $category->images
+                ->merge($category->assignedImages)
+                ->unique('id')
+                ->sortBy('id')
+                ->values();
+            $images->loadMissing(['file', 'categories']);
+            $category->setRelation('images', $images);
+        }
 
         return view('cases.show', [
             'caseFile' => $caseFile,
             'galleryMediaCount' => $caseFile->categories->sum(fn ($category) => $category->images->count()),
         ]);
+    }
+
+    public function gallery(Request $request, InvestigationCase $caseFile, GalleryCategoryAccess $galleryAccess): View
+    {
+        $categories = $caseFile->categories()
+            ->withCount('assignedImages')
+            ->get();
+        $visibleCategoryIds = $galleryAccess->visibleCaseCategoryIds($caseFile->getKey(), $request);
+        $categories->each(function (CaseCategory $category) use ($visibleCategoryIds): void {
+            if (! in_array($category->getKey(), $visibleCategoryIds, true)) {
+                $category->assigned_images_count = 0;
+            }
+        });
+        $requestedCategory = $request->query('category');
+        $categoryRestricted = false;
+
+        if ($requestedCategory !== null) {
+            abort_unless(is_string($requestedCategory) && ctype_digit($requestedCategory), 404);
+            $selectedCategory = $categories->firstWhere('id', (int) $requestedCategory);
+            abort_unless($selectedCategory instanceof CaseCategory, 404);
+            $categoryRestricted = ! in_array($selectedCategory->getKey(), $visibleCategoryIds, true);
+        } else {
+            $selectedCategory = $categories->first(fn (CaseCategory $category): bool => $category->assigned_images_count > 0)
+                ?? $categories->first(fn (CaseCategory $category): bool => in_array($category->getKey(), $visibleCategoryIds, true))
+                ?? $categories->first();
+            $categoryRestricted = $selectedCategory instanceof CaseCategory
+                && ! in_array($selectedCategory->getKey(), $visibleCategoryIds, true);
+        }
+
+        $galleryMedia = $selectedCategory instanceof CaseCategory && ! $categoryRestricted
+            ? $selectedCategory->assignedImages()->with(['file', 'categories'])->latest('case_images.id')->paginate(24)->withQueryString()
+            : CaseImage::query()->whereRaw('1 = 0')->paginate(24);
+
+        return view('cases.gallery', [
+            'caseFile' => $caseFile,
+            'categories' => $categories,
+            'selectedCategory' => $selectedCategory,
+            'categoryRestricted' => $categoryRestricted,
+            'visibleCategoryIds' => $visibleCategoryIds,
+            'galleryMedia' => $galleryMedia,
+            'routePrefix' => request()->routeIs('cfm.*') ? 'cfm.' : '',
+            'canManageGalleryAccess' => $galleryAccess->isAdministrator($request),
+        ]);
+    }
+
+    public function createCategory(Request $request, InvestigationCase $caseFile): RedirectResponse|JsonResponse
+    {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'description' => ['nullable', 'string', 'max:10000'],
+        ]);
+        $category = $caseFile->categories()->create([
+            'title' => trim($validated['title']),
+            'description' => trim($validated['description'] ?? ''),
+            'sort_order' => (int) $caseFile->categories()->max('sort_order') + 1,
+        ]);
+
+        return $this->caseCategoryActionResponse($request, $caseFile, 'Evidence category created.', $category->getKey());
+    }
+
+    public function updateCategory(
+        Request $request,
+        InvestigationCase $caseFile,
+        int $category,
+        GalleryCategoryAccess $galleryAccess,
+    ): RedirectResponse|JsonResponse {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'description' => ['nullable', 'string', 'max:10000'],
+        ]);
+        $categoryModel = $caseFile->categories()->whereKey($category)->firstOrFail();
+        abort_unless($galleryAccess->canViewCaseCategory($categoryModel, $request), 403);
+        $categoryModel->update([
+            'title' => trim($validated['title']),
+            'description' => trim($validated['description'] ?? ''),
+        ]);
+
+        return $this->caseCategoryActionResponse($request, $caseFile, 'Evidence category updated.', $categoryModel->getKey());
+    }
+
+    public function deleteCategory(
+        Request $request,
+        InvestigationCase $caseFile,
+        int $category,
+        GalleryCategoryAccess $galleryAccess,
+    ): RedirectResponse|JsonResponse {
+        $categoryModel = $caseFile->categories()->whereKey($category)->firstOrFail();
+        abort_unless($galleryAccess->canViewCaseCategory($categoryModel, $request), 403);
+        $replacement = $caseFile->categories()->where('id', '!=', $categoryModel->getKey())->first();
+        $transfers = UploadTransfer::query()
+            ->where('record_type', 'case')
+            ->where('record_id', $caseFile->getKey())
+            ->where('target_id', $categoryModel->getKey());
+
+        if ($replacement === null && ($categoryModel->images()->exists() || $categoryModel->assignedImages()->exists() || $transfers->exists())) {
+            throw ValidationException::withMessages([
+                'category' => 'Create another evidence category before deleting the final category containing media or pending uploads.',
+            ]);
+        }
+
+        DB::transaction(function () use ($categoryModel, $replacement, $transfers): void {
+            $images = $categoryModel->images()
+                ->with('categories')
+                ->get()
+                ->merge($categoryModel->assignedImages()->with('categories')->get())
+                ->unique('id');
+
+            foreach ($images as $image) {
+                $categoryIds = $image->categories->modelKeys();
+                if (! in_array($categoryModel->getKey(), $categoryIds, true)) {
+                    $categoryIds[] = $categoryModel->getKey();
+                }
+                $categoryIds = array_values(array_filter(
+                    $categoryIds,
+                    fn (int $id): bool => $id !== $categoryModel->getKey(),
+                ));
+                if ($categoryIds === [] && $replacement !== null) {
+                    $categoryIds[] = $replacement->getKey();
+                }
+
+                $image->categories()->sync($categoryIds);
+                if (! in_array($image->case_category_id, $categoryIds, true) && $categoryIds !== []) {
+                    $image->update(['case_category_id' => $categoryIds[0]]);
+                }
+            }
+
+            if ($replacement !== null) {
+                $transfers->update(['target_id' => $replacement->getKey()]);
+            }
+            $categoryModel->delete();
+        });
+
+        return $this->caseCategoryActionResponse($request, $caseFile, 'Evidence category deleted.');
+    }
+
+    public function assignImageCategories(
+        Request $request,
+        InvestigationCase $caseFile,
+        int $image,
+        GalleryCategoryAccess $galleryAccess,
+    ): RedirectResponse|JsonResponse {
+        $validated = $request->validate([
+            'category_ids' => ['required', 'array', 'min:1'],
+            'category_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+        $categoryIds = array_map('intval', $validated['category_ids']);
+        $categories = $caseFile->categories()->whereIn('id', $categoryIds)->get();
+        abort_unless($categories->count() === count($categoryIds), 404);
+        foreach ($categories as $category) {
+            abort_unless($galleryAccess->canViewCaseCategory($category, $request), 403);
+        }
+        $media = CaseImage::query()
+            ->whereKey($image)
+            ->whereHas('category', fn ($query) => $query->where('case_file_id', $caseFile->getKey()))
+            ->firstOrFail();
+        abort_unless($galleryAccess->canViewCaseImage($media, $request), 403);
+        $existingCategoryIds = $media->categories()->pluck('case_categories.id')->map(fn ($id): int => (int) $id)->all();
+        $membershipChanged = array_diff($existingCategoryIds, $categoryIds) !== []
+            || array_diff($categoryIds, $existingCategoryIds) !== [];
+        $primaryCategoryChanged = ! in_array((int) $media->case_category_id, $categoryIds, true);
+
+        DB::transaction(function () use ($media, $categoryIds, $membershipChanged, $primaryCategoryChanged): void {
+            if ($primaryCategoryChanged) {
+                $media->update(['case_category_id' => $categoryIds[0]]);
+            }
+            $media->categories()->sync($categoryIds);
+            if ($membershipChanged && ! $primaryCategoryChanged) {
+                app(VersionedCache::class)->bumpAfterCommit('cases');
+            }
+        });
+
+        return $this->caseCategoryActionResponse($request, $caseFile, 'Evidence categories updated.', $categoryIds[0]);
+    }
+
+    private function caseCategoryActionResponse(
+        Request $request,
+        InvestigationCase $caseFile,
+        string $message,
+        ?int $categoryId = null,
+    ): RedirectResponse|JsonResponse {
+        $routePrefix = $request->routeIs('cfm.*') ? 'cfm.' : '';
+        $parameters = ['caseFile' => $caseFile];
+        if ($categoryId !== null) {
+            $parameters['category'] = $categoryId;
+        }
+        $redirectUrl = route($routePrefix.'cases.gallery', $parameters);
+
+        if ($request->expectsJson()) {
+            return response()->json(['redirect_url' => $redirectUrl, 'message' => $message]);
+        }
+
+        return redirect()->to($redirectUrl)->with('status', $message);
     }
 
     public function edit(InvestigationCase $caseFile, SettingService $settings): View
@@ -321,9 +529,15 @@ class InvestigationCaseController extends Controller
         return redirect()->route('cases.index')->with('status', 'Case file deleted.');
     }
 
-    public function image(InvestigationCase $caseFile, CaseImage $image, bool $download = false, bool $thumbnail = false): mixed
-    {
+    public function image(
+        InvestigationCase $caseFile,
+        CaseImage $image,
+        GalleryCategoryAccess $galleryAccess,
+        bool $download = false,
+        bool $thumbnail = false,
+    ): mixed {
         abort_unless($image->category()->where('case_file_id', $caseFile->id)->exists(), 404);
+        abort_unless($galleryAccess->canViewCaseImage($image, request()), 403);
         if ($image->type === 'video') {
             $file = $image->file;
             abort_unless($file instanceof File, 404);
@@ -364,9 +578,13 @@ class InvestigationCaseController extends Controller
         return $response;
     }
 
-    public function previewEvidence(InvestigationCase $caseFile, File $file): JsonResponse
-    {
+    public function previewEvidence(
+        InvestigationCase $caseFile,
+        File $file,
+        GalleryCategoryAccess $galleryAccess,
+    ): JsonResponse {
         $image = $this->evidenceImage($caseFile, $file);
+        abort_unless($galleryAccess->canViewCaseImage($image, request()), 403);
         $preview = app(FileController::class)->preview($file)->getData(true);
         $routePrefix = request()->routeIs('cfm.*') ? 'cfm.' : '';
         $preview['stream_url'] = route($routePrefix.'cases.evidence-stream', ['caseFile' => $caseFile, 'file' => $file->uuid]);
@@ -375,9 +593,14 @@ class InvestigationCaseController extends Controller
         return response()->json($preview);
     }
 
-    public function streamEvidence(Request $request, InvestigationCase $caseFile, File $file): mixed
-    {
+    public function streamEvidence(
+        Request $request,
+        InvestigationCase $caseFile,
+        File $file,
+        GalleryCategoryAccess $galleryAccess,
+    ): mixed {
         $image = $this->evidenceImage($caseFile, $file);
+        abort_unless($galleryAccess->canViewCaseImage($image, $request), 403);
         if ($image->type === 'video' && $image->playable_path) {
             return app(FileController::class)->videoRendition($file);
         }
@@ -385,9 +608,13 @@ class InvestigationCaseController extends Controller
         return app(FileController::class)->stream($request, $file);
     }
 
-    public function imagePoster(InvestigationCase $caseFile, CaseImage $image): mixed
-    {
+    public function imagePoster(
+        InvestigationCase $caseFile,
+        CaseImage $image,
+        GalleryCategoryAccess $galleryAccess,
+    ): mixed {
         abort_unless($image->category()->where('case_file_id', $caseFile->id)->exists(), 404);
+        abort_unless($galleryAccess->canViewCaseImage($image, request()), 403);
         abort_unless($image->type === 'video', 404);
         $disk = Storage::disk(config('vault.upload_disk'));
         $posterPath = collect([$image->poster_path, $image->file?->video_poster_path])
@@ -399,9 +626,13 @@ class InvestigationCaseController extends Controller
         return app(FileController::class)->streamPrivatePath(request(), $posterPath, 'image/jpeg', $fileName);
     }
 
-    public function destroyImage(InvestigationCase $caseFile, CaseImage $image): JsonResponse
-    {
+    public function destroyImage(
+        InvestigationCase $caseFile,
+        CaseImage $image,
+        GalleryCategoryAccess $galleryAccess,
+    ): JsonResponse {
         abort_unless($image->category()->where('case_file_id', $caseFile->id)->exists(), 404);
+        abort_unless($galleryAccess->canViewCaseImage($image, request()), 403);
         $file = $image->file;
         $transferTokens = $image->file_id === null
             ? collect()

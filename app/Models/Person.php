@@ -62,6 +62,11 @@ class Person extends Model
         return $this->hasMany(PersonImage::class);
     }
 
+    public function galleryCategories(): HasMany
+    {
+        return $this->hasMany(PersonGalleryCategory::class)->orderBy('sort_order')->orderBy('id');
+    }
+
     public function mainImageFile(): BelongsTo
     {
         return $this->belongsTo(File::class, 'main_image_file_id');

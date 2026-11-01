@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\SettingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -462,7 +463,7 @@ test('cached profile and case galleries refresh immediately after media changes'
 
     $this->get(route('people.show', $person))
         ->assertOk()
-        ->assertSee('No additional images have been added.');
+        ->assertSee('No media in this preview category yet.');
     $this->get(route('cases.show', $case))
         ->assertOk()
         ->assertSee('No image categories have been added.');
@@ -523,7 +524,7 @@ test('person profiles securely store a main image and multiple gallery images', 
         ->assertHeader('X-Content-Type-Options', 'nosniff');
 });
 
-test('person galleries expand beyond four images and expose the gallery expansion control', function () {
+test('profile previews stay bounded and the dedicated gallery shows all media', function () {
     $this->actingAs(User::factory()->create())
         ->post(route('people.store'), [
             'other_images' => array_map(
@@ -537,10 +538,19 @@ test('person galleries expand beyond four images and expose the gallery expansio
     $response = $this->get(route('people.show', $person))
         ->assertOk()
         ->assertSee('data-profile-gallery', false)
-        ->assertSee('+2')
-        ->assertSee('data-gallery-extra', false);
+        ->assertSee(route('people.gallery', $person), false)
+        ->assertSee('VIEW GALLERY', false);
 
-    expect(substr_count($response->getContent(), 'data-gallery-extra'))->toBe(2);
+    expect(substr_count($response->getContent(), 'class="profile-gallery-tile'))->toBe(4);
+
+    $galleryResponse = $this->get(route('people.gallery', $person))
+        ->assertOk()
+        ->assertSee('gallery-1.png')
+        ->assertSee('gallery-2.png')
+        ->assertSee('gallery-3.png')
+        ->assertSee('gallery-4.png')
+        ->assertSee('gallery-5.png')
+        ->assertSee('gallery-6.png');
 });
 
 test('case files create grouped evidence and link to person profiles', function () {
@@ -729,6 +739,138 @@ test('case evidence galleries expand beyond four images and provide image downlo
     $download = $this->get(route('cases.images.download', ['caseFile' => $caseFile, 'image' => $firstImage]))
         ->assertOk();
     expect($download->headers->get('Content-Disposition'))->toBe('attachment; filename=image-1.png');
+});
+
+test('case evidence can be multi-assigned and category management preserves media', function () {
+    $user = User::factory()->create();
+    $caseFile = InvestigationCase::query()->create([
+        'public_id' => 'CSE-MULTI01',
+        'title' => 'Multi-category case',
+        'classification' => 'CLASSIFIED',
+        'case_status' => 'OPEN',
+    ]);
+    $firstCategory = $caseFile->categories()->create(['title' => 'Primary', 'sort_order' => 1]);
+    $secondCategory = $caseFile->categories()->create(['title' => 'Related', 'sort_order' => 2]);
+    $image = $firstCategory->images()->create([
+        'path' => 'cases/multi-category.jpg',
+        'original_name' => 'multi-category.jpg',
+        'type' => 'image',
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('cases.show', $caseFile))
+        ->assertOk();
+
+    $this->actingAs($user)
+        ->putJson(route('cases.images.categories', [$caseFile, $image]), [
+            'category_ids' => [$firstCategory->id, $secondCategory->id],
+        ])
+        ->assertOk()
+        ->assertJsonPath('redirect_url', route('cases.gallery', ['caseFile' => $caseFile, 'category' => $firstCategory->id]));
+
+    expect($image->fresh()->categories()->pluck('case_categories.id')->all())
+        ->toEqualCanonicalizing([$firstCategory->id, $secondCategory->id]);
+
+    $caseResponse = $this->get(route('cases.show', $caseFile))
+        ->assertOk()
+        ->assertSee('MANAGE CATEGORY')
+        ->assertSee(route('cases.gallery', $caseFile), false)
+        ->assertDontSee('CHANGE CATEGORY')
+        ->assertSee('multi-category.jpg');
+    expect(substr_count($caseResponse->getContent(), 'data-open-category-picker'))->toBe(0);
+
+    $this->postJson(route('cases.categories.store', $caseFile), [
+        'title' => 'New evidence',
+        'description' => 'Additional material',
+    ])->assertOk()
+        ->assertJsonPath('redirect_url', route('cases.gallery', ['caseFile' => $caseFile, 'category' => $caseFile->categories()->where('title', 'New evidence')->value('id')]));
+    $createdCategory = $caseFile->categories()->where('title', 'New evidence')->firstOrFail();
+    $this->putJson(route('cases.categories.update', [$caseFile, $createdCategory]), [
+        'title' => 'Renamed evidence',
+        'description' => 'Updated material',
+    ])->assertOk()
+        ->assertJsonPath('redirect_url', route('cases.gallery', ['caseFile' => $caseFile, 'category' => $createdCategory->id]));
+    expect($createdCategory->fresh()->title)->toBe('Renamed evidence')
+        ->and($createdCategory->fresh()->description)->toBe('Updated material');
+
+    $this->get(route('cases.gallery', ['caseFile' => $caseFile, 'category' => $secondCategory->id]))
+        ->assertOk()
+        ->assertSee('CASE EVIDENCE GALLERY')
+        ->assertSee('Change categories')
+        ->assertSee('multi-category.jpg')
+        ->assertSee('name="description"', false);
+
+    $this->deleteJson(route('cases.categories.destroy', [$caseFile, $firstCategory->id]))
+        ->assertOk();
+
+    expect($image->fresh()->exists)->toBeTrue()
+        ->and($image->fresh()->case_category_id)->toBe($secondCategory->id)
+        ->and($image->fresh()->categories()->pluck('case_categories.id')->all())->toBe([$secondCategory->id]);
+});
+
+test('locked case categories restrict evidence until an active case staff member is granted access', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Evidence Administrator',
+        'email' => 'evidence-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $allowedStaff = User::factory()->create(['department' => 'cfm', 'account_status' => 'active']);
+    $otherStaff = User::factory()->create(['department' => 'cfm', 'account_status' => 'active']);
+    $personStaff = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
+    $caseFile = InvestigationCase::query()->create([
+        'public_id' => 'CSE-LOCK001',
+        'title' => 'Restricted evidence case',
+    ]);
+    $category = $caseFile->categories()->create(['title' => 'Confidential evidence']);
+    $image = $category->images()->create([
+        'path' => 'cases/confidential-evidence.jpg',
+        'original_name' => 'confidential-evidence.jpg',
+        'type' => 'image',
+    ]);
+
+    $this->actingAs($admin, 'admin')
+        ->putJson(route('admin.gallery-access.cases.lock', [$caseFile, $category]), ['locked' => true])
+        ->assertOk()
+        ->assertJsonPath('locked', true);
+    $staffResponse = $this->getJson(route('admin.gallery-access.cases.staff', [$caseFile, $category]))
+        ->assertOk();
+    expect(collect($staffResponse->json('staff'))->pluck('id')->all())
+        ->toContain($allowedStaff->id, $otherStaff->id)
+        ->not->toContain($personStaff->id);
+
+    Auth::guard('admin')->logout();
+    $this->actingAs($otherStaff, 'web')
+        ->get(route('cfm.cases.gallery', ['caseFile' => $caseFile, 'category' => $category->id]))
+        ->assertOk()
+        ->assertSee('Restricted category')
+        ->assertDontSee('confidential-evidence.jpg');
+    $this->get(route('cfm.cases.show', $caseFile))
+        ->assertOk()
+        ->assertSee('Restricted category')
+        ->assertDontSee('confidential-evidence.jpg');
+    $this->get(route('cfm.cases.edit', $caseFile))
+        ->assertOk()
+        ->assertDontSee('confidential-evidence.jpg');
+    $this->get(route('cfm.cases.image', ['caseFile' => $caseFile, 'image' => $image->id]))
+        ->assertForbidden();
+
+    $this->actingAs($admin, 'admin')
+        ->postJson(route('admin.gallery-access.cases.grant', [$caseFile, $category, $allowedStaff]))
+        ->assertOk()
+        ->assertJsonPath('granted', true);
+    Auth::guard('admin')->logout();
+    $this->actingAs($allowedStaff, 'web')
+        ->get(route('cfm.cases.gallery', ['caseFile' => $caseFile, 'category' => $category->id]))
+        ->assertOk()
+        ->assertSee('confidential-evidence.jpg');
+    $this->get(route('cfm.cases.image', ['caseFile' => $caseFile, 'image' => $image->id]))
+        ->assertNotFound();
+
+    $this->actingAs($admin, 'admin')
+        ->putJson(route('admin.gallery-access.cases.lock', [$caseFile, $category]), ['locked' => false])
+        ->assertOk()
+        ->assertJsonPath('revoked_count', 1);
+    expect($category->fresh()->authorizedStaff()->count())->toBe(0);
 });
 
 test('avatar models accept valid embedded GLB files and reject external asset references', function () {

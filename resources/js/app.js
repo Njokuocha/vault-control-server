@@ -8,6 +8,7 @@ import { syncReportRealtimeSubscription } from './report-system';
 import './admin-mail';
 import './staff-status';
 import './case-media-previews';
+import './gallery-management';
 import { openImageViewer } from './image-viewer.js';
 import { evaluateTriggerExpression } from './shell-math.mjs';
 import Echo from 'laravel-echo';
@@ -201,6 +202,14 @@ document.addEventListener('click', async (event) => {
 let pageCleanup = [];
 let clockInterval = null;
 let navigationInProgress = false;
+let pageMediaClickHandler = null;
+
+document.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element) || !event.target.closest('[data-image-viewer], [data-video-viewer], [data-expand-gallery]')) return;
+
+    if (!pageMediaClickHandler) initializeVaultPage();
+    pageMediaClickHandler?.(event);
+});
 
 const listenForPageEvent = (target, type, listener, options) => {
     target.addEventListener(type, listener, options);
@@ -2055,41 +2064,62 @@ profileImageToggle?.addEventListener('click', () => {
     profileImageToggle.innerHTML = showImage ? 'VIEW 3D MODEL <span>↗</span>' : 'VIEW MAIN IMAGE <span>↗</span>';
 });
 
-const videoViewerDialog = document.querySelector('[data-video-viewer-dialog]');
-const videoViewerPlayer = videoViewerDialog?.querySelector('[data-video-viewer-player]');
-const videoViewerTitle = videoViewerDialog?.querySelector('[data-video-viewer-title]');
-const videoViewerDownload = videoViewerDialog?.querySelector('[data-video-viewer-download]');
-const videoViewerFallback = videoViewerDialog?.querySelector('[data-video-viewer-fallback]');
+document.querySelectorAll('[data-gallery-assignment-select]').forEach((select) => {
+    select.addEventListener('change', () => select.form?.requestSubmit());
+});
+
+const boundVideoDialogs = new WeakSet();
+const boundVideoPlayers = new WeakSet();
+const bindVideoDialog = (dialog) => {
+    if (boundVideoDialogs.has(dialog)) return;
+    boundVideoDialogs.add(dialog);
+    dialog.addEventListener('click', (event) => {
+        if (event.target === dialog || event.target instanceof Element && event.target.closest('[data-close-video-viewer]')) {
+            dialog.close();
+        }
+    });
+    dialog.addEventListener('close', () => {
+        const player = dialog.querySelector('[data-video-viewer-player]');
+        const download = dialog.querySelector('[data-video-viewer-download]');
+        const fallback = dialog.querySelector('[data-video-viewer-fallback]');
+        if (player) {
+            player.pause();
+            player.removeAttribute('src');
+            player.load();
+        }
+        download?.removeAttribute('href');
+        if (fallback) fallback.hidden = true;
+    });
+};
 const openVideoViewer = (trigger) => {
-    if (!videoViewerDialog || !videoViewerPlayer) return;
+    const root = trigger.closest('[wire\\:id]') ?? document;
+    const dialog = root.querySelector('[data-video-viewer-dialog]')
+        ?? document.querySelector('[data-video-viewer-dialog]');
+    if (!(dialog instanceof HTMLDialogElement)) return;
+    bindVideoDialog(dialog);
+    const player = dialog.querySelector('[data-video-viewer-player]');
+    const title = dialog.querySelector('[data-video-viewer-title]');
+    const download = dialog.querySelector('[data-video-viewer-download]');
+    const fallback = dialog.querySelector('[data-video-viewer-fallback]');
+    if (!(player instanceof HTMLVideoElement)) return;
+    if (!boundVideoPlayers.has(player)) {
+        boundVideoPlayers.add(player);
+        player.addEventListener('error', () => {
+            const currentFallback = dialog.querySelector('[data-video-viewer-fallback]');
+            if (currentFallback) currentFallback.hidden = false;
+        });
+    }
     const source = trigger.dataset.videoUrl;
     if (!source) return;
-    videoViewerPlayer.src = source;
-    videoViewerPlayer.load();
-    if (videoViewerFallback) videoViewerFallback.hidden = true;
-    if (videoViewerTitle) videoViewerTitle.textContent = trigger.dataset.videoTitle ?? 'Private video';
-    if (videoViewerDownload) videoViewerDownload.href = trigger.dataset.videoDownloadUrl ?? source;
-    videoViewerDialog.showModal();
+    player.src = source;
+    player.load();
+    if (fallback) fallback.hidden = true;
+    if (title) title.textContent = trigger.dataset.videoTitle ?? 'Private video';
+    if (download) download.href = trigger.dataset.videoDownloadUrl ?? source;
+    dialog.showModal();
 };
-videoViewerPlayer?.addEventListener('error', () => {
-    if (videoViewerFallback) videoViewerFallback.hidden = false;
-});
-const closeVideoViewer = () => {
-    if (videoViewerPlayer) {
-        videoViewerPlayer.pause();
-        videoViewerPlayer.removeAttribute('src');
-        videoViewerPlayer.load();
-    }
-    videoViewerDownload?.removeAttribute('href');
-    if (videoViewerFallback) videoViewerFallback.hidden = true;
-};
-videoViewerDialog?.querySelector('[data-close-video-viewer]')?.addEventListener('click', () => videoViewerDialog.close());
-videoViewerDialog?.addEventListener('click', (event) => {
-    if (event.target === videoViewerDialog) videoViewerDialog.close();
-});
-videoViewerDialog?.addEventListener('close', closeVideoViewer);
 
-listenForPageEvent(document, 'click', (event) => {
+pageMediaClickHandler = (event) => {
     const expandButton = event.target.closest('[data-expand-gallery]');
     if (expandButton) {
         event.preventDefault();
@@ -2116,9 +2146,15 @@ listenForPageEvent(document, 'click', (event) => {
     const videoTrigger = event.target.closest('[data-video-viewer]');
     if (videoTrigger) {
         event.preventDefault();
-        if (videoTrigger.hasAttribute('data-video-pin-required') && !personViewablesUnlocked) {
-            imagePinDialog?.showModal();
-            imagePinDigits[0]?.focus();
+        const currentPinDialog = document.querySelector('[data-image-pin-dialog]');
+        if (videoTrigger.hasAttribute('data-video-pin-required')
+            && videoTrigger.querySelector('[data-image-lock-placeholder]')) {
+            if (currentPinDialog instanceof HTMLDialogElement) {
+                currentPinDialog.showModal();
+                currentPinDialog.querySelector('[data-pin-digit]')?.focus();
+            } else {
+                window.vaultAlert({ type: 'error', message: 'The image access dialog is unavailable. Reload the page and try again.' });
+            }
             return;
         }
         openVideoViewer(videoTrigger);
@@ -2131,9 +2167,14 @@ listenForPageEvent(document, 'click', (event) => {
     const protectedImage = imageTrigger.matches('[data-protected-image]')
         ? imageTrigger
         : imageTrigger.querySelector('[data-protected-image]');
-    if (protectedImage && !protectedImage.getAttribute('src') && !personViewablesUnlocked) {
-        imagePinDialog?.showModal();
-        imagePinDigits[0]?.focus();
+    const currentPinDialog = document.querySelector('[data-image-pin-dialog]');
+    if (protectedImage && !protectedImage.getAttribute('src')) {
+        if (currentPinDialog instanceof HTMLDialogElement) {
+            currentPinDialog.showModal();
+            currentPinDialog.querySelector('[data-pin-digit]')?.focus();
+        } else {
+            window.vaultAlert({ type: 'error', message: 'The image access dialog is unavailable. Reload the page and try again.' });
+        }
         return;
     }
     if (protectedImage) loadProtectedImage(protectedImage);
@@ -2147,7 +2188,7 @@ listenForPageEvent(document, 'click', (event) => {
             ?? imageTrigger.querySelector('img')?.alt
             ?? 'Private image',
     });
-});
+};
 
 listenForPageEvent(window, 'pageshow', (event) => {
     if (event.persisted && document.querySelector('[data-image-pin-dialog]')) window.location.reload();

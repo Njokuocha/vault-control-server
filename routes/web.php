@@ -8,6 +8,7 @@ use App\Http\Controllers\CaseManagerDashboardController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\FileManagerController;
+use App\Http\Controllers\GalleryCategoryAccessController;
 use App\Http\Controllers\InvestigationCaseController;
 use App\Http\Controllers\ManualUploadController;
 use App\Http\Controllers\PersonController;
@@ -75,6 +76,11 @@ foreach ($departments as $department => $departmentName) {
             Route::get('/cases/create', [InvestigationCaseController::class, 'create'])->name('cases.create');
             Route::post('/cases', [InvestigationCaseController::class, 'store'])->name('cases.store');
             Route::get('/cases/{caseFile}', [InvestigationCaseController::class, 'show'])->name('cases.show');
+            Route::get('/cases/{caseFile}/gallery', [InvestigationCaseController::class, 'gallery'])->name('cases.gallery');
+            Route::post('/cases/{caseFile}/categories', [InvestigationCaseController::class, 'createCategory'])->name('cases.categories.store');
+            Route::put('/cases/{caseFile}/categories/{category}', [InvestigationCaseController::class, 'updateCategory'])->whereNumber('category')->name('cases.categories.update');
+            Route::delete('/cases/{caseFile}/categories/{category}', [InvestigationCaseController::class, 'deleteCategory'])->whereNumber('category')->name('cases.categories.destroy');
+            Route::put('/cases/{caseFile}/images/{image}/categories', [InvestigationCaseController::class, 'assignImageCategories'])->whereNumber('image')->name('cases.images.categories');
             Route::get('/cases/{caseFile}/edit', [InvestigationCaseController::class, 'edit'])->name('cases.edit');
             Route::put('/cases/{caseFile}', [InvestigationCaseController::class, 'update'])->name('cases.update');
             Route::get('/cases/{caseFile}/evidence/{file:uuid}/preview', [InvestigationCaseController::class, 'previewEvidence'])->withoutScopedBindings()->name('cases.evidence-preview');
@@ -90,6 +96,11 @@ foreach ($departments as $department => $departmentName) {
             Route::get('/people/create', [PersonController::class, 'create'])->name('people.create');
             Route::post('/people', [PersonController::class, 'store'])->name('people.store');
             Route::get('/people/{person}', [PersonController::class, 'show'])->name('people.show');
+            Route::get('/people/{person}/gallery', [PersonController::class, 'gallery'])->name('people.gallery');
+            Route::post('/people/{person}/gallery/categories', [PersonController::class, 'createGalleryCategory'])->name('people.gallery-categories.store');
+            Route::put('/people/{person}/gallery/categories/{category}', [PersonController::class, 'updateGalleryCategory'])->whereNumber('category')->name('people.gallery-categories.update');
+            Route::delete('/people/{person}/gallery/categories/{category}', [PersonController::class, 'deleteGalleryCategory'])->whereNumber('category')->name('people.gallery-categories.destroy');
+            Route::put('/people/{person}/gallery/images/{image}/category', [PersonController::class, 'assignGalleryImageCategory'])->whereNumber('image')->name('people.gallery-images.category');
             Route::get('/people/{person}/edit', [PersonController::class, 'edit'])->name('people.edit');
             Route::put('/people/{person}', [PersonController::class, 'update'])->name('people.update');
             Route::get('/people/{person}/images/{image}', [PersonController::class, 'image'])->name('people.image');
@@ -184,6 +195,16 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::get('/staff/{user}/photo', [StaffProfilePhotoController::class, 'admin'])
         ->whereNumber('user')
         ->name('admin.staff.photo');
+    Route::prefix('/gallery-access')->name('admin.gallery-access.')->group(function (): void {
+        Route::get('/people/{person}/categories/{category}/staff', [GalleryCategoryAccessController::class, 'personStaff'])->whereNumber('category')->name('people.staff');
+        Route::put('/people/{person}/categories/{category}/lock', [GalleryCategoryAccessController::class, 'updatePersonLock'])->whereNumber('category')->name('people.lock');
+        Route::post('/people/{person}/categories/{category}/staff/{user}', [GalleryCategoryAccessController::class, 'grantPerson'])->whereNumber(['category', 'user'])->name('people.grant');
+        Route::delete('/people/{person}/categories/{category}/staff/{user}', [GalleryCategoryAccessController::class, 'revokePerson'])->whereNumber(['category', 'user'])->name('people.revoke');
+        Route::get('/cases/{caseFile}/categories/{category}/staff', [GalleryCategoryAccessController::class, 'caseStaff'])->whereNumber('category')->name('cases.staff');
+        Route::put('/cases/{caseFile}/categories/{category}/lock', [GalleryCategoryAccessController::class, 'updateCaseLock'])->whereNumber('category')->name('cases.lock');
+        Route::post('/cases/{caseFile}/categories/{category}/staff/{user}', [GalleryCategoryAccessController::class, 'grantCase'])->whereNumber(['category', 'user'])->name('cases.grant');
+        Route::delete('/cases/{caseFile}/categories/{category}/staff/{user}', [GalleryCategoryAccessController::class, 'revokeCase'])->whereNumber(['category', 'user'])->name('cases.revoke');
+    });
 
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard.index');
     Route::get('/dashboard/snapshot', [DashboardController::class, 'snapshot'])->name('dashboard.snapshot');
@@ -200,6 +221,11 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::get('/people/create', [PersonController::class, 'create'])->name('people.create');
     Route::post('/people', [PersonController::class, 'store'])->name('people.store');
     Route::get('/people/{person}', [PersonController::class, 'show'])->name('people.show');
+    Route::get('/people/{person}/gallery', [PersonController::class, 'gallery'])->name('people.gallery');
+    Route::post('/people/{person}/gallery/categories', [PersonController::class, 'createGalleryCategory'])->name('people.gallery-categories.store');
+    Route::put('/people/{person}/gallery/categories/{category}', [PersonController::class, 'updateGalleryCategory'])->whereNumber('category')->name('people.gallery-categories.update');
+    Route::delete('/people/{person}/gallery/categories/{category}', [PersonController::class, 'deleteGalleryCategory'])->whereNumber('category')->name('people.gallery-categories.destroy');
+    Route::put('/people/{person}/gallery/images/{image}/category', [PersonController::class, 'assignGalleryImageCategory'])->whereNumber('image')->name('people.gallery-images.category');
     Route::get('/people/{person}/edit', [PersonController::class, 'edit'])->name('people.edit');
     Route::put('/people/{person}', [PersonController::class, 'update'])->name('people.update');
     Route::get('/people/{person}/images/{image}', [PersonController::class, 'image'])->name('people.image');
@@ -216,6 +242,11 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::get('/cases/create', [InvestigationCaseController::class, 'create'])->name('cases.create');
     Route::post('/cases', [InvestigationCaseController::class, 'store'])->name('cases.store');
     Route::get('/cases/{caseFile}', [InvestigationCaseController::class, 'show'])->name('cases.show');
+    Route::get('/cases/{caseFile}/gallery', [InvestigationCaseController::class, 'gallery'])->name('cases.gallery');
+    Route::post('/cases/{caseFile}/categories', [InvestigationCaseController::class, 'createCategory'])->name('cases.categories.store');
+    Route::put('/cases/{caseFile}/categories/{category}', [InvestigationCaseController::class, 'updateCategory'])->whereNumber('category')->name('cases.categories.update');
+    Route::delete('/cases/{caseFile}/categories/{category}', [InvestigationCaseController::class, 'deleteCategory'])->whereNumber('category')->name('cases.categories.destroy');
+    Route::put('/cases/{caseFile}/images/{image}/categories', [InvestigationCaseController::class, 'assignImageCategories'])->whereNumber('image')->name('cases.images.categories');
     Route::get('/cases/{caseFile}/edit', [InvestigationCaseController::class, 'edit'])->name('cases.edit');
     Route::put('/cases/{caseFile}', [InvestigationCaseController::class, 'update'])->name('cases.update');
     Route::delete('/cases/{caseFile}', [InvestigationCaseController::class, 'destroy'])->name('cases.destroy');

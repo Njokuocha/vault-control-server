@@ -6,10 +6,12 @@ use App\Models\Admin;
 use App\Models\File;
 use App\Models\InvestigationCase;
 use App\Models\Person;
+use App\Models\PersonGalleryCategory;
 use App\Models\PersonImage;
 use App\Models\User;
 use App\Models\VideoUpload;
 use App\Services\ActivityLogger;
+use App\Services\GalleryCategoryAccess;
 use App\Services\ImageThumbnailService;
 use App\Services\PublicRecordId;
 use App\Services\RecordUploadAttachmentService;
@@ -140,8 +142,12 @@ class PersonController extends Controller
         return redirect()->to($redirectUrl)->with('status', 'Person profile created.');
     }
 
-    public function show(Person $person, SettingService $settings, ReportAccess $reportAccess): Response
-    {
+    public function show(
+        Person $person,
+        SettingService $settings,
+        ReportAccess $reportAccess,
+        GalleryCategoryAccess $galleryAccess,
+    ): Response {
         request()->session()->forget('unlocked_person_images');
         $profileManagement = request()->routeIs('pm.*');
         $person = app(VersionedCache::class)->remember(
@@ -149,10 +155,9 @@ class PersonController extends Controller
             ($profileManagement ? 'pm:' : '').'profile:'.$person->getKey(),
             now()->addSeconds(30),
             fn (): Person => $profileManagement
-                ? $person->load('images.file')
-                : $person->load(['images.file', 'cases' => fn ($query) => $query->latest()]),
+                ? $person
+                : $person->load(['cases' => fn ($query) => $query->latest()]),
         );
-        $person->loadMissing('images.file');
         $linkedReports = $reportAccess->visibleQuery()
             ->join('report_person', 'reports.id', '=', 'report_person.report_id')
             ->where('report_person.person_id', $person->id)
@@ -161,6 +166,27 @@ class PersonController extends Controller
             ->latest('updated_at')
             ->orderByDesc('reports.id')
             ->paginate(10, ['reports.*'], 'linkedReportsPage');
+        $visibleCategoryIds = $galleryAccess->visiblePersonCategoryIds($person->getKey(), request());
+        $galleryCategories = $person->galleryCategories()->withCount('images')->get();
+        $galleryCategories->each(function (PersonGalleryCategory $category) use ($visibleCategoryIds): void {
+            if (! in_array($category->getKey(), $visibleCategoryIds, true)) {
+                $category->images_count = 0;
+            }
+        });
+        $uncategorizedCount = $person->images()
+            ->whereNull('gallery_category_id')
+            ->whereDoesntHave('galleryCategories')
+            ->count();
+        $previewCategory = $galleryCategories->first(fn (PersonGalleryCategory $category): bool => $category->images_count > 0);
+        $galleryPreviewQuery = $person->images()->with(['file', 'galleryCategories'])->latest('id');
+        if ($previewCategory instanceof PersonGalleryCategory) {
+            $galleryPreviewQuery->whereHas('galleryCategories', fn ($query) => $query->whereKey($previewCategory->id));
+            $galleryPreviewCount = $previewCategory->images_count;
+        } else {
+            $galleryPreviewQuery->whereNull('gallery_category_id')->whereDoesntHave('galleryCategories');
+            $galleryPreviewCount = $uncategorizedCount;
+        }
+        $galleryPreviewMedia = $galleryPreviewQuery->limit(4)->get();
         $avatarGroup = strtolower($person->avatar_group);
         $avatarPath = in_array($avatarGroup, ['male', 'female', 'group', 'unknown', 'suspect', 'verified'], true)
             ? $settings->get('avatar_model_'.$avatarGroup)
@@ -169,13 +195,189 @@ class PersonController extends Controller
         return response()->view('people.show', [
             'person' => $person,
             'linkedReports' => $linkedReports,
+            'galleryPreviewMedia' => $galleryPreviewMedia,
+            'galleryPreviewCategory' => $previewCategory,
+            'galleryPreviewCount' => $galleryPreviewCount,
+            'galleryTotalCount' => $galleryCategories->sum('images_count') + $uncategorizedCount,
             'profileManagement' => $profileManagement,
             'routePrefix' => $this->routePrefix(),
+            'canManageGalleryAccess' => $galleryAccess->isAdministrator(request()),
             'imagePinConfigured' => $settings->get('person_image_pin_hash') !== null,
             'avatarModelUrl' => is_string($avatarPath) && Storage::disk(config('vault.upload_disk'))->exists($avatarPath)
                 ? route($profileManagement ? 'pm.avatar-models.stream' : 'avatar-models.stream', $avatarGroup)
                 : null,
         ])->header('Cache-Control', 'no-store, private');
+    }
+
+    public function gallery(Request $request, Person $person, GalleryCategoryAccess $galleryAccess): Response
+    {
+        $categories = $person->galleryCategories()->withCount('images')->get();
+        $visibleCategoryIds = $galleryAccess->visiblePersonCategoryIds($person->getKey(), $request);
+        $categories->each(function (PersonGalleryCategory $category) use ($visibleCategoryIds): void {
+            if (! in_array($category->getKey(), $visibleCategoryIds, true)) {
+                $category->images_count = 0;
+            }
+        });
+        $uncategorizedCount = $person->images()
+            ->whereNull('gallery_category_id')
+            ->whereDoesntHave('galleryCategories')
+            ->count();
+        $requestedCategory = $request->query('category');
+        $selectedCategory = null;
+        $selectedUncategorized = false;
+        $categoryRestricted = false;
+
+        if ($requestedCategory === 'uncategorized') {
+            $selectedUncategorized = true;
+        } elseif ($requestedCategory !== null) {
+            abort_unless(is_string($requestedCategory) && ctype_digit($requestedCategory), 404);
+            $selectedCategory = $categories->firstWhere('id', (int) $requestedCategory);
+            abort_unless($selectedCategory instanceof PersonGalleryCategory, 404);
+            $categoryRestricted = ! in_array($selectedCategory->getKey(), $visibleCategoryIds, true);
+        } else {
+            $selectedCategory = $categories->first(fn (PersonGalleryCategory $category): bool => $category->images_count > 0)
+                ?? $categories->first(fn (PersonGalleryCategory $category): bool => in_array($category->getKey(), $visibleCategoryIds, true))
+                ?? $categories->first();
+            $categoryRestricted = $selectedCategory instanceof PersonGalleryCategory
+                && ! in_array($selectedCategory->getKey(), $visibleCategoryIds, true);
+            $selectedUncategorized = $selectedCategory === null || ($selectedCategory->images_count === 0 && $uncategorizedCount > 0);
+            if ($selectedUncategorized) {
+                $selectedCategory = null;
+                $categoryRestricted = false;
+            }
+        }
+
+        $mediaQuery = $person->images()->with(['file', 'galleryCategories'])->latest('id');
+        if ($categoryRestricted) {
+            $mediaQuery->whereRaw('1 = 0');
+        } elseif ($selectedCategory instanceof PersonGalleryCategory) {
+            $mediaQuery->whereHas('galleryCategories', fn ($query) => $query->whereKey($selectedCategory->id));
+        } else {
+            $mediaQuery->whereNull('gallery_category_id')->whereDoesntHave('galleryCategories');
+        }
+
+        return response()->view('people.gallery', [
+            'person' => $person,
+            'categories' => $categories,
+            'uncategorizedCount' => $uncategorizedCount,
+            'selectedCategory' => $selectedCategory,
+            'categoryRestricted' => $categoryRestricted,
+            'selectedUncategorized' => $selectedUncategorized,
+            'visibleCategoryIds' => $visibleCategoryIds,
+            'galleryMedia' => $mediaQuery->paginate(24)->withQueryString(),
+            'galleryTotalCount' => $categories->sum('images_count') + $uncategorizedCount,
+            'profileManagement' => request()->routeIs('pm.*'),
+            'routePrefix' => $this->routePrefix(),
+            'imagePinConfigured' => app(SettingService::class)->get('person_image_pin_hash') !== null,
+            'canManageGalleryAccess' => $galleryAccess->isAdministrator($request),
+        ])->header('Cache-Control', 'no-store, private');
+    }
+
+    public function createGalleryCategory(Request $request, Person $person): RedirectResponse|JsonResponse
+    {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'description' => ['nullable', 'string', 'max:10000'],
+        ]);
+        $person->galleryCategories()->create([
+            'title' => trim($validated['title']),
+            'description' => trim($validated['description'] ?? ''),
+            'sort_order' => (int) $person->galleryCategories()->max('sort_order') + 1,
+        ]);
+
+        return $this->galleryActionResponse($request, $person, request()->query('category'), 'Gallery category created.');
+    }
+
+    public function updateGalleryCategory(
+        Request $request,
+        Person $person,
+        int $category,
+        GalleryCategoryAccess $galleryAccess,
+    ): RedirectResponse|JsonResponse {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'description' => ['nullable', 'string', 'max:10000'],
+        ]);
+        $categoryModel = $person->galleryCategories()->whereKey($category)->firstOrFail();
+        abort_unless($galleryAccess->canViewPersonCategory($categoryModel, $request), 403);
+        $categoryModel->update([
+            'title' => trim($validated['title']),
+            'description' => trim($validated['description'] ?? ''),
+        ]);
+
+        return $this->galleryActionResponse($request, $person, (string) $category, 'Gallery category renamed.');
+    }
+
+    public function deleteGalleryCategory(
+        Request $request,
+        Person $person,
+        int $category,
+        GalleryCategoryAccess $galleryAccess,
+    ): RedirectResponse|JsonResponse {
+        $categoryModel = $person->galleryCategories()->whereKey($category)->firstOrFail();
+        abort_unless($galleryAccess->canViewPersonCategory($categoryModel, $request), 403);
+        $categoryModel->delete();
+
+        return $this->galleryActionResponse($request, $person, 'uncategorized', 'Gallery category deleted.');
+    }
+
+    public function assignGalleryImageCategory(
+        Request $request,
+        Person $person,
+        int $image,
+        GalleryCategoryAccess $galleryAccess,
+    ): RedirectResponse|JsonResponse {
+        if ($request->has('category_ids')) {
+            $validated = $request->validate([
+                'category_ids' => ['present', 'array'],
+                'category_ids.*' => ['integer', 'distinct'],
+            ]);
+            $categoryIds = array_map('intval', $validated['category_ids']);
+        } elseif ($request->expectsJson()) {
+            $categoryIds = [];
+        } else {
+            $validated = $request->validate(['category_id' => ['nullable', 'integer']]);
+            $categoryIds = isset($validated['category_id']) ? [(int) $validated['category_id']] : [];
+        }
+
+        $categories = $person->galleryCategories()->whereIn('id', $categoryIds)->get();
+        abort_unless($categories->count() === count($categoryIds), 404);
+        foreach ($categories as $category) {
+            abort_unless($galleryAccess->canViewPersonCategory($category, $request), 403);
+        }
+
+        $media = $person->images()->whereKey($image)->firstOrFail();
+        abort_unless($galleryAccess->canViewPersonImage($media, $request), 403);
+        DB::transaction(function () use ($media, $categoryIds): void {
+            $media->update(['gallery_category_id' => $categoryIds[0] ?? null]);
+            $media->galleryCategories()->sync($categoryIds);
+        });
+
+        $currentCategory = request()->query('category');
+        $redirectCategory = $currentCategory !== null && in_array((int) $currentCategory, $categoryIds, true)
+            ? $currentCategory
+            : ($categoryIds[0] ?? 'uncategorized');
+
+        return $this->galleryActionResponse($request, $person, (string) $redirectCategory, 'Media categories updated.');
+    }
+
+    private function galleryActionResponse(
+        Request $request,
+        Person $person,
+        ?string $category,
+        string $message,
+    ): RedirectResponse|JsonResponse {
+        $parameters = ['person' => $person];
+        if ($category !== null) {
+            $parameters['category'] = $category;
+        }
+        $redirectUrl = route($this->routePrefix().'.gallery', $parameters);
+
+        if ($request->expectsJson()) {
+            return response()->json(['redirect_url' => $redirectUrl, 'message' => $message]);
+        }
+
+        return redirect()->to($redirectUrl)->with('status', $message);
     }
 
     public function edit(Person $person): View
@@ -293,12 +495,18 @@ class PersonController extends Controller
         return response()->json(['status' => 'unlocked']);
     }
 
-    public function image(Person $person, string $image, bool $download = false, bool $thumbnail = false): mixed
-    {
+    public function image(
+        Person $person,
+        string $image,
+        GalleryCategoryAccess $galleryAccess,
+        bool $download = false,
+        bool $thumbnail = false,
+    ): mixed {
         abort_unless(request()->session()->get('unlocked_person_images') === $person->getKey(), 403);
 
         if ($image !== 'main') {
             $media = $person->images()->whereKey($image)->firstOrFail();
+            abort_unless($galleryAccess->canViewPersonImage($media, request()), 403);
             if ($media->type === 'video') {
                 $file = $media->file;
                 abort_unless($file instanceof File, 404);
@@ -367,10 +575,11 @@ class PersonController extends Controller
         return $response;
     }
 
-    public function imagePoster(Person $person, PersonImage $image): mixed
+    public function imagePoster(Person $person, PersonImage $image, GalleryCategoryAccess $galleryAccess): mixed
     {
         abort_unless(request()->session()->get('unlocked_person_images') === $person->getKey(), 403);
         abort_unless($image->person_id === $person->id && $image->type === 'video', 404);
+        abort_unless($galleryAccess->canViewPersonImage($image, request()), 403);
         $disk = Storage::disk(config('vault.upload_disk'));
         $posterPath = collect([$image->poster_path, $image->file?->video_poster_path])
             ->first(fn ($path): bool => is_string($path) && $disk->exists($path));
@@ -381,9 +590,10 @@ class PersonController extends Controller
         return app(FileController::class)->streamPrivatePath(request(), $posterPath, 'image/jpeg', $fileName);
     }
 
-    public function destroyImage(Person $person, PersonImage $image): JsonResponse
+    public function destroyImage(Person $person, PersonImage $image, GalleryCategoryAccess $galleryAccess): JsonResponse
     {
         abort_unless($image->person_id === $person->id, 404);
+        abort_unless($galleryAccess->canViewPersonImage($image, request()), 403);
         $file = $image->file;
         $videoUploadId = $file
             ? VideoUpload::query()->where('file_id', $file->id)->value('id')

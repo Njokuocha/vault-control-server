@@ -77,12 +77,16 @@
                 @endif
             </div>
             <div class="profile-gallery-block">
-                <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h3>Gallery <span>{{ $person->images->count() }}</span></h3></div><a href="{{ route($routePrefix.'.edit', $person) }}" wire:navigate class="text-action">MANAGE MEDIA</a></div>
-                @if ($person->images->isNotEmpty())
+                <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h3>Gallery <span>{{ $galleryTotalCount }}</span></h3></div><a href="{{ route($routePrefix.'.edit', $person) }}" wire:navigate class="text-action">MANAGE MEDIA</a></div>
+                <div class="profile-gallery-category-heading">
+                    <strong>{{ $galleryPreviewCategory?->title ?? 'Uncategorized media' }} @if($canManageGalleryAccess && $galleryPreviewCategory?->is_locked)<i class="ri ri-lock-line gallery-category-lock-indicator" title="Restricted category" aria-label="Restricted category"></i>@endif</strong>
+                    <a class="text-action" href="{{ route($routePrefix.'.gallery', $person) }}">VIEW GALLERY ↗</a>
+                </div>
+                @if ($galleryPreviewMedia->isNotEmpty())
                     <div class="profile-gallery is-locked" data-profile-gallery>
-                        @foreach ($person->images as $image)
+                        @foreach ($galleryPreviewMedia as $image)
                             @if ($image->type === 'video')
-                                <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-video-title="{{ $image->original_name }}" data-video-pin-required aria-label="Locked video. Unlock viewables to preview." @if ($loop->index >= 4) hidden data-gallery-extra @endif>
+                                <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-video-title="{{ $image->original_name }}" data-video-pin-required aria-label="Locked video. Unlock viewables to preview.">
                                     <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
                                     @if ($image->poster_path || $image->file?->video_poster_path)
                                         <img data-protected-image data-image-url="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id]) }}" alt="" loading="lazy" hidden>
@@ -90,19 +94,20 @@
                                         <video class="profile-gallery-video-thumbnail" data-protected-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
                                     @endif
                                     <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
-                                    @if ($loop->index === 3 && $person->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $person->images->count() - 4 }}</span>@endif
                                 </button>
                             @else
-                                <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-image-title="{{ $image->original_name }}" aria-label="Locked image. Unlock viewables to preview." @if ($loop->index >= 4) hidden data-gallery-extra @endif>
+                                <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-image-title="{{ $image->original_name }}" aria-label="Locked image. Unlock viewables to preview.">
                                     <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
                                     <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-thumbnail-url="{{ route($routePrefix.'.images.thumbnail', ['person' => $person, 'image' => $image->id]) }}" alt="{{ $image->original_name }}" loading="lazy" hidden>
-                                    @if ($loop->index === 3 && $person->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $person->images->count() - 4 }}</span>@endif
                                 </button>
                             @endif
                         @endforeach
                     </div>
                 @else
-                    <div class="profile-gallery-empty">No additional images have been added.</div>
+                    <div class="profile-gallery-empty">No media in this preview category yet.</div>
+                @endif
+                @if ($galleryPreviewCount > $galleryPreviewMedia->count())
+                    <p class="profile-gallery-count-note">Showing {{ $galleryPreviewMedia->count() }} of {{ $galleryPreviewCount }} items in this category.</p>
                 @endif
             </div>
         </div>

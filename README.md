@@ -296,6 +296,17 @@ Person and case image viewers fit the complete image by default, with zoom and
 drag-to-pan controls. Grayscale can be toggled for inspection and is applied to
 the full-resolution PNG generated when downloading while grayscale is enabled.
 
+Person and case galleries support profile-specific evidence categories and
+multi-category media assignment. Administrators can lock a category and grant
+access only to active staff in its owning department (PM for person galleries,
+CFM for case galleries); unlocking a category removes all staff grants.
+Category locks are enforced on gallery pages and direct media, poster, preview,
+stream, and download endpoints. Person-media access continues to require the
+existing image PIN as well as any applicable category grant. Lock, unlock,
+grant, and revoke operations are recorded in the activity log. The migration
+`2026_11_01_000001_add_gallery_category_access_controls.php` adds the lock
+flags and category-to-staff grant tables.
+
 ### Example migration (files)
 
 ```php

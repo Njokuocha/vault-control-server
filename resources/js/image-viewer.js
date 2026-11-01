@@ -1,12 +1,12 @@
-const dialog = document.querySelector('[data-vault-image-viewer]');
-const image = dialog?.querySelector('[data-vault-image]');
-const stage = dialog?.querySelector('[data-vault-image-stage]');
-const title = dialog?.querySelector('[data-vault-image-title]');
-const download = dialog?.querySelector('[data-vault-image-download]');
-const zoomLabel = dialog?.querySelector('[data-vault-image-zoom-level]');
-const zoomIn = dialog?.querySelector('[data-vault-image-zoom-in]');
-const zoomOut = dialog?.querySelector('[data-vault-image-zoom-out]');
-const grayscale = dialog?.querySelector('[data-vault-image-grayscale]');
+let dialog = null;
+let image = null;
+let stage = null;
+let title = null;
+let download = null;
+let zoomLabel = null;
+let zoomIn = null;
+let zoomOut = null;
+let grayscale = null;
 const minZoom = 1;
 const maxZoom = 15;
 const zoomStep = 0.5;
@@ -15,6 +15,50 @@ let panX = 0;
 let panY = 0;
 let dragPointer = null;
 let lastTrigger = null;
+const boundDialogs = new WeakSet();
+let downloadBusyTimer = null;
+
+const refreshViewer = () => {
+    const nextDialog = document.querySelector('[data-vault-image-viewer]');
+    if (!(nextDialog instanceof HTMLDialogElement)) {
+        dialog = null;
+        image = null;
+        stage = null;
+        title = null;
+        download = null;
+        zoomLabel = null;
+        zoomIn = null;
+        zoomOut = null;
+        grayscale = null;
+        return;
+    }
+
+    dialog = nextDialog;
+    image = dialog.querySelector('[data-vault-image]');
+    stage = dialog.querySelector('[data-vault-image-stage]');
+    title = dialog.querySelector('[data-vault-image-title]');
+    download = dialog.querySelector('[data-vault-image-download]');
+    zoomLabel = dialog.querySelector('[data-vault-image-zoom-level]');
+    zoomIn = dialog.querySelector('[data-vault-image-zoom-in]');
+    zoomOut = dialog.querySelector('[data-vault-image-zoom-out]');
+    grayscale = dialog.querySelector('[data-vault-image-grayscale]');
+    if (!boundDialogs.has(dialog)) {
+        boundDialogs.add(dialog);
+        const boundDialog = dialog;
+        boundDialog.addEventListener('close', () => {
+            if (dialog === boundDialog) close();
+        });
+    }
+};
+
+const setDownloadBusy = (anchor, busy) => {
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+    anchor.setAttribute('aria-busy', String(busy));
+    const icon = anchor.querySelector('[data-vault-image-download-icon]');
+    const spinner = anchor.querySelector('[data-vault-image-download-spinner]');
+    if (icon instanceof HTMLElement) icon.hidden = busy;
+    if (spinner instanceof HTMLElement) spinner.hidden = !busy;
+};
 
 const imageBounds = () => {
     if (!image || !stage) return null;
@@ -82,6 +126,7 @@ const setZoom = (nextZoom, cursor = null) => {
 };
 
 export function openImageViewer({ src, downloadUrl = src, name = 'Image preview', returnFocus = document.activeElement }) {
+    refreshViewer();
     if (!(dialog instanceof HTMLDialogElement) || !(image instanceof HTMLImageElement) || !src) return;
 
     lastTrigger = returnFocus instanceof HTMLElement ? returnFocus : null;
@@ -91,6 +136,7 @@ export function openImageViewer({ src, downloadUrl = src, name = 'Image preview'
     if (download instanceof HTMLAnchorElement) {
         download.href = downloadUrl;
         download.download = name;
+        setDownloadBusy(download, false);
     }
     reset();
     if (!dialog.open) dialog.showModal();
@@ -98,42 +144,58 @@ export function openImageViewer({ src, downloadUrl = src, name = 'Image preview'
 }
 
 const close = () => {
+    window.clearTimeout(downloadBusyTimer);
+    downloadBusyTimer = null;
     image?.removeAttribute('src');
     download?.removeAttribute('href');
+    setDownloadBusy(download, false);
     reset();
     lastTrigger?.focus();
     lastTrigger = null;
 };
 
-dialog?.querySelector('[data-vault-image-close]')?.addEventListener('click', () => dialog.close());
-dialog?.addEventListener('click', (event) => {
-    if (event.target === dialog) dialog.close();
-});
-dialog?.addEventListener('close', close);
-image?.addEventListener('load', () => requestAnimationFrame(updateTransform));
-window.addEventListener('resize', updateTransform);
+document.addEventListener('click', async (event) => {
+    if (!(event.target instanceof Element)) return;
+    refreshViewer();
+    if (!(dialog instanceof HTMLDialogElement) || !dialog.contains(event.target) && event.target !== dialog) return;
 
-zoomIn?.addEventListener('click', () => setZoom(zoom + zoomStep));
-zoomOut?.addEventListener('click', () => setZoom(zoom - zoomStep));
-grayscale?.addEventListener('change', () => {
-    if (image && grayscale instanceof HTMLInputElement) {
-        image.style.filter = grayscale.checked ? 'grayscale(1)' : '';
+    if (event.target.closest('[data-vault-image-close]') || event.target === dialog) {
+        dialog.close();
+        return;
     }
-});
 
-download?.addEventListener('click', async (event) => {
-    if (!(grayscale instanceof HTMLInputElement) || !grayscale.checked || !image?.src) return;
+    if (event.target.closest('[data-vault-image-zoom-in]')) {
+        setZoom(zoom + zoomStep);
+        return;
+    }
+    if (event.target.closest('[data-vault-image-zoom-out]')) {
+        setZoom(zoom - zoomStep);
+        return;
+    }
+
+    const downloadLink = event.target.closest('[data-vault-image-download]');
+    if (!(downloadLink instanceof HTMLAnchorElement)) return;
+    if (!(grayscale instanceof HTMLInputElement) || !grayscale.checked || !image?.src) {
+        setDownloadBusy(downloadLink, true);
+        window.clearTimeout(downloadBusyTimer);
+        downloadBusyTimer = window.setTimeout(() => setDownloadBusy(downloadLink, false), 1800);
+        return;
+    }
+
     event.preventDefault();
+    const sourceImage = image;
+    window.clearTimeout(downloadBusyTimer);
+    setDownloadBusy(downloadLink, true);
 
     try {
-        await image.decode();
+        await sourceImage.decode();
         const canvas = document.createElement('canvas');
-        canvas.width = image.naturalWidth;
-        canvas.height = image.naturalHeight;
+        canvas.width = sourceImage.naturalWidth;
+        canvas.height = sourceImage.naturalHeight;
         const context = canvas.getContext('2d');
         if (!context) throw new Error('Could not prepare the grayscale image for download.');
         context.filter = 'grayscale(1)';
-        context.drawImage(image, 0, 0);
+        context.drawImage(sourceImage, 0, 0);
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
         if (!blob) throw new Error('Could not create the grayscale image download.');
 
@@ -154,25 +216,37 @@ download?.addEventListener('click', async (event) => {
             type: 'error',
             message: error instanceof Error ? error.message : 'Could not prepare the grayscale image download.',
         });
+    } finally {
+        setDownloadBusy(downloadLink, false);
     }
 });
 
-stage?.addEventListener('wheel', (event) => {
-    if (!dialog?.open || !image?.naturalWidth) return;
+document.addEventListener('change', (event) => {
+    refreshViewer();
+    if (event.target === grayscale && image && grayscale instanceof HTMLInputElement) {
+        image.style.filter = grayscale.checked ? 'grayscale(1)' : '';
+    }
+});
+
+document.addEventListener('wheel', (event) => {
+    refreshViewer();
+    if (!stage || !dialog?.open || !image?.naturalWidth || !stage.contains(event.target)) return;
     event.preventDefault();
     const rect = stage.getBoundingClientRect();
     const factor = event.deltaY < 0 ? 1 + zoomStep : 1 / (1 + zoomStep);
     setZoom(zoom * factor, { x: event.clientX - rect.left, y: event.clientY - rect.top });
 }, { passive: false });
 
-stage?.addEventListener('pointerdown', (event) => {
-    if (zoom <= minZoom || event.target !== image || event.button !== 0) return;
+document.addEventListener('pointerdown', (event) => {
+    refreshViewer();
+    if (zoom <= minZoom || event.target !== image || !(stage instanceof HTMLElement) || event.button !== 0) return;
     dragPointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
     stage.setPointerCapture(event.pointerId);
     stage.classList.add('is-dragging');
     event.preventDefault();
 });
-stage?.addEventListener('pointermove', (event) => {
+document.addEventListener('pointermove', (event) => {
+    refreshViewer();
     if (!dragPointer || event.pointerId !== dragPointer.id) return;
     panX += event.clientX - dragPointer.x;
     panY += event.clientY - dragPointer.y;
@@ -180,13 +254,22 @@ stage?.addEventListener('pointermove', (event) => {
     dragPointer.y = event.clientY;
     updateTransform();
 });
-stage?.addEventListener('pointerup', (event) => {
-    if (!dragPointer || event.pointerId !== dragPointer.id) return;
+document.addEventListener('pointerup', (event) => {
+    refreshViewer();
+    if (!dragPointer || event.pointerId !== dragPointer.id || !(stage instanceof HTMLElement)) return;
     dragPointer = null;
     stage.classList.remove('is-dragging');
     if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
 });
-stage?.addEventListener('pointercancel', () => {
+document.addEventListener('pointercancel', () => {
+    refreshViewer();
     dragPointer = null;
-    stage.classList.remove('is-dragging');
+    stage?.classList.remove('is-dragging');
 });
+document.addEventListener('load', (event) => {
+    refreshViewer();
+    if (event.target === image) requestAnimationFrame(updateTransform);
+}, true);
+document.addEventListener('livewire:navigated', refreshViewer);
+window.addEventListener('resize', updateTransform);
+refreshViewer();

@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use App\Models\InvestigationCase;
+use App\Services\GalleryCategoryAccess;
 use App\Services\ReportAccess;
 use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
@@ -31,10 +32,16 @@ class CaseDossier extends Component
         }
     }
 
-    public function render(ReportAccess $reportAccess): View
+    public function render(ReportAccess $reportAccess, GalleryCategoryAccess $galleryAccess): View
     {
         $isCaseManager = auth('web')->user()?->department === 'cfm';
-        $relations = ['categories.images', 'creator'];
+        $relations = [
+            'categories.images.file',
+            'categories.images.categories',
+            'categories.assignedImages.file',
+            'categories.assignedImages.categories',
+            'creator',
+        ];
         if (! $isCaseManager) {
             $relations[] = 'people';
         }
@@ -47,6 +54,25 @@ class CaseDossier extends Component
                 ->with($relations)
                 ->findOrFail($this->caseFile->getKey()),
         );
+        $caseFile->loadMissing($relations);
+        $visibleCategoryIds = $galleryAccess->visibleCaseCategoryIds($caseFile->getKey(), request());
+        foreach ($caseFile->categories as $category) {
+            if (! in_array($category->getKey(), $visibleCategoryIds, true)) {
+                $category->setRelation('images', collect());
+                $category->setAttribute('access_restricted', true);
+
+                continue;
+            }
+            $images = $category->images
+                ->merge($category->assignedImages)
+                ->unique('id')
+                ->sortBy('id')
+                ->values();
+            $images->loadMissing(['file', 'categories']);
+            $category->setRelation('images', $images);
+            $category->setAttribute('access_restricted', false);
+        }
+
         $linkedReports = $reportAccess->visibleQuery()
             ->join('report_case_file', 'reports.id', '=', 'report_case_file.report_id')
             ->where('report_case_file.case_file_id', $caseFile->id)
@@ -59,6 +85,7 @@ class CaseDossier extends Component
         return view('livewire.case-dossier', [
             'caseFile' => $caseFile,
             'linkedReports' => $linkedReports,
+            'canManageGalleryAccess' => $galleryAccess->isAdministrator(request()),
         ]);
     }
 }

@@ -13,7 +13,8 @@
                 <span>GRAYSCALE</span>
             </label>
             <a class="image-viewer-download" data-vault-image-download download aria-label="Download original image" title="Download original image">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m-4-4 4 4 4-4"/><path d="M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4"/></svg>
+                <svg data-vault-image-download-icon viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m-4-4 4 4 4-4"/><path d="M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4"/></svg>
+                <span class="image-download-spinner" data-vault-image-download-spinner hidden aria-hidden="true"></span>
             </a>
             <button type="button" data-vault-image-close aria-label="Close image viewer">×</button>
         </div>

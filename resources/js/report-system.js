@@ -209,7 +209,8 @@ function openReportGallery(trigger) {
         } else {
             const videoMark = document.createElement('span');
             videoMark.className = 'report-video-mark';
-            videoMark.innerHTML = '<i class="ri ri-play-fill" aria-hidden="true"></i> VIDEO';
+            videoMark.setAttribute('aria-hidden', 'true');
+            videoMark.innerHTML = '<i class="ri ri-play-fill"></i>';
             button.append(videoMark);
         }
 
