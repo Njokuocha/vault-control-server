@@ -150,6 +150,7 @@ class FinalizeUploadTransferJob implements ShouldBeUnique, ShouldQueue
             'manual',
             $upload->admin ?? $upload->user,
             $mimeType,
+            $attachmentTypes->storageDirectory($upload->attachment_purpose),
         );
 
         try {

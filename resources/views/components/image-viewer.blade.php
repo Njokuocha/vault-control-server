@@ -21,6 +21,20 @@
     </header>
     <div class="image-viewer-stage" data-vault-image-stage>
         <img data-vault-image alt="" draggable="false">
+        <div class="image-viewer-info-pane" aria-label="Image details and controls">
+            <div class="image-viewer-metadata">
+                <span><small>DIMENSIONS</small><strong data-vault-image-dimensions>—</strong></span>
+                <span><small>EXTENSION</small><strong data-vault-image-extension>—</strong></span>
+            </div>
+            <div class="image-viewer-actions">
+                <button type="button" data-vault-image-slow-zoom aria-label="Start slow zoom" aria-pressed="false" title="Start slow zoom">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path data-vault-image-motion-play d="m10 8 6 4-6 4z"/><path data-vault-image-motion-pause d="M9 8v8m6-8v8" hidden/></svg>
+                </button>
+                <button type="button" data-vault-image-rotate aria-label="Rotate image 90 degrees" title="Rotate image 90 degrees">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.5-4L4 9"/><path d="M4 4v5h5m-5 4a8 8 0 0 0 14.5 4L20 15"/><path d="M20 20v-5h-5"/></svg>
+                </button>
+            </div>
+        </div>
         <span class="image-viewer-hint" aria-hidden="true">SCROLL TO ZOOM · DRAG TO PAN</span>
     </div>
 </dialog>

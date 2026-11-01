@@ -48,6 +48,21 @@ class SettingService
         return $configured === '1';
     }
 
+    public function reportCommentsEnabled(): bool
+    {
+        $configured = $this->get('report_comments_enabled');
+
+        if ($configured === null) {
+            return true;
+        }
+
+        if (! in_array($configured, ['0', '1'], true)) {
+            throw new \UnexpectedValueException('The configured report comments setting is invalid.');
+        }
+
+        return $configured === '1';
+    }
+
     public function get(string $key): ?string
     {
         $value = app(VersionedCache::class)->remember(

@@ -35,14 +35,18 @@ const observeCaseVideoThumbnails = () => {
         const observer = new IntersectionObserver((entries, currentObserver) => {
             entries.forEach((entry) => {
                 if (!entry.isIntersecting) return;
-                loadVideoThumbnail(entry.target);
+                const video = entry.target instanceof HTMLVideoElement
+                    ? entry.target
+                    : entry.target.querySelector('[data-case-video-thumbnail]');
+                if (video) loadVideoThumbnail(video);
                 currentObserver.unobserve(entry.target);
             });
         }, { rootMargin: '220px' });
 
         videos.forEach((video) => {
             video.dataset.thumbnailObserved = 'true';
-            observer.observe(video);
+            const tile = video.closest('.case-evidence-thumb, .existing-upload-image, .video-gallery-tile, .evidence-gallery-tile');
+            observer.observe(tile ?? video);
         });
         return;
     }

@@ -147,6 +147,18 @@ class RecordAttachmentTypes
         };
     }
 
+    public function storageDirectory(?string $purpose): ?string
+    {
+        return match ($purpose) {
+            null => null,
+            self::PERSON_MAIN_IMAGE => 'people/main',
+            self::PERSON_GALLERY => 'people/gallery',
+            self::STAFF_GALLERY => 'staff/gallery',
+            self::CASE_EVIDENCE => 'cases/evidence',
+            default => throw new \InvalidArgumentException('The upload attachment purpose is not supported.'),
+        };
+    }
+
     public function acceptAttribute(string $purpose): string
     {
         return implode(',', array_map(

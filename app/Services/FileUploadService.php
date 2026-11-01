@@ -63,6 +63,7 @@ class FileUploadService
         string $uploadMethod,
         ?Authenticatable $actor = null,
         ?string $verifiedMimeType = null,
+        ?string $storageDirectory = null,
     ): File
     {
         if (! in_array($uploadMethod, ['api', 'manual'], true)) {
@@ -82,7 +83,7 @@ class FileUploadService
         $originalName = $this->safeOriginalName($upload->getClientOriginalName());
         $extension = $this->safeExtension($upload->getClientOriginalExtension());
         $uuid = (string) Str::uuid();
-        $directory = now()->format('Y/m');
+        $directory = $storageDirectory ?? now()->format('Y/m');
         $storedName = $uuid.($extension === null ? '' : '.'.$extension);
         $storedPath = null;
 

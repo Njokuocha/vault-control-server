@@ -432,7 +432,9 @@ test('a committed case evidence transfer finalizes and attaches the detected doc
         ->and($attachment->type)->toBe('document')
         ->and($attachment->file_id)->toBe($file->id)
         ->and($file->mime_type)->toBe('application/pdf')
-        ->and($file->category)->toBe('pdf');
+        ->and($file->category)->toBe('pdf')
+        ->and($file->stored_path)->toStartWith('cases/evidence/')
+        ->and($file->stored_path)->not->toStartWith(now()->format('Y/m').'/');
 });
 
 test('administrator uploads can be attached to case evidence and remain visible in the upload tracker', function () {
@@ -726,7 +728,9 @@ test('gallery uploads started after person creation attach to the saved profile'
         app(RecordUploadAttachmentService::class),
     );
 
-    expect($person->images()->where('original_name', 'profile-evidence.png')->where('type', 'image')->exists())->toBeTrue();
+    $image = $person->images()->where('original_name', 'profile-evidence.png')->where('type', 'image')->firstOrFail();
+    expect($image->file?->stored_path)->toStartWith('people/gallery/')
+        ->and($image->file?->stored_path)->not->toStartWith(now()->format('Y/m').'/');
 });
 
 test('gallery uploads started after person update attach to the existing profile', function () {
@@ -800,7 +804,9 @@ test('a committed person main-image transfer updates the primary image and file 
         ->and($transfer->file_id)->not->toBeNull()
         ->and($person->main_image_path)->toBe($transfer->file->stored_path)
         ->and($person->main_image_file_id)->toBe($transfer->file_id)
-        ->and($transfer->attached_at)->not->toBeNull();
+        ->and($transfer->attached_at)->not->toBeNull()
+        ->and($transfer->file->stored_path)->toStartWith('people/main/')
+        ->and($transfer->file->stored_path)->not->toStartWith(now()->format('Y/m').'/');
 });
 
 test('record attachment MIME validation rejects a mismatched detected type', function () {

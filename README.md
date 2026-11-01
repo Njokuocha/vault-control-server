@@ -314,9 +314,12 @@ by the browser before PIN verification. Male,
 Female, and Group GLB avatars are stored on the same private disk; uploads are
 checked for a GLB 2.0 header and external asset references are rejected. The
 model-viewer JavaScript is loaded only on pages that display a 3D model.
-Person and case image viewers fit the complete image by default, with zoom and
-drag-to-pan controls. Grayscale can be toggled for inspection and is applied to
-the full-resolution PNG generated when downloading while grayscale is enabled.
+The shared image viewer is available across Admin and department interfaces,
+fits the complete image by default, and supports zoom and drag-to-pan up to
+5000%. It displays image dimensions and extension, provides 90-degree rotation,
+and includes an optional looping 10-second slow-zoom animation. Grayscale can
+be toggled for inspection and is applied to the full-resolution PNG generated
+when downloading while grayscale is enabled.
 
 Person and case galleries support profile-specific evidence categories and
 multi-category media assignment. Administrators can lock a category and grant
@@ -393,7 +396,8 @@ For large datasets, paginate by month: query distinct `DATE_FORMAT(created_at,'%
 
 Rules:
 
-- Stored name = `Str::uuid() . '.' . $safeExt` placed in `YYYY/MM/` subfolders. The original name never touches the filesystem.
+- Standalone API/manual archive uploads are stored under `YYYY/MM/`; record attachments are stored once under their purpose folder (`cases/evidence/`, `people/main/`, `people/gallery/`, or `staff/gallery/`). The original name never touches the filesystem.
+- Image thumbnails and video playback previews under `renditions/` are generated derivatives; they do not duplicate the original upload in the archive.
 - No symlink to `public/`. No direct web server access to `storage/`.
 - Nginx/Apache must have the document root at `public/` only.
 - Reading, editing, downloading, and deletion go through `FileStorageService` only.
@@ -1100,7 +1104,7 @@ This remains a staged Livewire conversion. Dashboard archive filtering and file 
 
 The `/admin/uploads` selection summary is Livewire-driven, while file bytes use the chunked XHR uploader; the legacy synchronous upload handler is no longer available. SPA navigation is limited to links marked `wire:navigate`. Pusher delivery requires valid deployment credentials, outbound network access, and a running queue worker. Browser verification against authenticated pages requires operator credentials, and FFmpeg/ffprobe processing must be exercised on a host where trusted binaries are installed.
 
-The Report System is a shared Livewire workspace mounted at `/admin/reports`, `/cfm/reports`, `/pm/reports`, and `/fm/reports`, with administrator moderation at `/admin/reports/manage`. Its schema is applied by the additive report-system migration. It uses `reports`, `report_media`, `report_comments`, `report_case_file`, and `report_person`; report media remains on the configured private upload disk. Authorization is shared through `App\Services\ReportAccess`, and report/media/record links are filtered by account role. Private-channel broadcasts use `AgencyReportUpdated`; run a worker that includes `broadcasts` for live feed refreshes. The report composer allows up to 12 images/videos at 50 MB each; this limit is validated on the server as well as exposed in the UI.
+The Report System is a shared Livewire workspace mounted at `/admin/reports`, `/cfm/reports`, `/pm/reports`, and `/fm/reports`, with administrator moderation at `/admin/reports/manage`. Its schema is applied by the additive report-system migration. It uses `reports`, `report_media`, `report_comments`, `report_case_file`, and `report_person`; report media remains on the configured private upload disk. Authorization is shared through `App\Services\ReportAccess`, and report/media/record links are filtered by account role. Private-channel broadcasts use `AgencyReportUpdated`; run a worker that includes `broadcasts` for live feed refreshes. The report composer allows up to 12 images/videos at 50 MB each; this limit is validated on the server as well as exposed in the UI. Report media previews omit original filenames; video thumbnails are extracted client-side from the authorized private video stream in the report detail and attachment gallery. Report narratives support nested inline markers: `_#caption_#` adds a modest caption size, `_##bold_##` adds bold, and `_###uppercase_###` renders uppercase. The composer provides a formatted preview, and narrative markup is escaped so it cannot inject HTML. Administrators can immediately disable report comments from Admin Settings; comments are enabled by default, and disabling them hides discussion surfaces and blocks comment/reply actions.
 
 The report workspace uses actor-scoped `VersionedCache` entries for feed totals, report lists/details, comment threads, moderation results, and case/person link suggestions. Feed/list updates invalidate shared feed data; report content and comments use per-report cache generations, while linked-record and author changes invalidate only the related detail caches that display them. Invalidation happens after the database transaction commits; rollback does not invalidate caches. Feed rows load media counts rather than every attachment, commenter previews are limited to five authors per report, and replies are fetched only when expanded. The report detail renders without querying the comment thread; selecting the comments tab loads its paginated thread, while report/comment navigation and authorized media/gallery popups retain their existing interaction. Report list changes use the agency feed channel; comment updates use a private report-specific channel, with a separate administrator-only listener for report control. Channel authorization retains active-staff, administrator, and hidden-report visibility checks. Staged attachment previews live in a `wire:ignore` host and their object URLs are released when the composer closes or navigation occurs. Echo starts only when Laravel's active broadcast connection is Pusher and the browser has its required key/cluster configuration. The additive report-comment author index supports feed commenter aggregation.
 

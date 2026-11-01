@@ -2,7 +2,8 @@ import { openImageViewer } from './image-viewer.js';
 
 const previewObjectUrls = new WeakMap();
 const activeObjectUrls = new Set();
-let lastModalTrigger = null;
+let galleryTrigger = null;
+let mediaTrigger = null;
 let subscribedReportId = null;
 const preservedCommentDrafts = new WeakMap();
 
@@ -69,16 +70,19 @@ function renderUploadPreviews(input) {
         if (file.type.startsWith('image/')) {
             const image = document.createElement('img');
             image.src = url;
-            image.alt = `Preview of ${file.name}`;
+            image.alt = 'Report attachment preview';
             image.loading = 'lazy';
             image.decoding = 'async';
             card.append(image);
         } else if (file.type.startsWith('video/')) {
             const video = document.createElement('video');
-            video.src = url;
+            video.dataset.reportVideoThumbnail = '';
+            video.dataset.thumbnailUrl = url;
             video.muted = true;
-            video.preload = 'metadata';
-            video.setAttribute('aria-label', `Video preview of ${file.name}`);
+            video.preload = 'none';
+            video.playsInline = true;
+            video.hidden = true;
+            video.setAttribute('aria-hidden', 'true');
             card.append(video);
         } else {
             const icon = document.createElement('span');
@@ -87,13 +91,11 @@ function renderUploadPreviews(input) {
             card.append(icon);
         }
 
-        const label = document.createElement('small');
-        label.textContent = file.name;
-        card.append(label);
         previewArea.append(card);
     }
 
     previewObjectUrls.set(input, urls);
+    initializeReportVideoThumbnails(previewArea);
 }
 
 function reportWorkspaceRoot(element) {
@@ -119,11 +121,11 @@ function activateReportSection(button) {
     component?.call('showSection', section);
 }
 
-function mediaElement(type, url, name) {
+function mediaElement(type, url) {
     if (type === 'image') {
         const image = document.createElement('img');
         image.src = url;
-        image.alt = name;
+        image.alt = 'Report attachment preview';
         image.decoding = 'async';
 
         return image;
@@ -135,9 +137,47 @@ function mediaElement(type, url, name) {
     video.autoplay = true;
     video.playsInline = true;
     video.preload = 'metadata';
-    video.setAttribute('aria-label', name);
+    video.setAttribute('aria-label', 'Report video preview');
 
     return video;
+}
+
+function loadReportVideoThumbnail(video) {
+    if (!(video instanceof HTMLVideoElement) || video.dataset.reportThumbnailLoaded === 'true') return;
+    const url = video.dataset.thumbnailUrl;
+    if (!url) return;
+
+    video.dataset.reportThumbnailLoaded = 'true';
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+    video.addEventListener('loadedmetadata', () => {
+        if (video.duration > 0) video.currentTime = Math.min(0.1, video.duration / 2);
+    }, { once: true });
+    video.addEventListener('loadeddata', () => {
+        video.hidden = false;
+        video.pause();
+    }, { once: true });
+    video.addEventListener('seeked', () => {
+        video.hidden = false;
+        video.pause();
+    }, { once: true });
+    video.addEventListener('error', () => {
+        video.hidden = true;
+        video.closest('.report-media-tile, .report-gallery-grid button, .report-existing-media button, .report-upload-preview')
+            ?.classList.add('has-no-video-thumbnail');
+    }, { once: true });
+    video.src = url;
+    video.load();
+}
+
+function initializeReportVideoThumbnails(root = document) {
+    if (root instanceof HTMLVideoElement && root.hasAttribute('data-report-video-thumbnail')) {
+        loadReportVideoThumbnail(root);
+    }
+
+    root.querySelectorAll?.('[data-report-video-thumbnail]:not([data-report-thumbnail-loaded])')
+        .forEach(loadReportVideoThumbnail);
 }
 
 function closeReportModals() {
@@ -147,35 +187,60 @@ function closeReportModals() {
     document.querySelectorAll('[data-report-gallery-items], [data-report-media-content]').forEach((content) => {
         content.replaceChildren();
     });
-    lastModalTrigger = null;
+    galleryTrigger = null;
+    mediaTrigger = null;
+}
+
+function closeReportMediaModal(restoreFocus = true) {
+    document.querySelectorAll('[data-report-media-modal]').forEach((modal) => {
+        modal.hidden = true;
+    });
+    document.querySelectorAll('[data-report-media-content]').forEach((content) => {
+        content.replaceChildren();
+    });
+    const trigger = mediaTrigger;
+    mediaTrigger = null;
+    if (restoreFocus) trigger?.focus();
+}
+
+function closeReportGalleryModal(restoreFocus = true) {
+    document.querySelectorAll('[data-report-gallery-modal]').forEach((modal) => {
+        modal.hidden = true;
+    });
+    document.querySelectorAll('[data-report-gallery-items]').forEach((content) => {
+        content.replaceChildren();
+    });
+    const trigger = galleryTrigger;
+    galleryTrigger = null;
+    if (restoreFocus) trigger?.focus();
 }
 
 function openReportMedia(source, trigger) {
     const modal = reportWorkspaceRoot(trigger).querySelector('[data-report-media-modal]');
     const content = modal?.querySelector('[data-report-media-content]');
-    const name = modal?.querySelector('[data-report-media-name]');
-    if (!(modal instanceof HTMLElement) || !(content instanceof HTMLElement) || !(name instanceof HTMLElement)) return;
+    if (!(modal instanceof HTMLElement) || !(content instanceof HTMLElement)) return;
 
-    const mediaName = source.dataset.mediaName ?? 'Report attachment';
     const mediaUrl = source.dataset.mediaUrl;
     const mediaType = source.dataset.mediaType;
     if (!mediaUrl || !['image', 'video'].includes(mediaType ?? '')) return;
 
-    const returnTarget = trigger.closest('[data-report-gallery-modal]') ? lastModalTrigger : trigger;
-    closeReportModals();
+    const openedFromGallery = trigger.closest('[data-report-gallery-modal]') !== null;
+    if (!openedFromGallery) closeReportModals();
+
     if (mediaType === 'image') {
         openImageViewer({
             src: mediaUrl,
             downloadUrl: mediaUrl,
-            name: mediaName,
-            returnFocus: returnTarget,
+            name: 'Report image',
+            extension: source.dataset.mediaExtension,
+            mimeType: source.dataset.mediaMimeType,
+            returnFocus: trigger,
         });
         return;
     }
 
-    lastModalTrigger = returnTarget instanceof HTMLElement ? returnTarget : trigger;
-    name.textContent = mediaName;
-    content.append(mediaElement(mediaType, mediaUrl, mediaName));
+    mediaTrigger = trigger;
+    content.append(mediaElement(mediaType, mediaUrl));
     modal.hidden = false;
     modal.querySelector('[data-report-modal-close]')?.focus();
 }
@@ -188,7 +253,7 @@ function openReportGallery(trigger) {
     if (!(modal instanceof HTMLElement) || !(gallery instanceof HTMLElement) || !(data instanceof HTMLElement)) return;
 
     closeReportModals();
-    lastModalTrigger = trigger;
+    galleryTrigger = trigger;
 
     data.querySelectorAll('[data-report-media-item]').forEach((item) => {
         const button = document.createElement('button');
@@ -196,17 +261,30 @@ function openReportGallery(trigger) {
         button.dataset.reportMediaOpen = '';
         button.dataset.mediaUrl = item.dataset.mediaUrl ?? '';
         button.dataset.mediaType = item.dataset.mediaType ?? '';
-        button.dataset.mediaName = item.dataset.mediaName ?? 'Report attachment';
-        button.setAttribute('aria-label', `Preview ${button.dataset.mediaName}`);
+        button.dataset.mediaIndex = item.dataset.mediaIndex ?? '';
+        button.dataset.mediaExtension = item.dataset.mediaExtension ?? '';
+        button.dataset.mediaMimeType = item.dataset.mediaMimeType ?? '';
+        button.setAttribute('aria-label', `Preview report attachment ${button.dataset.mediaIndex}`);
 
         if (button.dataset.mediaType === 'image') {
             const image = document.createElement('img');
             image.src = button.dataset.mediaUrl;
-            image.alt = button.dataset.mediaName;
+            image.alt = `Report attachment ${button.dataset.mediaIndex}`;
             image.loading = 'lazy';
             image.decoding = 'async';
             button.append(image);
         } else {
+            const video = document.createElement('video');
+            video.className = 'report-video-thumbnail';
+            video.dataset.reportVideoThumbnail = '';
+            video.dataset.thumbnailUrl = button.dataset.mediaUrl;
+            video.muted = true;
+            video.playsInline = true;
+            video.preload = 'none';
+            video.hidden = true;
+            video.setAttribute('aria-hidden', 'true');
+            button.append(video);
+
             const videoMark = document.createElement('span');
             videoMark.className = 'report-video-mark';
             videoMark.setAttribute('aria-hidden', 'true');
@@ -214,13 +292,11 @@ function openReportGallery(trigger) {
             button.append(videoMark);
         }
 
-        const label = document.createElement('small');
-        label.textContent = button.dataset.mediaName;
-        button.append(label);
         gallery.append(button);
     });
 
     modal.hidden = false;
+    initializeReportVideoThumbnails(gallery);
     modal.querySelector('[data-report-modal-close]')?.focus();
 }
 
@@ -300,20 +376,28 @@ document.addEventListener('click', (event) => {
     const closeButton = event.target.closest('[data-report-modal-close]');
     const galleryBackdrop = event.target.closest('[data-report-gallery-modal]');
     const mediaBackdrop = event.target.closest('[data-report-media-modal]');
-    if (closeButton instanceof HTMLElement || event.target === galleryBackdrop || event.target === mediaBackdrop) {
-        const trigger = lastModalTrigger;
-        closeReportModals();
-        trigger?.focus();
+    if ((closeButton instanceof HTMLElement && closeButton.closest('[data-report-media-modal]')) || event.target === mediaBackdrop) {
+        closeReportMediaModal();
+        return;
+    }
+
+    if ((closeButton instanceof HTMLElement && closeButton.closest('[data-report-gallery-modal]')) || event.target === galleryBackdrop) {
+        closeReportGalleryModal();
         return;
     }
 });
 
 document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && document.querySelector('[data-report-gallery-modal]:not([hidden]), [data-report-media-modal]:not([hidden])')) {
-        const trigger = lastModalTrigger;
-        closeReportModals();
-        trigger?.focus();
+    if (event.key !== 'Escape') return;
+    if (document.querySelector('[data-vault-image-viewer][open]')) return;
+
+    const mediaModal = document.querySelector('[data-report-media-modal]:not([hidden])');
+    if (mediaModal) {
+        closeReportMediaModal();
+        return;
     }
+
+    if (document.querySelector('[data-report-gallery-modal]:not([hidden])')) closeReportGalleryModal();
 });
 
 document.addEventListener('livewire:navigating', () => {
@@ -327,6 +411,7 @@ document.addEventListener('livewire:navigating', () => {
 
 document.addEventListener('livewire:init', () => {
     window.Livewire?.hook('morph.updated', syncReportRealtimeSubscription);
+    window.Livewire?.hook('morph.updated', ({ el }) => initializeReportVideoThumbnails(el));
     window.Livewire?.hook('morph.updating', ({ el, toEl }) => {
         if (
             el instanceof HTMLTextAreaElement
@@ -355,6 +440,13 @@ document.addEventListener('livewire:init', () => {
 });
 
 document.addEventListener('livewire:navigated', syncReportRealtimeSubscription);
+document.addEventListener('livewire:navigated', () => initializeReportVideoThumbnails());
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => initializeReportVideoThumbnails(), { once: true });
+} else {
+    initializeReportVideoThumbnails();
+}
 
 window.addEventListener('report-comment-submitted', () => {
     const textarea = document.querySelector('#report-comment-body');

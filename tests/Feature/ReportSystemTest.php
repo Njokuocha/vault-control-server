@@ -59,6 +59,10 @@ test('active staff in each department and administrators can open the agency rep
             ->assertSee('Report System')
             ->assertSee('Cross-agency incident update.')
             ->assertSee('data-vault-image-viewer', false)
+            ->assertSee('data-vault-image-slow-zoom', false)
+            ->assertSee('data-vault-image-rotate', false)
+            ->assertSee('data-vault-image-dimensions', false)
+            ->assertSee('data-vault-image-extension', false)
             ->assertSee(route($department.'.reports.index'), false);
     }
 
@@ -67,6 +71,10 @@ test('active staff in each department and administrators can open the agency rep
         ->assertOk()
         ->assertSee('Cross-agency incident update.')
         ->assertSee('data-vault-image-viewer', false)
+        ->assertSee('data-vault-image-slow-zoom', false)
+        ->assertSee('data-vault-image-rotate', false)
+        ->assertSee('data-vault-image-dimensions', false)
+        ->assertSee('data-vault-image-extension', false)
         ->assertSee('report-feed-item__spinner', false)
         ->assertSee(route('admin.reports.manage'), false);
 });
@@ -288,6 +296,69 @@ test('staff can comment but only the report owner or an administrator can reply'
     expect($adminComment->id)->not->toBe($newestStaffComment->id);
 });
 
+test('disabling report comments hides discussion surfaces and blocks comment actions', function () {
+    app(\App\Services\SettingService::class)->set('report_comments_enabled', '0');
+    $owner = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $report = createTestReport($owner);
+    $comment = $report->comments()->create([
+        'author_type' => User::class,
+        'author_id' => $owner->id,
+        'body' => 'This discussion must not be visible.',
+    ]);
+    $reply = $report->comments()->create([
+        'parent_id' => $comment->id,
+        'author_type' => User::class,
+        'author_id' => $owner->id,
+        'body' => 'This reply must not be visible.',
+    ]);
+
+    Livewire::actingAs($owner, 'web')
+        ->test(ReportWorkspace::class)
+        ->set('selectedReport', $report->uuid)
+        ->set('activeSection', 'comments')
+        ->assertSet('activeSection', 'report')
+        ->assertDontSee('comments-tab', false)
+        ->assertDontSee('report-comments-panel', false)
+        ->assertDontSee('report-latest-comment', false)
+        ->assertDontSee('This discussion must not be visible.')
+        ->assertDontSee('This reply must not be visible.')
+        ->call('showSection', 'comments')
+        ->assertForbidden();
+
+    Livewire::actingAs($owner, 'web')
+        ->test(ReportWorkspace::class)
+        ->set('selectedReport', $report->uuid)
+        ->set('commentBody', 'A forbidden comment.')
+        ->call('addComment')
+        ->assertForbidden();
+
+    Livewire::actingAs($owner, 'web')
+        ->test(ReportWorkspace::class)
+        ->set('selectedReport', $report->uuid)
+        ->set('replyingToId', $comment->id)
+        ->set('replyBody', 'A forbidden reply.')
+        ->call('addReply')
+        ->assertForbidden();
+
+    Livewire::actingAs($owner, 'web')
+        ->test(ReportWorkspace::class)
+        ->set('selectedReport', $report->uuid)
+        ->call('toggleReplies', $comment->id)
+        ->assertForbidden();
+
+    Livewire::actingAs($owner, 'web')
+        ->test(ReportWorkspace::class)
+        ->set('selectedReport', $report->uuid)
+        ->call('loadMoreComments')
+        ->assertForbidden();
+
+    expect($report->comments()->count())->toBe(2)
+        ->and($reply->exists)->toBeTrue();
+});
+
 test('hidden reports are restricted to administrators and their reporter', function () {
     $owner = User::factory()->create([
         'department' => 'fm',
@@ -390,6 +461,87 @@ test('report attachment preview host is ignored by Livewire DOM morphing', funct
         ->test(ReportWorkspace::class)
         ->call('openComposer')
         ->assertSee('data-report-previews wire:ignore', false);
+});
+
+test('report media previews include videos in detail and gallery without exposing media names', function () {
+    Storage::fake(config('vault.upload_disk', 'vault'));
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $report = createTestReport($reporter, 'Report with private media.');
+
+    foreach ([
+        ['evidence-video-secret.mp4', 'video/mp4', 'video'],
+        ['evidence-image-one-secret.jpg', 'image/jpeg', 'image'],
+        ['evidence-image-two-secret.jpg', 'image/jpeg', 'image'],
+        ['evidence-image-three-secret.jpg', 'image/jpeg', 'image'],
+        ['evidence-image-four-secret.jpg', 'image/jpeg', 'image'],
+    ] as $index => [$name, $mimeType, $mediaType]) {
+        $path = "reports/{$report->id}/{$name}";
+        Storage::disk(config('vault.upload_disk', 'vault'))->put($path, "media-{$index}");
+        $report->media()->create([
+            'path' => $path,
+            'original_name' => $name,
+            'mime_type' => $mimeType,
+            'media_type' => $mediaType,
+            'size' => 7,
+            'sort_order' => $index,
+        ]);
+    }
+
+    $workspace = Livewire::actingAs($reporter, 'web')
+        ->test(ReportWorkspace::class)
+        ->assertSee('data-report-video-thumbnail', false)
+        ->assertSee(route('reports.media', ['report' => $report, 'media' => $report->media()->where('media_type', 'video')->firstOrFail()]), false)
+        ->assertSee('data-report-gallery-open="true"', false)
+        ->assertSee('data-report-media-item', false)
+        ->assertDontSee('evidence-video-secret.mp4')
+        ->assertDontSee('evidence-image-one-secret.jpg')
+        ->assertDontSee('evidence-image-two-secret.jpg')
+        ->assertDontSee('evidence-image-three-secret.jpg')
+        ->assertDontSee('evidence-image-four-secret.jpg');
+
+    $workspace->call('editReport', $report->uuid)
+        ->assertSee('data-report-video-thumbnail', false)
+        ->assertDontSee('evidence-video-secret.mp4')
+        ->assertDontSee('evidence-image-one-secret.jpg')
+        ->assertDontSee('evidence-image-two-secret.jpg')
+        ->assertDontSee('evidence-image-three-secret.jpg')
+        ->assertDontSee('evidence-image-four-secret.jpg');
+});
+
+test('report narratives render nested formatting in reports and the composer preview safely', function () {
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $body = '_#Caption with _##bold_##_# and _###uppercase_### <script>alert(1)</script>';
+    $workspace = Livewire::actingAs($reporter, 'web')
+        ->test(ReportWorkspace::class)
+        ->call('openComposer')
+        ->set('body', $body)
+        ->assertSee('FORMATTED PREVIEW')
+        ->assertSee('report-format-caption', false)
+        ->assertSee('report-format-bold', false)
+        ->assertSee('report-format-uppercase', false)
+        ->assertSee('Caption with <span class="report-format-bold">bold</span>', false)
+        ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false)
+        ->assertDontSee('<script>alert(1)</script>', false)
+        ->call('saveReport')
+        ->assertHasNoErrors()
+        ->assertSee('report-format-caption', false)
+        ->assertSee('report-format-bold', false)
+        ->assertSee('report-format-uppercase', false)
+        ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false);
+    $report = Report::query()->where('body', $body)->firstOrFail();
+
+    $workspace->call('editReport', $report->uuid)
+        ->assertSee('FORMATTED PREVIEW')
+        ->assertSee('report-format-caption', false)
+        ->assertSee('report-format-bold', false)
+        ->assertSee('report-format-uppercase', false)
+        ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false);
 });
 
 test('report media remains private and supports byte-range playback', function () {

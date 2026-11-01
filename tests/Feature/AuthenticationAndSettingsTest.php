@@ -319,6 +319,27 @@ test('upload policy settings save through Livewire and are encrypted immediately
         ->and(Crypt::decryptString(Setting::query()->findOrFail('api_upload_enabled')->value))->toBe('0');
 });
 
+test('report comments can be switched off immediately and the setting stays encrypted', function () {
+    actingAsLegacyAdmin($this);
+
+    expect(app(SettingService::class)->reportCommentsEnabled())->toBeTrue();
+
+    Livewire::test(SettingsUploadPolicy::class)
+        ->assertSee('REPORT COMMENTS')
+        ->assertSet('reportCommentsEnabled', true)
+        ->set('reportCommentsEnabled', false)
+        ->assertDispatched('alert', type: 'success', message: 'Report comments disabled.')
+        ->assertSet('reportCommentsEnabled', false);
+
+    $setting = Setting::query()->findOrFail('report_comments_enabled');
+    expect(Crypt::decryptString($setting->value))->toBe('0')
+        ->and($setting->value)->not->toBe('0')
+        ->and(app(SettingService::class)->reportCommentsEnabled())->toBeFalse();
+
+    Livewire::test(SettingsUploadPolicy::class)
+        ->assertSet('reportCommentsEnabled', false);
+});
+
 test('upload key rotation is connected to Livewire and persists only encrypted data', function () {
     actingAsLegacyAdmin($this);
 

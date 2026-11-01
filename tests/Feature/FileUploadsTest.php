@@ -36,6 +36,7 @@ test('the API stores an uploaded file privately and returns its metadata', funct
 
     $file = VaultFile::query()->firstOrFail();
     expect(Storage::disk('vault')->exists($file->stored_path))->toBeTrue()
+        ->and($file->stored_path)->toStartWith(now()->format('Y/m').'/')
         ->and($file->upload_method)->toBe('api')
         ->and($file->source_ip)->not->toBeNull()
         ->and($file->checksum)->toMatch('/^[a-f0-9]{64}$/');

@@ -23,7 +23,7 @@
                     @if (! $mediaAuthorized)
                         <div class="profile-no-image">UNLOCK VIEWABLES TO VIEW THE MAIN IMAGE</div>
                     @elseif ($person->main_image_path)
-                        <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => 'main', 'auth' => $authToken]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => 'main', 'auth' => $authToken]) }}" alt="{{ $person->name }} main image" loading="lazy" data-image-viewer>
+                        <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => 'main', 'auth' => $authToken]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => 'main', 'auth' => $authToken]) }}" data-image-extension="{{ $person->mainImageFile?->extension ?? pathinfo($person->main_image_path ?? '', PATHINFO_EXTENSION) }}" data-image-mime-type="{{ $person->mainImageFile?->mime_type }}" alt="{{ $person->name }} main image" loading="lazy" data-image-viewer>
                     @else
                         <div class="profile-no-image">NO IMAGE FOR THE CURRENT USER</div>
                     @endif
@@ -110,7 +110,7 @@
                                     <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                                 </button>
                             @else
-                                <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-image-title="{{ $image->original_name }}" aria-label="Locked image. Unlock viewables to preview.">
+                                <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-image-title="{{ $image->original_name }}" data-image-extension="{{ $image->file?->extension ?? pathinfo($image->original_name ?? '', PATHINFO_EXTENSION) }}" data-image-mime-type="{{ $image->file?->mime_type }}" aria-label="Locked image. Unlock viewables to preview.">
                                     <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
                                     <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-thumbnail-url="{{ route($routePrefix.'.images.thumbnail', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" alt="{{ $image->original_name }}" loading="lazy" hidden>
                                 </button>

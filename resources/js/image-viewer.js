@@ -7,16 +7,24 @@ let zoomLabel = null;
 let zoomIn = null;
 let zoomOut = null;
 let grayscale = null;
+let dimensionsLabel = null;
+let extensionLabel = null;
+let slowZoomButton = null;
 const minZoom = 1;
-const maxZoom = 15;
+const maxZoom = 50;
 const zoomStep = 0.5;
 let zoom = minZoom;
 let panX = 0;
 let panY = 0;
+let rotation = 0;
 let dragPointer = null;
 let lastTrigger = null;
 const boundDialogs = new WeakSet();
 let downloadBusyTimer = null;
+let slowZoomFrame = null;
+const slowZoomCycleDuration = 10_000;
+const slowZoomInDuration = 8_000;
+const slowZoomMaximum = 1.35;
 
 const refreshViewer = () => {
     const nextDialog = document.querySelector('[data-vault-image-viewer]');
@@ -30,6 +38,9 @@ const refreshViewer = () => {
         zoomIn = null;
         zoomOut = null;
         grayscale = null;
+        dimensionsLabel = null;
+        extensionLabel = null;
+        slowZoomButton = null;
         return;
     }
 
@@ -42,6 +53,9 @@ const refreshViewer = () => {
     zoomIn = dialog.querySelector('[data-vault-image-zoom-in]');
     zoomOut = dialog.querySelector('[data-vault-image-zoom-out]');
     grayscale = dialog.querySelector('[data-vault-image-grayscale]');
+    dimensionsLabel = dialog.querySelector('[data-vault-image-dimensions]');
+    extensionLabel = dialog.querySelector('[data-vault-image-extension]');
+    slowZoomButton = dialog.querySelector('[data-vault-image-slow-zoom]');
     if (!boundDialogs.has(dialog)) {
         boundDialogs.add(dialog);
         const boundDialog = dialog;
@@ -70,6 +84,31 @@ const imageBounds = () => {
     };
 };
 
+const setSlowZoomButtonState = (active) => {
+    if (!(slowZoomButton instanceof HTMLButtonElement)) return;
+    slowZoomButton.setAttribute('aria-pressed', String(active));
+    slowZoomButton.setAttribute('aria-label', active ? 'Stop slow zoom' : 'Start slow zoom');
+    slowZoomButton.title = active ? 'Stop slow zoom' : 'Start slow zoom';
+    const playIcon = slowZoomButton.querySelector('[data-vault-image-motion-play]');
+    const pauseIcon = slowZoomButton.querySelector('[data-vault-image-motion-pause]');
+    if (playIcon instanceof SVGElement) playIcon.toggleAttribute('hidden', active);
+    if (pauseIcon instanceof SVGElement) pauseIcon.toggleAttribute('hidden', !active);
+};
+
+const stopSlowZoom = (resetZoom = false) => {
+    if (slowZoomFrame !== null) {
+        window.cancelAnimationFrame(slowZoomFrame);
+        slowZoomFrame = null;
+    }
+    setSlowZoomButtonState(false);
+    if (resetZoom) {
+        zoom = minZoom;
+        panX = 0;
+        panY = 0;
+        updateTransform();
+    }
+};
+
 const updateTransform = () => {
     if (!image || !stage) return;
     const bounds = imageBounds();
@@ -80,25 +119,35 @@ const updateTransform = () => {
         bounds.height / image.naturalHeight,
         1,
     );
-    image.style.width = `${image.naturalWidth * fitScale}px`;
-    image.style.height = `${image.naturalHeight * fitScale}px`;
-    const fittedWidth = image.clientWidth;
-    const fittedHeight = image.clientHeight;
-    const maxX = Math.max(0, (fittedWidth * zoom - bounds.width) / 2);
-    const maxY = Math.max(0, (fittedHeight * zoom - bounds.height) / 2);
+    const fittedWidth = image.naturalWidth * fitScale;
+    const fittedHeight = image.naturalHeight * fitScale;
+    if (image.style.width !== `${fittedWidth}px`) image.style.width = `${fittedWidth}px`;
+    if (image.style.height !== `${fittedHeight}px`) image.style.height = `${fittedHeight}px`;
+    const radians = (rotation * Math.PI) / 180;
+    const rotatedWidth = Math.abs(fittedWidth * zoom * Math.cos(radians))
+        + Math.abs(fittedHeight * zoom * Math.sin(radians));
+    const rotatedHeight = Math.abs(fittedWidth * zoom * Math.sin(radians))
+        + Math.abs(fittedHeight * zoom * Math.cos(radians));
+    const maxX = Math.max(0, (rotatedWidth - bounds.width) / 2);
+    const maxY = Math.max(0, (rotatedHeight - bounds.height) / 2);
     panX = Math.max(-maxX, Math.min(maxX, panX));
     panY = Math.max(-maxY, Math.min(maxY, panY));
-    image.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    image.style.transform = `translate(${panX}px, ${panY}px) rotate(${rotation}deg) scale(${zoom})`;
     stage.classList.toggle('is-zoomed', zoom > minZoom);
     if (zoomLabel) zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
     if (zoomIn instanceof HTMLButtonElement) zoomIn.disabled = zoom >= maxZoom;
     if (zoomOut instanceof HTMLButtonElement) zoomOut.disabled = zoom <= minZoom;
+    if (dimensionsLabel) {
+        dimensionsLabel.textContent = `${image.naturalWidth} × ${image.naturalHeight} px`;
+    }
 };
 
 const reset = () => {
+    stopSlowZoom();
     zoom = minZoom;
     panX = 0;
     panY = 0;
+    rotation = 0;
     dragPointer = null;
     stage?.classList.remove('is-dragging');
     if (grayscale instanceof HTMLInputElement) grayscale.checked = false;
@@ -107,6 +156,7 @@ const reset = () => {
 };
 
 const setZoom = (nextZoom, cursor = null) => {
+    if (slowZoomFrame !== null) stopSlowZoom();
     const next = Math.max(minZoom, Math.min(maxZoom, nextZoom));
     if (next === zoom) return;
 
@@ -125,11 +175,87 @@ const setZoom = (nextZoom, cursor = null) => {
     updateTransform();
 };
 
-export function openImageViewer({ src, downloadUrl = src, name = 'Image preview', returnFocus = document.activeElement }) {
+const inferImageExtension = (src, name, extension, mimeType) => {
+    const suppliedExtension = extension?.trim().replace(/^\./, '');
+    if (suppliedExtension) return suppliedExtension.toUpperCase();
+
+    const nameExtension = name.match(/\.([a-z0-9]{1,10})$/i)?.[1];
+    if (nameExtension) return nameExtension.toUpperCase();
+
+    const mimeExtensions = {
+        'image/avif': 'AVIF',
+        'image/bmp': 'BMP',
+        'image/gif': 'GIF',
+        'image/heic': 'HEIC',
+        'image/heif': 'HEIF',
+        'image/jpg': 'JPG',
+        'image/jpeg': 'JPG',
+        'image/jp2': 'JP2',
+        'image/png': 'PNG',
+        'image/svg+xml': 'SVG',
+        'image/tiff': 'TIF',
+        'image/vnd.microsoft.icon': 'ICO',
+        'image/webp': 'WEBP',
+        'image/x-icon': 'ICO',
+        'image/x-ms-bmp': 'BMP',
+    };
+    if (mimeType && mimeExtensions[mimeType.toLowerCase()]) {
+        return mimeExtensions[mimeType.toLowerCase()];
+    }
+
+    try {
+        const urlExtension = new URL(src, window.location.href).pathname.match(/\.([a-z0-9]{1,10})$/i)?.[1];
+        if (urlExtension) return urlExtension.toUpperCase();
+    } catch (error) {
+        if (!(error instanceof TypeError)) throw error;
+    }
+
+    return 'UNKNOWN';
+};
+
+const startSlowZoom = () => {
+    if (!dialog?.open || !image?.naturalWidth) return;
+
+    zoom = minZoom;
+    panX = 0;
+    panY = 0;
+    updateTransform();
+    setSlowZoomButtonState(true);
+    const startedAt = performance.now();
+
+    const animate = (now) => {
+        if (!dialog?.open || !image?.naturalWidth) {
+            stopSlowZoom();
+            return;
+        }
+
+        const elapsed = (now - startedAt) % slowZoomCycleDuration;
+        const progress = elapsed < slowZoomInDuration
+            ? elapsed / slowZoomInDuration
+            : 1 - (elapsed - slowZoomInDuration) / (slowZoomCycleDuration - slowZoomInDuration);
+        const easedProgress = progress * progress * (3 - 2 * progress);
+        zoom = minZoom + ((slowZoomMaximum - minZoom) * easedProgress);
+        updateTransform();
+        slowZoomFrame = window.requestAnimationFrame(animate);
+    };
+
+    slowZoomFrame = window.requestAnimationFrame(animate);
+};
+
+export function openImageViewer({
+    src,
+    downloadUrl = src,
+    name = 'Image preview',
+    extension,
+    mimeType,
+    returnFocus = document.activeElement,
+}) {
     refreshViewer();
     if (!(dialog instanceof HTMLDialogElement) || !(image instanceof HTMLImageElement) || !src) return;
 
     lastTrigger = returnFocus instanceof HTMLElement ? returnFocus : null;
+    if (dimensionsLabel) dimensionsLabel.textContent = 'Loading…';
+    if (extensionLabel) extensionLabel.textContent = inferImageExtension(src, name, extension, mimeType);
     image.src = src;
     image.alt = name;
     if (title) title.textContent = name;
@@ -170,6 +296,19 @@ document.addEventListener('click', async (event) => {
     }
     if (event.target.closest('[data-vault-image-zoom-out]')) {
         setZoom(zoom - zoomStep);
+        return;
+    }
+    if (event.target.closest('[data-vault-image-slow-zoom]')) {
+        if (slowZoomFrame !== null) {
+            stopSlowZoom(true);
+        } else {
+            startSlowZoom();
+        }
+        return;
+    }
+    if (event.target.closest('[data-vault-image-rotate]')) {
+        rotation = (rotation + 90) % 360;
+        updateTransform();
         return;
     }
 
@@ -232,6 +371,7 @@ document.addEventListener('wheel', (event) => {
     refreshViewer();
     if (!stage || !dialog?.open || !image?.naturalWidth || !stage.contains(event.target)) return;
     event.preventDefault();
+    if (slowZoomFrame !== null) stopSlowZoom();
     const rect = stage.getBoundingClientRect();
     const factor = event.deltaY < 0 ? 1 + zoomStep : 1 / (1 + zoomStep);
     setZoom(zoom * factor, { x: event.clientX - rect.left, y: event.clientY - rect.top });
@@ -240,6 +380,7 @@ document.addEventListener('wheel', (event) => {
 document.addEventListener('pointerdown', (event) => {
     refreshViewer();
     if (zoom <= minZoom || event.target !== image || !(stage instanceof HTMLElement) || event.button !== 0) return;
+    if (slowZoomFrame !== null) stopSlowZoom();
     dragPointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
     stage.setPointerCapture(event.pointerId);
     stage.classList.add('is-dragging');
@@ -268,7 +409,12 @@ document.addEventListener('pointercancel', () => {
 });
 document.addEventListener('load', (event) => {
     refreshViewer();
-    if (event.target === image) requestAnimationFrame(updateTransform);
+    if (event.target === image) {
+        requestAnimationFrame(updateTransform);
+        if (slowZoomButton?.getAttribute('aria-pressed') === 'true' && slowZoomFrame === null) {
+            startSlowZoom();
+        }
+    }
 }, true);
 document.addEventListener('livewire:navigated', refreshViewer);
 window.addEventListener('resize', updateTransform);

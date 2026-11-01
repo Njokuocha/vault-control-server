@@ -1119,6 +1119,8 @@ listenForPageEvent(window, 'vault-file-preview-ready', (event) => {
             src: file.stream_url ?? pathUrl(shellEndpoints.stream, file.path).toString(),
             downloadUrl: file.download_url ?? pathUrl(shellEndpoints.download, file.path).toString(),
             name: file.name,
+            extension: file.extension,
+            mimeType: file.mime,
         });
         return;
     }
@@ -1152,6 +1154,8 @@ listenForPageEvent(window, 'archive-preview-ready', (event) => {
             src: file.stream_url ?? pathUrl(shellEndpoints.stream, file.path).toString(),
             downloadUrl: file.download_url ?? pathUrl(shellEndpoints.download, file.path).toString(),
             name: file.name,
+            extension: file.extension,
+            mimeType: file.mime,
         });
     }
 
@@ -2236,6 +2240,8 @@ pageMediaClickHandler = (event) => {
             ?? protectedImage?.alt
             ?? imageTrigger.querySelector('img')?.alt
             ?? 'Private image',
+        extension: imageTrigger.dataset.imageExtension ?? protectedImage?.dataset.imageExtension,
+        mimeType: imageTrigger.dataset.imageMimeType ?? protectedImage?.dataset.imageMimeType,
     });
 };
 
@@ -2774,6 +2780,8 @@ document.addEventListener('click', (event) => {
                 src: mediaUrl,
                 downloadUrl: mediaTrigger.dataset.downloadUrl ?? mediaUrl,
                 name: mediaTrigger.dataset.mediaTitle ?? 'Private image',
+                extension: mediaTrigger.dataset.mediaExtension,
+                mimeType: mediaTrigger.dataset.mediaMimeType,
             });
             return;
         }

@@ -17,7 +17,7 @@
         <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h2>Viewables <span>{{ $person->images->count() + (int) (bool) ($person->main_image_path || $person->main_image_file_id) }}</span></h2></div></div>
         <div class="profile-gallery is-locked" data-profile-gallery>
             @if ($person->main_image_path || $person->main_image_file_id)
-                <button class="profile-gallery-tile" type="button" data-fm-media-preview data-media-type="image" data-media-url="{{ route('fm.person-media.image', ['person' => $person->id, 'image' => 'main']) }}" data-download-url="{{ route('fm.person-media.download', ['person' => $person->id, 'image' => 'main']) }}" data-media-title="Profile image" aria-label="Locked image. Unlock viewables to preview.">
+                <button class="profile-gallery-tile" type="button" data-fm-media-preview data-media-type="image" data-media-url="{{ route('fm.person-media.image', ['person' => $person->id, 'image' => 'main']) }}" data-download-url="{{ route('fm.person-media.download', ['person' => $person->id, 'image' => 'main']) }}" data-media-title="Profile image" data-media-extension="{{ $person->mainImageFile?->extension ?? pathinfo($person->main_image_path ?? '', PATHINFO_EXTENSION) }}" data-media-mime-type="{{ $person->mainImageFile?->mime_type }}" aria-label="Locked image. Unlock viewables to preview.">
                     <span class="image-lock-placeholder" data-fm-lock-placeholder>?</span>
                     <img data-fm-protected-image data-image-url="{{ route('fm.person-media.image', ['person' => $person->id, 'image' => 'main']) }}" data-thumbnail-url="{{ route('fm.person-media.thumbnail', ['person' => $person->id, 'image' => 'main']) }}" alt="Protected image" loading="lazy" hidden>
                 </button>
@@ -34,7 +34,7 @@
                         <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                     </button>
                 @else
-                    <button class="profile-gallery-tile" type="button" data-fm-media-preview data-media-type="image" data-media-url="{{ route('fm.person-media.image', ['person' => $person->id, 'image' => $image->id]) }}" data-download-url="{{ route('fm.person-media.download', ['person' => $person->id, 'image' => $image->id]) }}" data-media-title="Protected image" aria-label="Locked image. Unlock viewables to preview.">
+                    <button class="profile-gallery-tile" type="button" data-fm-media-preview data-media-type="image" data-media-url="{{ route('fm.person-media.image', ['person' => $person->id, 'image' => $image->id]) }}" data-download-url="{{ route('fm.person-media.download', ['person' => $person->id, 'image' => $image->id]) }}" data-media-title="Protected image" data-media-extension="{{ $image->file?->extension ?? pathinfo($image->original_name ?? '', PATHINFO_EXTENSION) }}" data-media-mime-type="{{ $image->file?->mime_type }}" aria-label="Locked image. Unlock viewables to preview.">
                         <span class="image-lock-placeholder" data-fm-lock-placeholder>?</span>
                         <img data-fm-protected-image data-image-url="{{ route('fm.person-media.image', ['person' => $person->id, 'image' => $image->id]) }}" data-thumbnail-url="{{ route('fm.person-media.thumbnail', ['person' => $person->id, 'image' => $image->id]) }}" alt="Protected image" loading="lazy" hidden>
                     </button>

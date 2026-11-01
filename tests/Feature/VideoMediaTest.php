@@ -96,6 +96,10 @@ test('completed private videos can be attached to person galleries and require t
     $this->get(route('people.images.poster', ['person' => $person, 'image' => $media->id, 'auth' => $token]))
         ->assertOk()
         ->assertHeader('Content-Type', 'image/jpeg');
+    $this->get(route('people.edit', ['person' => $person, 'auth' => $token]))
+        ->assertOk()
+        ->assertSee(route('people.images.poster', ['person' => $person, 'image' => $media->id, 'auth' => $token]), false)
+        ->assertSee('Profile gallery video thumbnail', false);
 });
 
 test('completed private videos can be attached to any case evidence category and streamed', function () {
@@ -122,7 +126,8 @@ test('completed private videos can be attached to any case evidence category and
         ->assertSee('witness-video.mp4');
     $this->get(route('cases.edit', $case))
         ->assertOk()
-        ->assertSee('case-evidence-video-mark--centered', false);
+        ->assertSee('case-evidence-video-mark--centered', false)
+        ->assertDontSee('witness-video.mp4');
     $this->get(route('cases.image', ['caseFile' => $case, 'image' => $media]))
         ->assertOk()
         ->assertHeader('Content-Type', 'video/mp4');
@@ -327,6 +332,11 @@ test('optional private renditions and posters are served through authorized medi
         ->assertHeader('Content-Type', 'image/jpeg');
     expect(realpath($posterResponse->baseResponse->getFile()->getPathname()))
         ->toBe(realpath(Storage::disk('vault')->path($media->poster_path)));
+
+    $this->get(route('cases.edit', $case))
+        ->assertOk()
+        ->assertSee(route('cases.images.poster', ['caseFile' => $case, 'image' => $media]), false)
+        ->assertDontSee('processed-video.mp4');
 });
 
 test('videos cannot be attached if their upload has not completed or was already consumed', function () {

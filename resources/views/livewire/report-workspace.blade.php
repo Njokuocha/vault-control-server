@@ -26,26 +26,28 @@
                         <span class="report-feed-item__node" aria-hidden="true"></span>
                         <span class="report-feed-item__meta">
                             <span>{{ $feedReport->created_at?->format('M d, Y · H:i') }} UTC</span>
-                            @if ($feedReport->admin_commented)<b>ADMIN COMMENTED</b>@endif
+                            @if ($reportCommentsEnabled && $feedReport->admin_commented)<b>ADMIN COMMENTED</b>@endif
                             @if ($feedReport->is_hidden)<em>RESTRICTED</em>@endif
                         </span>
                         <strong>{{ \Illuminate\Support\Str::limit($feedReport->body, 115) }}</strong>
-                        <span class="report-feed-item__byline">{{ $reporter?->name ?? 'Former account' }} · {{ $feedReport->comments_count }} comments · {{ $feedReport->media_count }} media</span>
-                        @if ($feedReport->latestComment)
+                        <span class="report-feed-item__byline">{{ $reporter?->name ?? 'Former account' }}{{ $reportCommentsEnabled ? ' · '.$feedReport->comments_count.' comments' : '' }} · {{ $feedReport->media_count }} media</span>
+                        @if ($reportCommentsEnabled && $feedReport->latestComment)
                             <span class="report-feed-item__latest"><i aria-hidden="true"></i><span><b>{{ $feedReport->latestComment->author?->name ?? 'Former account' }}:</b> {{ \Illuminate\Support\Str::limit($feedReport->latestComment->body, 78) }}</span></span>
                         @endif
                         <span class="report-feed-item__footer">
-                            <span class="report-commenter-stack" aria-hidden="true">
-                                @foreach ($feedReport->recent_commenters as $commenter)
-                                    @php($commenterAuthor = $commenter['author'])
-                                    @if ($commenterAuthor instanceof \App\Models\User && $commenterAuthor->profile_photo_path)
-                                        <img src="{{ route('reports.commenter-photo', $commenterAuthor) }}" alt="" loading="lazy">
-                                    @else
-                                        <i>{{ strtoupper(substr($commenterAuthor->name ?? 'A', 0, 1)) }}</i>
-                                    @endif
-                                @endforeach
-                            </span>
-                            <span>{{ $feedReport->commenter_count }} {{ $feedReport->commenter_count === 1 ? 'staff' : 'staffs' }} commented</span>
+                            @if ($reportCommentsEnabled)
+                                <span class="report-commenter-stack" aria-hidden="true">
+                                    @foreach ($feedReport->recent_commenters as $commenter)
+                                        @php($commenterAuthor = $commenter['author'])
+                                        @if ($commenterAuthor instanceof \App\Models\User && $commenterAuthor->profile_photo_path)
+                                            <img src="{{ route('reports.commenter-photo', $commenterAuthor) }}" alt="" loading="lazy">
+                                        @else
+                                            <i>{{ strtoupper(substr($commenterAuthor->name ?? 'A', 0, 1)) }}</i>
+                                        @endif
+                                    @endforeach
+                                </span>
+                                <span>{{ $feedReport->commenter_count }} {{ $feedReport->commenter_count === 1 ? 'staff' : 'staffs' }} commented</span>
+                            @endif
                             <span class="report-feed-item__arrow" aria-hidden="true" wire:loading.remove wire:target="selectReport('{{ $feedReport->uuid }}', {{ $feedReport->id }})">↗</span>
                             <span class="report-feed-item__spinner" aria-label="Loading report" wire:loading wire:target="selectReport('{{ $feedReport->uuid }}', {{ $feedReport->id }})"></span>
                         </span>
@@ -77,11 +79,13 @@
 
                 <nav class="report-detail-tabs" role="tablist" aria-label="Report sections">
                     <button id="report-tab" data-report-section-button="report" role="tab" aria-controls="report-tab-panel" aria-selected="{{ $activeSection === 'report' ? 'true' : 'false' }}" tabindex="{{ $activeSection === 'report' ? '0' : '-1' }}" type="button" class="{{ $activeSection === 'report' ? 'is-active' : '' }}"><span class="ri ri-file-list-3-line" aria-hidden="true"></span> REPORT</button>
-                    <button id="comments-tab" data-report-section-button="comments" role="tab" aria-controls="comments-tab-panel" aria-selected="{{ $activeSection === 'comments' ? 'true' : 'false' }}" tabindex="{{ $activeSection === 'comments' ? '0' : '-1' }}" type="button" class="{{ $activeSection === 'comments' ? 'is-active' : '' }}"><span class="ri ri-chat-3-line" aria-hidden="true"></span> COMMENTS <b>{{ $report->comments_count }}</b></button>
+                    @if ($reportCommentsEnabled)
+                        <button id="comments-tab" data-report-section-button="comments" role="tab" aria-controls="comments-tab-panel" aria-selected="{{ $activeSection === 'comments' ? 'true' : 'false' }}" tabindex="{{ $activeSection === 'comments' ? '0' : '-1' }}" type="button" class="{{ $activeSection === 'comments' ? 'is-active' : '' }}"><span class="ri ri-chat-3-line" aria-hidden="true"></span> COMMENTS <b>{{ $report->comments_count }}</b></button>
+                    @endif
                 </nav>
 
                     <article id="report-tab-panel" data-report-section-panel="report" class="report-content-card" role="tabpanel" aria-labelledby="report-tab" tabindex="0" @if ($activeSection !== 'report') hidden @endif>
-                        @if ($report->admin_commented)
+                        @if ($reportCommentsEnabled && $report->admin_commented)
                             <div class="report-admin-commented"><span class="ri ri-shield-check-line" aria-hidden="true"></span> ADMIN COMMENTED</div>
                         @endif
                         <div class="report-author-line">
@@ -89,7 +93,7 @@
                             <span><strong>{{ $report->reporter?->name ?? 'Former account' }}</strong><small>{{ $report->reporter instanceof \App\Models\User ? ($report->reporter->departmentRecord?->rank ?? 'AGENCY STAFF') : 'ADMINISTRATOR' }}</small></span>
                             <time datetime="{{ $report->created_at?->toIso8601String() }}">{{ $report->created_at?->format('M d, Y · H:i:s') }} UTC</time>
                         </div>
-                        <div class="report-body">{{ $report->body }}</div>
+                        <div class="report-body">{{ $formattedReportBody }}</div>
 
                         @if ($report->media->isNotEmpty())
                             <div class="report-media-grid report-media-grid--{{ min(4, $report->media->count()) }}">
@@ -101,13 +105,15 @@
                                         data-report-gallery-open="{{ $report->media->count() > 4 && $loop->last ? 'true' : 'false' }}"
                                         data-media-url="{{ route('reports.media', [$report, $media]) }}"
                                         data-media-type="{{ $media->media_type }}"
-                                        data-media-name="{{ $media->original_name }}"
-                                        aria-label="{{ $report->media->count() > 4 && $loop->last ? 'Open all report attachments' : 'Preview '.$media->original_name }}"
+                                        data-media-extension="{{ pathinfo($media->original_name ?? '', PATHINFO_EXTENSION) }}"
+                                        data-media-mime-type="{{ $media->mime_type }}"
+                                        data-media-index="{{ $loop->iteration }}"
+                                        aria-label="{{ $report->media->count() > 4 && $loop->last ? 'Open all report attachments' : 'Preview attachment '.$loop->iteration }}"
                                     >
                                         @if ($media->media_type === 'image')
-                                            <img src="{{ route('reports.media.thumbnail', [$report, $media]) }}" alt="{{ $media->original_name }}" loading="lazy" decoding="async">
+                                            <img src="{{ route('reports.media.thumbnail', [$report, $media]) }}" alt="Report attachment {{ $loop->iteration }}" loading="lazy" decoding="async">
                                         @else
-                                            <video src="{{ route('reports.media', [$report, $media]) }}" preload="none" muted playsinline aria-label="{{ $media->original_name }}"></video>
+                                            <video class="report-video-thumbnail" data-report-video-thumbnail data-thumbnail-url="{{ route('reports.media', [$report, $media]) }}" preload="none" muted playsinline hidden aria-hidden="true"></video>
                                             <span class="report-video-mark" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                                         @endif
                                         @if ($report->media->count() > 4 && $loop->last)
@@ -144,16 +150,19 @@
                             </div>
                         @endif
 
-                        @if ($report->latestComment)
-                            <button class="report-latest-comment" data-report-section-button="comments" type="button">
-                                <span class="report-comment-node" aria-hidden="true"></span>
-                                <span><small>MOST RECENT COMMENT · {{ $report->latestComment->updated_at?->diffForHumans() }}</small><strong>{{ $report->latestComment->author?->name ?? 'Former account' }}</strong><p>{{ \Illuminate\Support\Str::limit($report->latestComment->body, 240) }}</p></span>
-                                <i class="ri ri-arrow-right-line" aria-hidden="true"></i>
-                            </button>
-                        @else
-                            <div class="report-first-comment-note"><span class="ri ri-chat-new-line" aria-hidden="true"></span> No comments yet. Add the first field note.</div>
+                        @if ($reportCommentsEnabled)
+                            @if ($report->latestComment)
+                                <button class="report-latest-comment" data-report-section-button="comments" type="button">
+                                    <span class="report-comment-node" aria-hidden="true"></span>
+                                    <span><small>MOST RECENT COMMENT · {{ $report->latestComment->updated_at?->diffForHumans() }}</small><strong>{{ $report->latestComment->author?->name ?? 'Former account' }}</strong><p>{{ \Illuminate\Support\Str::limit($report->latestComment->body, 240) }}</p></span>
+                                    <i class="ri ri-arrow-right-line" aria-hidden="true"></i>
+                                </button>
+                            @else
+                                <div class="report-first-comment-note"><span class="ri ri-chat-new-line" aria-hidden="true"></span> No comments yet. Add the first field note.</div>
+                            @endif
                         @endif
                     </article>
+                    @if ($reportCommentsEnabled)
                     <section id="comments-tab-panel" data-report-section-panel="comments" class="report-comments-panel" role="tabpanel" aria-labelledby="comments-tab" tabindex="0" @if ($activeSection !== 'comments') hidden @endif>
                         <div class="report-comments-heading"><div><span class="section-kicker">AGENCY DISCUSSION</span><h3>{{ $totalMainComments }} Comments</h3></div><span>ADMIN PRIORITY · NEWEST FIRST</span></div>
                         <div class="report-comment-thread">
@@ -212,6 +221,7 @@
                             <div><small>Comments are visible to authorized agency personnel. Replies are reserved for the reporter and administrators.</small><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="addComment"><span wire:loading.remove wire:target="addComment">POST COMMENT</span><span wire:loading wire:target="addComment">POSTING…</span></button></div>
                         </form>
                     </section>
+                    @endif
             @else
                 <div class="report-empty-state report-empty-state--detail"><span class="ri ri-radar-line" aria-hidden="true"></span><strong>AWAITING FIRST REPORT</strong><p>Publish a field report to begin the agency situation record.</p><button class="button-primary" type="button" x-on:click="composerOpen = true" wire:click="openComposer">＋ CREATE REPORT</button></div>
             @endif
@@ -223,16 +233,19 @@
                 <header><div><span class="section-kicker">{{ $editingUuid ? 'UPDATE RECORD' : 'NEW SITUATION REPORT' }}</span><h2 id="report-composer-title">{{ $editingUuid ? 'Edit report' : 'Publish a report' }}</h2></div><button type="button" data-report-composer-close aria-label="Close report form" x-on:click="composerOpen = false" wire:click="closeComposer">×</button></header>
                 <form wire:submit="saveReport">
                     <label class="report-form-label" for="report-body">REPORT NARRATIVE <span>NO TITLE REQUIRED</span></label>
-                    <textarea id="report-body" wire:model="body" rows="7" maxlength="20000" placeholder="Record the event, timing, location, source, and operational context…"></textarea>
+                    <textarea id="report-body" wire:model.live.debounce.350ms="body" rows="7" maxlength="20000" placeholder="Record the event, timing, location, source, and operational context…"></textarea>
+                    <p class="report-format-help">Formatting: <code>_#caption_#</code> for a modest caption, <code>_##bold_##</code> for bold, and <code>_###uppercase_###</code> for uppercase. Markers can be nested.</p>
+                    @if (trim($body) !== '')
+                        <div class="report-format-preview"><span class="section-kicker">FORMATTED PREVIEW</span><div>{{ $formattedBodyPreview }}</div></div>
+                    @endif
                     @error('body')<small class="report-form-error">{{ $message }}</small>@enderror
 
                     @if ($report && $report->uuid === $editingUuid && $report->media->isNotEmpty())
                         <div class="report-existing-media"><span class="report-form-label">CURRENT MEDIA · SELECT TO REMOVE</span><div>
                             @foreach ($report->media as $media)
-                                <button type="button" data-report-media-toggle class="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'is-marked-remove' : '' }}" wire:click="toggleMediaRemoval({{ $media->id }})" aria-label="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'Keep' : 'Remove' }} {{ $media->original_name }}">
-                                    @if ($media->media_type === 'image')<img src="{{ route('reports.media.thumbnail', [$report, $media]) }}" alt="">
-                                    @else <span class="ri ri-video-line" aria-hidden="true"></span>@endif
-                                    <small>{{ $media->original_name }}</small>
+                                <button type="button" data-report-media-toggle class="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'is-marked-remove' : '' }}" wire:click="toggleMediaRemoval({{ $media->id }})" aria-label="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'Keep' : 'Remove' }} attachment {{ $loop->iteration }}">
+                                    @if ($media->media_type === 'image')<img src="{{ route('reports.media.thumbnail', [$report, $media]) }}" alt="Report attachment {{ $loop->iteration }}">
+                                    @else <video class="report-video-thumbnail" data-report-video-thumbnail data-thumbnail-url="{{ route('reports.media', [$report, $media]) }}" preload="none" muted playsinline hidden aria-hidden="true"></video><span class="report-video-mark" aria-hidden="true"><i class="ri ri-play-fill"></i></span>@endif
                                 </button>
                             @endforeach
                         </div></div>
@@ -316,7 +329,9 @@
                     data-report-media-item
                     data-media-url="{{ route('reports.media', [$report, $media]) }}"
                     data-media-type="{{ $media->media_type }}"
-                    data-media-name="{{ $media->original_name }}"
+                    data-media-extension="{{ pathinfo($media->original_name ?? '', PATHINFO_EXTENSION) }}"
+                    data-media-mime-type="{{ $media->mime_type }}"
+                    data-media-index="{{ $loop->iteration }}"
                 ></span>
             @endforeach
         </div>
@@ -328,7 +343,7 @@
         </div>
         <div class="report-file-backdrop" data-report-media-modal hidden role="presentation">
             <section class="report-file-modal" role="dialog" aria-modal="true" aria-label="Report attachment preview">
-                <header><span data-report-media-name></span><button type="button" data-report-modal-close aria-label="Close preview">×</button></header>
+                <header><button type="button" data-report-modal-close aria-label="Close preview">×</button></header>
                 <div class="report-file-content" data-report-media-content></div>
             </section>
         </div>

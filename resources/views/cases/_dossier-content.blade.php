@@ -112,7 +112,7 @@
                                     @if ($loop->index === 3 && $category->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>@endif
                                 </a>
                             @else
-                                <button class="evidence-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-image-title="{{ $image->original_name }}" aria-label="View {{ $image->original_name }}">
+                                <button class="evidence-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-image-title="{{ $image->original_name }}" data-image-extension="{{ pathinfo($image->original_name, PATHINFO_EXTENSION) }}" aria-label="View {{ $image->original_name }}">
                                     <img src="{{ route($routePrefix.'cases.images.thumbnail', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="{{ $image->original_name }}" loading="lazy" decoding="async">
                                     @if ($loop->index === 3 && $category->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>@endif
                                 </button>

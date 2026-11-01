@@ -12,6 +12,8 @@ use App\Models\ReportComment;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\ReportAccess;
+use App\Services\SettingService;
+use App\Support\ReportBodyFormatter;
 use App\Support\VersionedCache;
 use App\Support\CaseAnalysisCache;
 use Illuminate\Contracts\Auth\Authenticatable;
@@ -98,6 +100,10 @@ class ReportWorkspace extends Component
     {
         $this->authorizeWorkspace($access);
         abort_unless(in_array($section, ['report', 'comments'], true), 404);
+        if ($section === 'comments') {
+            $this->ensureCommentsEnabled(app(SettingService::class));
+        }
+
         $this->activeSection = $section;
     }
 
@@ -305,6 +311,7 @@ class ReportWorkspace extends Component
     public function addComment(ReportAccess $access): void
     {
         $actor = $this->authorizeWorkspace($access);
+        $this->ensureCommentsEnabled(app(SettingService::class));
         $report = $this->selectedVisibleReport($access, $actor);
         $validated = $this->validate(['commentBody' => ['required', 'string', 'max:5000']]);
 
@@ -329,6 +336,7 @@ class ReportWorkspace extends Component
     public function addReply(ReportAccess $access): void
     {
         $actor = $this->authorizeWorkspace($access);
+        $this->ensureCommentsEnabled(app(SettingService::class));
         $report = $this->selectedVisibleReport($access, $actor);
         abort_unless($this->canReply($report, $access, $actor), 403);
         abort_unless($this->replyingToId !== null, 403);
@@ -357,6 +365,7 @@ class ReportWorkspace extends Component
     public function toggleReplies(int $commentId, ReportAccess $access): void
     {
         $actor = $this->authorizeWorkspace($access);
+        $this->ensureCommentsEnabled(app(SettingService::class));
         $report = $this->selectedVisibleReport($access, $actor);
         $comment = $report->comments()->whereKey($commentId)->whereNull('parent_id')->firstOrFail();
         abort_if(! $comment->replies()->exists(), 404);
@@ -392,6 +401,7 @@ class ReportWorkspace extends Component
     public function loadMoreComments(ReportAccess $access): void
     {
         $actor = $this->authorizeWorkspace($access);
+        $this->ensureCommentsEnabled(app(SettingService::class));
         $this->selectedVisibleReport($access, $actor);
         $this->commentLimit += 15;
     }
@@ -417,6 +427,11 @@ class ReportWorkspace extends Component
     public function render(ReportAccess $access): View
     {
         $actor = $this->authorizeWorkspace($access);
+        $commentsEnabled = app(SettingService::class)->reportCommentsEnabled();
+        if (! $commentsEnabled && $this->activeSection === 'comments') {
+            $this->activeSection = 'report';
+        }
+
         $actorCacheKey = hash('sha256', $actor::class.':'.$actor->getAuthIdentifier());
         $cache = app(VersionedCache::class);
         $totalReportCount = $cache->remember(
@@ -427,22 +442,28 @@ class ReportWorkspace extends Component
         );
         $reports = $cache->remember(
             'reports',
-            "workspace:{$actorCacheKey}:feed:{$this->reportLimit}",
+            "workspace:{$actorCacheKey}:feed:{$this->reportLimit}:".($commentsEnabled ? 'comments' : 'no-comments'),
             now()->addSeconds(20),
-            function () use ($access, $actor): Collection {
-                $reports = $access->visibleQuery($actor)
+            function () use ($access, $actor, $commentsEnabled): Collection {
+                $query = $access->visibleQuery($actor)
                     ->with([
                         'reporter' => fn (MorphTo $relation) => $relation->morphWith([
                             User::class => ['departmentRecord'],
                         ]),
-                        'latestComment.author',
                     ])
-                    ->withCount(['comments', 'media'])
+                    ->withCount('media');
+                if ($commentsEnabled) {
+                    $query->with('latestComment.author')->withCount('comments');
+                }
+
+                $reports = $query
                     ->latest('updated_at')
                     ->limit($this->reportLimit)
                     ->get();
 
-                $this->attachCommenterPreviews($reports);
+                if ($commentsEnabled) {
+                    $this->attachCommenterPreviews($reports);
+                }
 
                 return $reports;
             },
@@ -518,6 +539,8 @@ class ReportWorkspace extends Component
             'totalReportCount' => $totalReportCount,
             'hasMoreReports' => $totalReportCount > $this->reportLimit,
             'report' => $selected,
+            'formattedReportBody' => $selected === null ? null : app(ReportBodyFormatter::class)->format($selected->body),
+            'formattedBodyPreview' => app(ReportBodyFormatter::class)->format($this->body),
             'mainComments' => $mainComments,
             'totalMainComments' => $totalMainComments,
             'hasMoreComments' => $totalMainComments > $this->commentLimit,
@@ -526,6 +549,7 @@ class ReportWorkspace extends Component
             'canLinkPeople' => $access->canLinkPeople($actor),
             'canEditReport' => $selected !== null && $access->canManage($selected, $actor),
             'canReply' => $selected !== null && $this->canReply($selected, $access, $actor),
+            'reportCommentsEnabled' => $commentsEnabled,
             'caseOptions' => $this->composerOpen ? $this->caseOptions($access, $actor) : collect(),
             'personOptions' => $this->composerOpen ? $this->personOptions($access, $actor) : collect(),
             'department' => $currentDepartment,
@@ -538,6 +562,11 @@ class ReportWorkspace extends Component
     private function authorizeWorkspace(ReportAccess $access): Authenticatable
     {
         return $access->actor();
+    }
+
+    private function ensureCommentsEnabled(SettingService $settings): void
+    {
+        abort_unless($settings->reportCommentsEnabled(), 403);
     }
 
     private function selectedVisibleReport(ReportAccess $access, Authenticatable $actor): Report
@@ -560,12 +589,15 @@ class ReportWorkspace extends Component
 
         $actorCacheKey = hash('sha256', $actor::class.':'.$actor->getAuthIdentifier());
 
+        $commentsEnabled = app(SettingService::class)->reportCommentsEnabled();
+
         return app(VersionedCache::class)->remember(
             'report-content-'.$reportId,
-            "workspace:{$actorCacheKey}:detail:{$uuid}",
+            "workspace:{$actorCacheKey}:detail:{$uuid}:".($commentsEnabled ? 'comments' : 'no-comments'),
             now()->addSeconds(20),
-            fn (): ?Report => $access->visibleQuery($actor)
-                ->with([
+            function () use ($access, $actor, $reportId, $uuid, $commentsEnabled): ?Report {
+                $query = $access->visibleQuery($actor)
+                    ->with([
                     'reporter' => fn (MorphTo $relation) => $relation->morphWith([
                         User::class => ['departmentRecord'],
                     ]),
@@ -573,10 +605,14 @@ class ReportWorkspace extends Component
                     'cases',
                     'people',
                 ])
-                ->withCount('comments')
-                ->whereKey($reportId)
-                ->where('uuid', $uuid)
-                ->first(),
+                    ->whereKey($reportId)
+                    ->where('uuid', $uuid);
+                if ($commentsEnabled) {
+                    $query->withCount('comments');
+                }
+
+                return $query->first();
+            },
             ['report-related'],
         );
     }

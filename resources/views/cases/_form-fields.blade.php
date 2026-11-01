@@ -21,7 +21,6 @@
                                             <video class="case-evidence-video-poster" data-case-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
                                         @endif
                                         <span class="case-evidence-video-mark case-evidence-video-mark--centered" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
-                                        <span class="case-evidence-filename" title="{{ $image->original_name }}">{{ \Illuminate\Support\Str::limit($image->original_name, 22, '...') }}</span>
                                     @elseif (in_array($image->type, ['document', 'audio'], true))
                                         @php($extension = strtoupper(pathinfo($image->original_name, PATHINFO_EXTENSION)) ?: 'FILE')
                                         @php($documentIcon = match (strtolower($extension)) {

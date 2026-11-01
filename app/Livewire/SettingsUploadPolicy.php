@@ -14,11 +14,25 @@ class SettingsUploadPolicy extends Component
 
     public bool $apiUploadsEnabled;
 
+    public bool $reportCommentsEnabled;
+
     public function mount(SettingService $settings): void
     {
         $this->maxUploadMb = $settings->maxUploadMegabytes();
         $this->maxVideoUploadMb = $settings->maxVideoUploadMegabytes();
         $this->apiUploadsEnabled = $settings->apiUploadsEnabled();
+        $this->reportCommentsEnabled = $settings->reportCommentsEnabled();
+    }
+
+    public function updatedReportCommentsEnabled(bool $enabled): void
+    {
+        app(SettingService::class)->set('report_comments_enabled', $enabled ? '1' : '0');
+
+        $this->dispatch(
+            'alert',
+            type: 'success',
+            message: $enabled ? 'Report comments enabled.' : 'Report comments disabled.',
+        );
     }
 
     public function save(SettingService $settings): void
@@ -27,11 +41,13 @@ class SettingsUploadPolicy extends Component
             'maxUploadMb' => ['required', 'integer', 'min:0', 'max:1048576'],
             'maxVideoUploadMb' => ['required', 'integer', 'min:0', 'max:1048576'],
             'apiUploadsEnabled' => ['required', 'boolean'],
+            'reportCommentsEnabled' => ['required', 'boolean'],
         ]);
 
         $settings->set('max_upload_mb', (string) $validated['maxUploadMb']);
         $settings->set('max_video_upload_mb', (string) $validated['maxVideoUploadMb']);
         $settings->set('api_upload_enabled', $validated['apiUploadsEnabled'] ? '1' : '0');
+        $settings->set('report_comments_enabled', $validated['reportCommentsEnabled'] ? '1' : '0');
 
         $this->dispatch('alert', type: 'success', message: 'Upload policy updated.');
     }

@@ -35,7 +35,11 @@
                         <div class="existing-upload-image" data-existing-image>
                             @if ($image->type === 'video')
                                 @if ($mediaAuthorized)
-                                    <video class="existing-upload-image__video" data-case-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" @if($image->poster_path || $image->file?->video_poster_path) poster="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" @endif muted playsinline preload="none" hidden aria-hidden="true"></video>
+                                    @if ($image->poster_path || $image->file?->video_poster_path)
+                                        <img src="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" alt="Profile gallery video thumbnail" loading="lazy" decoding="async">
+                                    @else
+                                        <video class="existing-upload-image__video" data-case-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
+                                    @endif
                                 @else
                                     <span class="image-lock-placeholder" aria-hidden="true">?</span>
                                 @endif

@@ -106,7 +106,7 @@
                                     <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                                 </button>
                             @else
-                                <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($galleryRoutePrefix.'.image', ['user' => $staff, 'image' => $image->id, 'auth' => $authToken]) }}" data-download-url="{{ route($galleryRoutePrefix.'.images.download', ['user' => $staff, 'image' => $image->id, 'auth' => $authToken]) }}" data-image-title="IMG {{ $mediaLabel }}" aria-label="View image {{ $mediaLabel }}">
+                                <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($galleryRoutePrefix.'.image', ['user' => $staff, 'image' => $image->id, 'auth' => $authToken]) }}" data-download-url="{{ route($galleryRoutePrefix.'.images.download', ['user' => $staff, 'image' => $image->id, 'auth' => $authToken]) }}" data-image-title="IMG {{ $mediaLabel }}" data-image-extension="{{ $image->file?->extension ?? pathinfo($image->original_name ?? '', PATHINFO_EXTENSION) }}" data-image-mime-type="{{ $image->file?->mime_type }}" aria-label="View image {{ $mediaLabel }}">
                                     <img data-protected-image data-image-url="{{ route($galleryRoutePrefix.'.image', ['user' => $staff, 'image' => $image->id, 'auth' => $authToken]) }}" data-thumbnail-url="{{ route($galleryRoutePrefix.'.images.thumbnail', ['user' => $staff, 'image' => $image->id, 'auth' => $authToken]) }}" alt="{{ $image->original_name }}" loading="lazy" hidden>
                                 </button>
                             @endif

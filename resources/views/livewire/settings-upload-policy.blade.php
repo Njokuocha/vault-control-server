@@ -30,4 +30,13 @@
         @error('apiUploadsEnabled')<p class="field-error">{{ $message }}</p>@enderror
         <div class="password-form-footer"><span class="field-hint">API toggle affects <code>POST /api/upload</code> only; manual uploads remain available.</span><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="save"><span wire:loading.remove wire:target="save">SAVE UPLOAD POLICY</span><span wire:loading wire:target="save">SAVING…</span></button></div>
     </form>
+    <div class="api-switch-row report-comments-switch-row">
+        <div class="api-switch-copy"><span class="setting-field-label">REPORT COMMENTS</span><span>Control whether agency personnel can view or add report comments.</span></div>
+        <label class="switch-control" for="report-comments-enabled">
+            <input id="report-comments-enabled" type="checkbox" wire:model.live="reportCommentsEnabled">
+            <span class="switch-track" aria-hidden="true"><span></span></span>
+            <span class="switch-status" data-switch-status>{{ $reportCommentsEnabled ? 'ENABLED' : 'DISABLED' }}</span>
+        </label>
+    </div>
+    <p class="field-hint">This setting takes effect immediately across report feeds and discussions.</p>
 </section>
