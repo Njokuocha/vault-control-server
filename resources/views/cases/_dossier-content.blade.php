@@ -58,7 +58,7 @@
             <a class="button-secondary" href="{{ route($routePrefix.'cases.gallery', $caseFile) }}" wire:navigate>MANAGE CATEGORY</a>
         </div>
         @forelse ($caseFile->categories as $category)
-            <article class="case-evidence-category">
+            <article class="case-evidence-category" @if ($category->access_restricted) wire:ignore @endif>
                 <header>
                     <div>
                         <span class="section-kicker">{{ str_pad($loop->iteration, 2, '0', STR_PAD_LEFT) }} / EVIDENCE CATEGORY</span>
@@ -70,10 +70,17 @@
                 </header>
                 <p>{{ $category->description }}</p>
                 @if ($category->access_restricted)
-                    <div class="gallery-category-restricted" role="status">
-                        <i class="ri ri-lock-line" aria-hidden="true"></i>
-                        <strong>Restricted category</strong>
-                        <span>This category is locked. Contact an administrator if you need access.</span>
+                    <div class="case-evidence-gallery" data-expandable-gallery aria-label="Restricted category files">
+                        @foreach ($category->images as $image)
+                            <div class="case-evidence-entry" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
+                                <button class="evidence-gallery-tile evidence-gallery-tile--restricted" type="button" data-gallery-restricted aria-label="Restricted file">
+                                    <i class="ri ri-lock-line gallery-restricted-card__icon" aria-hidden="true"></i>
+                                    @if ($loop->index === 3 && $category->images->count() > 4)
+                                        <span class="gallery-more-overlay" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>
+                                    @endif
+                                </button>
+                            </div>
+                        @endforeach
                     </div>
                 @elseif ($category->images->isNotEmpty())
                     <div class="case-evidence-gallery" data-expandable-gallery>
@@ -121,5 +128,15 @@
             <div class="profile-gallery-empty">No image categories have been added.</div>
         @endforelse
     </section>
+    <dialog class="gallery-management-dialog gallery-restricted-dialog" data-gallery-restricted-dialog aria-labelledby="gallery-restricted-title">
+        <form method="dialog" class="gallery-picker-close"><button value="close" aria-label="Close restriction notice">×</button></form>
+        <div class="gallery-restricted-dialog-content">
+            <i class="ri ri-lock-line" aria-hidden="true"></i>
+            <span class="section-kicker">CATEGORY ACCESS</span>
+            <h2 id="gallery-restricted-title">File restricted</h2>
+            <p>This file has been restricted and cannot be accessed.</p>
+            <form method="dialog"><button class="button-secondary" value="close">UNDERSTOOD</button></form>
+        </div>
+    </dialog>
     <x-video-viewer />
     <footer class="page-footer"><span>{{ strtoupper(config('app.name')) }} · {{ $caseFile->public_id }}</span><span>RESTRICTED <i>·</i> AUTHENTICATED ACCESS</span></footer>

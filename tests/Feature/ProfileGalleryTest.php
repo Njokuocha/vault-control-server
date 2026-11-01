@@ -49,10 +49,35 @@ test('profile pages show one bounded gallery preview and link to the profile gal
 
     $response->assertOk()
         ->assertSee('Archive')
-        ->assertSee(route('pm.people.gallery', $person), false)
+        ->assertSee('href="'.route('pm.people.gallery', $person).'" wire:navigate', false)
         ->assertSee('VIEW GALLERY', false);
     expect(substr_count($response->getContent(), 'class="profile-gallery-tile'))->toBe(4)
         ->and(substr_count($response->getContent(), 'MANAGE MEDIA'))->toBe(1);
+});
+
+test('admin and profile manager gallery navigation links use Livewire navigation', function () {
+    $person = profileGalleryPerson('SPA Gallery Subject');
+    $person->galleryCategories()->create(['title' => 'Archive']);
+    $admin = Admin::query()->create([
+        'name' => 'Gallery SPA Administrator',
+        'email' => 'gallery-spa-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $staff = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
+
+    foreach ([
+        [$admin, 'admin', 'people.show', 'people.gallery'],
+        [$staff, 'web', 'pm.people.show', 'pm.people.gallery'],
+    ] as [$user, $guard, $showRoute, $galleryRoute]) {
+        $profile = $this->actingAs($user, $guard)->get(route($showRoute, $person));
+        $galleryUrl = route($galleryRoute, $person);
+        $profile->assertOk()
+            ->assertSee('href="'.$galleryUrl.'" wire:navigate', false);
+
+        $gallery = $this->get($galleryUrl);
+        $gallery->assertOk()
+            ->assertSee('href="'.route($showRoute, $person).'" wire:navigate', false);
+    }
 });
 
 test('gallery categories and media are profile-scoped and legacy media remain uncategorized', function () {
@@ -233,6 +258,11 @@ test('locked profile categories require a department grant and unlock clears gra
     $this->actingAs($otherStaff, 'web')
         ->get(route('pm.people.show', $person))
         ->assertOk()
+        ->assertSee('data-gallery-restricted', false)
+        ->assertSee('data-gallery-restricted-dialog', false)
+        ->assertSee('gallery-restricted-card__icon', false)
+        ->assertSee('File restricted')
+        ->assertSee('This file has been restricted and cannot be accessed.')
         ->assertDontSee('restricted-photo.jpg');
     $this->get(route('pm.people.gallery', ['person' => $person, 'category' => $category->id]))
         ->assertOk()

@@ -80,9 +80,15 @@
                 <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h3>Gallery <span>{{ $galleryTotalCount }}</span></h3></div><a href="{{ route($routePrefix.'.edit', $person) }}" wire:navigate class="text-action">MANAGE MEDIA</a></div>
                 <div class="profile-gallery-category-heading">
                     <strong>{{ $galleryPreviewCategory?->title ?? 'Uncategorized media' }} @if($canManageGalleryAccess && $galleryPreviewCategory?->is_locked)<i class="ri ri-lock-line gallery-category-lock-indicator" title="Restricted category" aria-label="Restricted category"></i>@endif</strong>
-                    <a class="text-action" href="{{ route($routePrefix.'.gallery', $person) }}">VIEW GALLERY ↗</a>
+                    <a class="text-action" href="{{ route($routePrefix.'.gallery', $person) }}" wire:navigate>VIEW GALLERY ↗</a>
                 </div>
-                @if ($galleryPreviewMedia->isNotEmpty())
+                @if ($galleryPreviewRestricted)
+                    <div class="profile-gallery is-restricted" aria-label="Restricted gallery preview">
+                        <button class="profile-gallery-tile profile-gallery-tile--restricted" type="button" data-gallery-restricted aria-label="Restricted file">
+                            <i class="ri ri-lock-line gallery-restricted-card__icon" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                @elseif ($galleryPreviewMedia->isNotEmpty())
                     <div class="profile-gallery is-locked" data-profile-gallery>
                         @foreach ($galleryPreviewMedia as $image)
                             @if ($image->type === 'video')
@@ -112,6 +118,16 @@
             </div>
         </div>
     </section>
+    <dialog class="gallery-management-dialog gallery-restricted-dialog" data-gallery-restricted-dialog aria-labelledby="gallery-restricted-title">
+        <form method="dialog" class="gallery-picker-close"><button value="close" aria-label="Close restriction notice">×</button></form>
+        <div class="gallery-restricted-dialog-content">
+            <i class="ri ri-lock-line" aria-hidden="true"></i>
+            <span class="section-kicker">CATEGORY ACCESS</span>
+            <h2 id="gallery-restricted-title">File restricted</h2>
+            <p>This file has been restricted and cannot be accessed.</p>
+            <form method="dialog"><button class="button-secondary" value="close">UNDERSTOOD</button></form>
+        </div>
+    </dialog>
     <section class="profile-details-grid">
         <article class="profile-details-card">
             <div class="profile-section-heading"><div><span class="section-kicker">BIOGRAPHICAL DATA</span><h3>Identity details</h3></div></div>

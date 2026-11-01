@@ -57,19 +57,19 @@ class CaseDossier extends Component
         $caseFile->loadMissing($relations);
         $visibleCategoryIds = $galleryAccess->visibleCaseCategoryIds($caseFile->getKey(), request());
         foreach ($caseFile->categories as $category) {
-            if (! in_array($category->getKey(), $visibleCategoryIds, true)) {
-                $category->setRelation('images', collect());
-                $category->setAttribute('access_restricted', true);
-
-                continue;
-            }
             $images = $category->images
                 ->merge($category->assignedImages)
                 ->unique('id')
                 ->sortBy('id')
                 ->values();
-            $images->loadMissing(['file', 'categories']);
             $category->setRelation('images', $images);
+
+            if (! in_array($category->getKey(), $visibleCategoryIds, true)) {
+                $category->setAttribute('access_restricted', true);
+
+                continue;
+            }
+            $images->loadMissing(['file', 'categories']);
             $category->setAttribute('access_restricted', false);
         }
 

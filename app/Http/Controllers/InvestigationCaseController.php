@@ -112,7 +112,7 @@ class InvestigationCaseController extends Controller
         return redirect()->to($redirectUrl)->with('status', 'Case file created.');
     }
 
-    public function show(InvestigationCase $caseFile): View
+    public function show(InvestigationCase $caseFile, GalleryCategoryAccess $galleryAccess): View
     {
         $isCaseManager = request()->routeIs('cfm.*');
         $relations = [
@@ -133,6 +133,7 @@ class InvestigationCaseController extends Controller
             fn (): InvestigationCase => $caseFile->load($relations),
         );
         $caseFile->loadMissing($relations);
+        $visibleCategoryIds = $galleryAccess->visibleCaseCategoryIds($caseFile->getKey(), request());
         foreach ($caseFile->categories as $category) {
             $images = $category->images
                 ->merge($category->assignedImages)
@@ -141,6 +142,7 @@ class InvestigationCaseController extends Controller
                 ->values();
             $images->loadMissing(['file', 'categories']);
             $category->setRelation('images', $images);
+            $category->setAttribute('access_restricted', ! in_array($category->getKey(), $visibleCategoryIds, true));
         }
 
         return view('cases.show', [

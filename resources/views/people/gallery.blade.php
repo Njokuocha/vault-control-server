@@ -14,7 +14,7 @@
         </div>
         <div class="profile-heading-actions">
             <button class="button-secondary" type="button" data-open-image-pin>UNLOCK VIEWABLES</button>
-            <a class="button-secondary" href="{{ route($routePrefix.'.show', $person) }}">BACK TO PROFILE</a>
+            <a class="button-secondary" href="{{ route($routePrefix.'.show', $person) }}" wire:navigate>BACK TO PROFILE</a>
         </div>
     </section>
 

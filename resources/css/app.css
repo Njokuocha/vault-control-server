@@ -1972,6 +1972,17 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
 .gallery-category-restricted > i { color: #e7c56e; font-size: 26px; }
 .gallery-category-restricted strong { color: var(--text-primary); font: 500 16px var(--font-display); }
 .gallery-category-restricted span { max-width: 420px; font-size: 11px; line-height: 1.65; }
+.evidence-gallery-tile--restricted, .profile-gallery-tile--restricted { position: relative; isolation: isolate; display: grid; place-items: center; background: radial-gradient(circle at 50% 42%, rgb(112 167 215 / 19%), rgb(13 23 34 / 95%) 70%); }
+.evidence-gallery-tile--restricted::after, .profile-gallery-tile--restricted::after { position: absolute; z-index: -1; border: 1px solid rgb(231 197 110 / 10%); border-radius: 50%; content: ""; inset: 14%; }
+.gallery-restricted-card__icon { color: #f0d384; font-size: clamp(30px, 4vw, 46px); filter: drop-shadow(0 4px 12px rgb(0 0 0 / 45%)); }
+.evidence-gallery-tile--restricted:hover, .profile-gallery-tile--restricted:hover { border-color: rgb(231 197 110 / 56%); }
+.evidence-gallery-tile--restricted:focus-visible, .profile-gallery-tile--restricted:focus-visible { outline: 2px solid #e8c86f; outline-offset: 3px; }
+.gallery-restricted-dialog { width: min(440px, calc(100vw - 24px)); }
+.gallery-restricted-dialog-content { display: grid; justify-items: center; gap: 12px; padding: 14px 8px 4px; text-align: center; }
+.gallery-restricted-dialog-content > i { display: grid; width: 56px; height: 56px; place-items: center; border: 1px solid rgb(231 197 110 / 34%); border-radius: 50%; color: #f0d384; background: radial-gradient(circle, rgb(201 162 74 / 15%), rgb(7 13 21 / 90%)); font-size: 24px; }
+.gallery-restricted-dialog-content h2 { margin: 0; color: var(--text-primary); font: 500 21px var(--font-display); }
+.gallery-restricted-dialog-content p { max-width: 340px; margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.7; }
+.gallery-restricted-dialog-content > form:last-child { margin-top: 6px; }
 .gallery-management-dialog { position: fixed; width: min(580px, calc(100vw - 24px)); max-width: none; max-height: min(86dvh, 760px); margin: auto; padding: 22px; overflow: auto; border: 1px solid rgb(139 170 200 / 34%); border-radius: 12px; color: var(--text-primary); background: linear-gradient(145deg, rgb(17 28 42 / 97%), rgb(7 13 21 / 98%)); box-shadow: 0 28px 100px rgb(0 0 0 / 72%), inset 0 1px rgb(255 255 255 / 5%); backdrop-filter: blur(18px); }
 .gallery-management-dialog[open] { animation: image-dialog-enter .2s cubic-bezier(.2,.8,.2,1) both; }
 .gallery-management-dialog::backdrop { background: rgb(2 5 9 / 76%); backdrop-filter: blur(8px); }

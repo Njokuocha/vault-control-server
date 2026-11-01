@@ -169,6 +169,7 @@ class PersonController extends Controller
         $visibleCategoryIds = $galleryAccess->visiblePersonCategoryIds($person->getKey(), request());
         $galleryCategories = $person->galleryCategories()->withCount('images')->get();
         $galleryCategories->each(function (PersonGalleryCategory $category) use ($visibleCategoryIds): void {
+            $category->setAttribute('has_restricted_media', $category->images_count > 0);
             if (! in_array($category->getKey(), $visibleCategoryIds, true)) {
                 $category->images_count = 0;
             }
@@ -178,15 +179,25 @@ class PersonController extends Controller
             ->whereDoesntHave('galleryCategories')
             ->count();
         $previewCategory = $galleryCategories->first(fn (PersonGalleryCategory $category): bool => $category->images_count > 0);
-        $galleryPreviewQuery = $person->images()->with(['file', 'galleryCategories'])->latest('id');
-        if ($previewCategory instanceof PersonGalleryCategory) {
-            $galleryPreviewQuery->whereHas('galleryCategories', fn ($query) => $query->whereKey($previewCategory->id));
-            $galleryPreviewCount = $previewCategory->images_count;
-        } else {
-            $galleryPreviewQuery->whereNull('gallery_category_id')->whereDoesntHave('galleryCategories');
-            $galleryPreviewCount = $uncategorizedCount;
+        $galleryPreviewRestricted = false;
+        if (! $previewCategory && $uncategorizedCount === 0) {
+            $previewCategory = $galleryCategories->first(fn (PersonGalleryCategory $category): bool => $category->has_restricted_media);
+            $galleryPreviewRestricted = $previewCategory instanceof PersonGalleryCategory;
         }
-        $galleryPreviewMedia = $galleryPreviewQuery->limit(4)->get();
+        if ($galleryPreviewRestricted) {
+            $galleryPreviewMedia = collect();
+            $galleryPreviewCount = 0;
+        } else {
+            $galleryPreviewQuery = $person->images()->with(['file', 'galleryCategories'])->latest('id');
+            if ($previewCategory instanceof PersonGalleryCategory) {
+                $galleryPreviewQuery->whereHas('galleryCategories', fn ($query) => $query->whereKey($previewCategory->id));
+                $galleryPreviewCount = $previewCategory->images_count;
+            } else {
+                $galleryPreviewQuery->whereNull('gallery_category_id')->whereDoesntHave('galleryCategories');
+                $galleryPreviewCount = $uncategorizedCount;
+            }
+            $galleryPreviewMedia = $galleryPreviewQuery->limit(4)->get();
+        }
         $avatarGroup = strtolower($person->avatar_group);
         $avatarPath = in_array($avatarGroup, ['male', 'female', 'group', 'unknown', 'suspect', 'verified'], true)
             ? $settings->get('avatar_model_'.$avatarGroup)
@@ -198,6 +209,7 @@ class PersonController extends Controller
             'galleryPreviewMedia' => $galleryPreviewMedia,
             'galleryPreviewCategory' => $previewCategory,
             'galleryPreviewCount' => $galleryPreviewCount,
+            'galleryPreviewRestricted' => $galleryPreviewRestricted,
             'galleryTotalCount' => $galleryCategories->sum('images_count') + $uncategorizedCount,
             'profileManagement' => $profileManagement,
             'routePrefix' => $this->routePrefix(),

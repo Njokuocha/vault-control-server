@@ -268,6 +268,13 @@ async function submitGalleryAction(form) {
 document.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;
 
+    const restrictedTrigger = event.target.closest('[data-gallery-restricted]');
+    if (restrictedTrigger instanceof HTMLElement) {
+        const dialog = document.querySelector('[data-gallery-restricted-dialog]');
+        if (dialog instanceof HTMLDialogElement) dialog.showModal();
+        return;
+    }
+
     const editTrigger = event.target.closest('[data-open-gallery-edit]');
     if (editTrigger instanceof HTMLElement) {
         const dialog = document.querySelector('[data-gallery-edit-dialog]');

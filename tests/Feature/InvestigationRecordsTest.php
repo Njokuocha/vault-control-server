@@ -846,7 +846,12 @@ test('locked case categories restrict evidence until an active case staff member
         ->assertDontSee('confidential-evidence.jpg');
     $this->get(route('cfm.cases.show', $caseFile))
         ->assertOk()
-        ->assertSee('Restricted category')
+        ->assertSee('data-gallery-restricted', false)
+        ->assertSee('data-gallery-restricted-dialog', false)
+        ->assertSee('gallery-restricted-card__icon', false)
+        ->assertSee('wire:ignore', false)
+        ->assertSee('File restricted')
+        ->assertSee('This file has been restricted and cannot be accessed.')
         ->assertDontSee('confidential-evidence.jpg');
     $this->get(route('cfm.cases.edit', $caseFile))
         ->assertOk()
