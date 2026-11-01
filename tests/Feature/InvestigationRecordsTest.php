@@ -968,7 +968,10 @@ test('avatar models accept valid embedded GLB files and reject external asset re
         ->assertOk()
         ->assertSee('Unknown')
         ->assertSee('Suspect')
-        ->assertSee('Verified');
+        ->assertSee('Verified')
+        ->assertSee('data-glb-form', false)
+        ->assertSee('data-glb-progress', false)
+        ->assertSee('data-glb-status', false);
 
     $this->post(route('people.store'), [
         'gender' => 'Other',
@@ -1006,6 +1009,27 @@ test('avatar models accept valid embedded GLB files and reject external asset re
         ])
         ->assertRedirect(route('avatar-models.index'))
         ->assertSessionHasErrors('model');
+});
+
+test('avatar model uploads return SPA response and preview URL without redirecting', function () {
+    $json = json_encode(['asset' => ['version' => '2.0'], 'scene' => 0], JSON_THROW_ON_ERROR);
+    $json = str_pad($json, (int) (ceil(strlen($json) / 4) * 4), ' ');
+    $glb = pack('V3', 0x46546C67, 2, 20 + strlen($json))
+        .pack('V2', strlen($json), 0x4E4F534A)
+        .$json;
+
+    $this->actingAs(User::factory()->create())
+        ->postJson(route('avatar-models.update', 'male'), [
+            'model' => UploadedFile::fake()->createWithContent('male.glb', $glb),
+        ])
+        ->assertOk()
+        ->assertJsonPath('message', 'Male avatar model updated.')
+        ->assertJsonStructure(['model_url']);
+
+    $this->postJson(route('avatar-models.update', 'female'), [
+        'model' => UploadedFile::fake()->createWithContent('female.glb', 'not a GLB file'),
+    ])->assertUnprocessable()
+        ->assertJsonPath('errors.model.0', 'Select a valid binary glTF 2.0 (.glb) with embedded assets only.');
 });
 
 test('person profile image deletion verifies ownership', function () {

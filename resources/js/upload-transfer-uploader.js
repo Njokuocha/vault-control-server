@@ -10,8 +10,17 @@ const resumeStorageKey = 'vault.upload-transfer-resume.v1';
 const transfers = new Map();
 const recordPreparations = new WeakMap();
 const deferredRecordSelections = new WeakMap();
-const imageExtensions = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic', 'heif', 'avif']);
-const videoExtensions = new Set(['mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv', 'm4v', '3gp', 'mpeg', 'mpg']);
+const imageExtensions = new Set([
+    'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic', 'heif', 'avif',
+    'jpe', 'jfif', 'pjpeg', 'pjp', 'dib', 'hif', 'avifs', 'jxl', 'jp2', 'j2k', 'jpf',
+    'jpx', 'jpm', 'mj2', 'ico', 'cur', 'tga', 'pcx', 'psd', 'exr', 'hdr', 'dds', 'icns',
+    'wbmp',
+]);
+const videoExtensions = new Set([
+    'mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv', 'm4v', '3gp', 'mpeg', 'mpg',
+    'qt', '3g2', 'ogv', 'mj2', 'ts', 'mts', 'm2ts', 'm2t', 'mpe', 'm1v', 'm2v', 'mpv',
+    'vob', 'f4v', 'asf', 'rm', 'rmvb', 'mxf', 'divx',
+]);
 let resumeToken = null;
 let selectedResumeToken = null;
 let snapshotRequest = null;
@@ -793,7 +802,6 @@ const validateFile = (file, form) => {
     const globalLimitMb = Number(form.dataset.maxUploadMb ?? 0);
     const videoLimitMb = Number(form.dataset.maxVideoUploadMb ?? 0);
     const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
-    const videoExtensions = new Set(['3gp', 'avi', 'flv', 'm4v', 'mkv', 'mov', 'mp4', 'mpeg', 'mpg', 'ogv', 'ts', 'webm', 'wmv']);
     const isVideo = file.type.startsWith('video/') || videoExtensions.has(extension);
     const limitMb = isVideo && videoLimitMb > 0 ? Math.min(globalLimitMb, videoLimitMb) : globalLimitMb;
 

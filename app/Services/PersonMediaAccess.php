@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Person;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -34,6 +35,12 @@ class PersonMediaAccess
         for ($attempt = 0; $attempt < 5; $attempt++) {
             $token = Str::random(self::TOKEN_LENGTH);
             if (Cache::add($this->tokenCacheKey($token), $record, $expiresAt)) {
+                if (! Cache::put($this->activeTokenCacheKey($actor, $person->getKey()), $token, $expiresAt)) {
+                    Cache::forget($this->tokenCacheKey($token));
+
+                    throw new \RuntimeException('Unable to store the active profile media access token.');
+                }
+
                 return [
                     'token' => $token,
                     'expires_at' => $expiresAt->timestamp,
@@ -42,6 +49,25 @@ class PersonMediaAccess
         }
 
         throw new \RuntimeException('Unable to issue a unique profile media access token.');
+    }
+
+    public function activeToken(Request $request, int $personId): ?string
+    {
+        $actor = $request->user();
+        if ($actor === null) {
+            return null;
+        }
+
+        $cacheKey = $this->activeTokenCacheKey($actor, $personId);
+        $token = Cache::get($cacheKey);
+
+        if (! is_string($token) || ! $this->allows($request, $personId, $token)) {
+            Cache::forget($cacheKey);
+
+            return null;
+        }
+
+        return $token;
     }
 
     public function allows(Request $request, int $personId, ?string $token = null): bool
@@ -113,5 +139,12 @@ class PersonMediaAccess
     private function tokenCacheKey(string $token): string
     {
         return 'person-media-access:token:'.hash_hmac('sha256', $token, (string) config('app.key'));
+    }
+
+    private function activeTokenCacheKey(Authenticatable $actor, int $personId): string
+    {
+        $scope = $actor::class.':'.$actor->getAuthIdentifier().':'.$personId;
+
+        return 'person-media-access:active:'.hash_hmac('sha256', $scope, (string) config('app.key'));
     }
 }

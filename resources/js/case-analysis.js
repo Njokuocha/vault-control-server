@@ -347,6 +347,7 @@ function initialize(root) {
         details.append(label, title);
         root.querySelector('[data-current-case]').append(marker, details);
         root.querySelector('[data-clear-case]').disabled = false;
+        root.querySelector('[data-clear-selection]').disabled = false;
         root.querySelector('[data-refresh-diagram]').disabled = false;
         applyTransform();
         updateMinimap();
@@ -499,6 +500,8 @@ function initialize(root) {
             canvas.classList.remove('has-case');
             root.querySelector('[data-empty]').hidden = false;
             root.querySelector('[data-node-search]').disabled = true;
+            root.querySelector('[data-clear-case]').disabled = true;
+            root.querySelector('[data-clear-selection]').disabled = true;
             setStage('', false);
             showLoadError('case summary', error.message);
             toast(error.message, 'error');
@@ -922,6 +925,7 @@ function initialize(root) {
         root.querySelector('[data-status-line]').hidden = true;
         root.querySelector('[data-inspector]').hidden = true;
         root.querySelector('[data-clear-case]').disabled = true;
+        root.querySelector('[data-clear-selection]').disabled = true;
         root.querySelector('[data-refresh-diagram]').disabled = true;
         root.querySelector('[data-notes-panel]').hidden = true;
         root.querySelector('[data-notes-list]').replaceChildren();
@@ -1061,6 +1065,7 @@ function initialize(root) {
     if (root.dataset.initialCase) getCase(root.dataset.initialCase, true);
     else {
         root.querySelector('[data-clear-case]').disabled = true;
+        root.querySelector('[data-clear-selection]').disabled = true;
         root.querySelector('[data-refresh-diagram]').disabled = true;
     }
 }

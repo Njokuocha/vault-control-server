@@ -4,12 +4,12 @@ use App\Events\CaseAnalysisUpdated;
 use App\Models\ActivityLog;
 use App\Models\Admin;
 use App\Models\CaseAnalysisNote;
-use App\Models\CaseCategory;
 use App\Models\CaseImage;
 use App\Models\InvestigationCase;
 use App\Models\Person;
 use App\Models\Report;
 use App\Models\User;
+use App\Services\ActivityLogger;
 use App\Support\CaseAnalysisCache;
 use App\Support\VersionedCache;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -69,6 +69,17 @@ test('only administrators and active CFM staff can open the portal', function ()
     $this->actingAs($otherDepartment, 'web')
         ->get(route('cfm.case-analysis.index'))
         ->assertForbidden();
+});
+
+test('case import dialog gives the clear-selection action its standard button treatment', function () {
+    $staff = User::factory()->create(['department' => 'cfm', 'account_status' => 'active']);
+
+    $this->actingAs($staff, 'web')
+        ->get(route('cfm.case-analysis.index'))
+        ->assertOk()
+        ->assertSee('class="case-analysis-button case-analysis-dialog__clear"', false)
+        ->assertSee('data-clear-selection disabled', false)
+        ->assertSee('Clear canvas selection');
 });
 
 test('case search and diagram endpoints expose only genuine linked records and visible reports', function () {
@@ -175,9 +186,9 @@ test('analysis notes are shared, author-managed, admin-managed, and protected ag
         ->assertOk()
         ->assertJsonPath('items.0.body', '<script>not executable</script>');
     $this->putJson(route('cfm.case-analysis.notes.update', [$caseFile, $noteId]), [
-            'body' => 'Unauthorized edit',
-            'version' => 1,
-        ])
+        'body' => 'Unauthorized edit',
+        'version' => 1,
+    ])
         ->assertForbidden();
 
     $this->actingAs($author, 'web')
@@ -280,7 +291,7 @@ test('case-management activity notifies the authorized case channel and invalida
     Event::fake([CaseAnalysisUpdated::class]);
     $caseFile = createCaseAnalysisCase('CSE-REALTIME-01');
 
-    app(\App\Services\ActivityLogger::class)->record(
+    app(ActivityLogger::class)->record(
         'case-management',
         'case.updated',
         'Case file was updated.',

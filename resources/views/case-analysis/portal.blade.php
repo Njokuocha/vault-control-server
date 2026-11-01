@@ -138,7 +138,9 @@
             <span class="case-analysis-eyebrow">AUTHORIZED RECORD SEARCH</span>
             <h2 id="case-analysis-import-title">Import a case file</h2>
             <p>Search by case ID or title. Only cases available to your account are listed.</p>
-            <button type="button" class="case-analysis-dialog__clear" data-clear-selection>Clear current canvas selection</button>
+            <button type="button" class="case-analysis-button case-analysis-dialog__clear" data-clear-selection disabled>
+                <i class="ri ri-delete-bin-line" aria-hidden="true"></i><span>Clear canvas selection</span>
+            </button>
         </div>
         <label class="case-analysis-import-search">
             <i class="ri ri-search-line" aria-hidden="true"></i>

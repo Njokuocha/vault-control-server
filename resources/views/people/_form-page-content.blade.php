@@ -1,16 +1,17 @@
 @php($editing = $person->exists)
+@php($mediaAuthorized = $editing && $authToken !== 'unauthed')
     <section class="page-heading">
         <div><div class="eyebrow"><span class="eyebrow-line"></span> PERSONNEL RECORD <span class="eyebrow-index">PROFILE INTAKE</span></div><h1>{{ $editing ? 'Update' : 'Create' }} <span>profile</span></h1><p class="page-description">Fields may be completed over time. Unprovided information is recorded as Unknown.</p></div>
-        <a class="back-link" href="{{ $editing ? route($routePrefix.'.show', $person) : route($routePrefix.'.index') }}" wire:navigate><span aria-hidden="true">←</span> CANCEL</a>
+        <a class="back-link" href="{{ $editing ? route($routePrefix.'.show', ['person' => $person, 'auth' => $authToken]) : route($routePrefix.'.index') }}" wire:navigate><span aria-hidden="true">←</span> CANCEL</a>
     </section>
-    <form class="record-form-shell" method="POST" action="{{ $editing ? route($routePrefix.'.update', $person) : route($routePrefix.'.store') }}" enctype="multipart/form-data" data-video-limit-config data-max-upload-mb="{{ $maxUploadMb }}" data-max-video-upload-mb="{{ $maxVideoUploadMb }}" data-record-form-submit data-record-upload-form @if($editing) data-record-id="{{ $person->id }}" @else data-record-draft-storage-key="vault.people.create-draft.v1" @endif data-defer-record-uploads="true" data-submitting-label="SAVING PROFILE…">
+    <form class="record-form-shell" method="POST" action="{{ $editing ? route($routePrefix.'.update', ['person' => $person, 'auth' => $authToken]) : route($routePrefix.'.store') }}" enctype="multipart/form-data" data-video-limit-config data-max-upload-mb="{{ $maxUploadMb }}" data-max-video-upload-mb="{{ $maxVideoUploadMb }}" data-record-form-submit data-record-upload-form @if($editing) data-record-id="{{ $person->id }}" @else data-record-draft-storage-key="vault.people.create-draft.v1" @endif data-defer-record-uploads="true" data-submitting-label="SAVING PROFILE…">
         @csrf
         @if ($editing)@method('PUT')@endif
         <section class="record-form-visual">
             <div class="form-section-heading"><span class="section-kicker">01 / IDENTITY VISUAL</span><h2>Profile imagery</h2><p>Upload a primary image and additional gallery images.</p></div>
             <div class="main-image-uploader" data-main-image-uploader>
-                @if ($editing && $person->main_image_path && session('unlocked_person_images') === $person->id)
-                    <img src="{{ route($routePrefix.'.image', ['person' => $person, 'image' => 'main']) }}" alt="Current main image" data-main-image-preview>
+                @if ($editing && $person->main_image_path && $mediaAuthorized)
+                    <img src="{{ route($routePrefix.'.image', ['person' => $person, 'image' => 'main', 'auth' => $authToken]) }}" alt="Current main image" data-main-image-preview>
                 @elseif ($editing && $person->main_image_path)
                     <div class="main-image-placeholder" data-main-image-placeholder><span>?</span><strong>PIN-LOCKED IMAGE</strong><small>UNLOCK VIEWABLES FROM PROFILE</small></div>
                 @else
@@ -33,14 +34,18 @@
                     @foreach ($person->images as $image)
                         <div class="existing-upload-image" data-existing-image>
                             @if ($image->type === 'video')
-                                <span class="video-media-mark" aria-hidden="true">▶</span>
-                            @elseif (session('unlocked_person_images') === $person->id)
-                                <img src="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" alt="{{ $image->original_name }}">
+                                @if ($mediaAuthorized)
+                                    <video class="existing-upload-image__video" data-case-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" @if($image->poster_path || $image->file?->video_poster_path) poster="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" @endif muted playsinline preload="none" hidden aria-hidden="true"></video>
+                                @else
+                                    <span class="image-lock-placeholder" aria-hidden="true">?</span>
+                                @endif
+                                <span class="video-media-mark" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
+                            @elseif ($mediaAuthorized)
+                                <img src="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" alt="Profile gallery image">
                             @else
-                                <span class="image-lock-placeholder">?</span>
+                                <span class="image-lock-placeholder" aria-hidden="true">?</span>
                             @endif
-                            <span>{{ $image->original_name }}</span>
-                            <button type="button" data-delete-person-image="{{ route($routePrefix.'.images.destroy', ['person' => $person, 'image' => $image]) }}" aria-label="Delete {{ $image->original_name }}">×</button>
+                            <button type="button" data-delete-person-image="{{ route($routePrefix.'.images.destroy', ['person' => $person, 'image' => $image]) }}" aria-label="Delete gallery media">×</button>
                         </div>
                     @endforeach
                 @endif

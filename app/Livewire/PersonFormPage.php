@@ -20,23 +20,32 @@ class PersonFormPage extends Component
     #[Locked]
     public string $routePrefix = 'people';
 
-    public function mount(Person $person, SettingService $settings, string $routePrefix = 'people'): void
-    {
+    #[Locked]
+    public string $authToken = 'unauthed';
+
+    public function mount(
+        Person $person,
+        SettingService $settings,
+        string $routePrefix = 'people',
+        string $authToken = 'unauthed',
+    ): void {
         $this->personId = $person->exists ? $person->getKey() : null;
         $this->maxUploadMb = $settings->maxUploadMegabytes();
         $this->maxVideoUploadMb = $settings->maxVideoUploadMegabytes();
         $this->routePrefix = $routePrefix;
+        $this->authToken = $authToken;
     }
 
     public function render(): View
     {
         $person = $this->personId === null
             ? new Person
-            : Person::query()->with('images')->findOrFail($this->personId);
+            : Person::query()->with('images.file')->findOrFail($this->personId);
 
         return view('livewire.person-form-page', [
             'person' => $person,
             'routePrefix' => $this->routePrefix,
+            'authToken' => $this->authToken,
         ]);
     }
 }

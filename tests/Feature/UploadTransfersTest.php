@@ -11,6 +11,7 @@ use App\Models\Person;
 use App\Models\UploadTransfer;
 use App\Models\User;
 use App\Services\FileUploadService;
+use App\Services\PersonMediaAccess;
 use App\Services\RecordUploadAttachmentService;
 use App\Services\SettingService;
 use App\Services\UploadTransferStatus;
@@ -810,7 +811,29 @@ test('record attachment MIME validation rejects a mismatched detected type', fun
     ))->toThrow(ValidationException::class);
 });
 
-test('record attachment MIME validation recognizes generic-detected MP4 containers', function () {
+test('record attachments accept supported image and video extensions with detected media MIME variants', function () {
+    $types = app(RecordAttachmentTypes::class);
+
+    $types->assertAllowedFile('profile.mp4', 'video/quicktime', RecordAttachmentTypes::PERSON_GALLERY);
+    $types->assertAllowedFile('profile.ogv', 'video/ogg', RecordAttachmentTypes::PERSON_GALLERY);
+    $types->assertAllowedFile('archive.mj2', 'video/mj2', RecordAttachmentTypes::CASE_EVIDENCE);
+    $types->assertAllowedFile('evidence.jxl', 'image/jxl', RecordAttachmentTypes::CASE_EVIDENCE);
+    $types->assertAllowedFile('portrait.jfif', 'image/jpeg', RecordAttachmentTypes::PERSON_MAIN_IMAGE);
+    expect(fn () => $types->assertAllowedFile(
+        'portrait.png',
+        'image/svg+xml',
+        RecordAttachmentTypes::PERSON_GALLERY,
+    ))->toThrow(ValidationException::class);
+
+    expect($types->acceptAttribute(RecordAttachmentTypes::PERSON_GALLERY))
+        ->toContain('.mp4')
+        ->toContain('.jxl');
+    expect($types->acceptAttribute(RecordAttachmentTypes::CASE_EVIDENCE))
+        ->toContain('.mp4')
+        ->toContain('.jxl');
+});
+
+test('record attachment MIME validation adapts generic detection to supported extensions', function () {
     $video = pack('N', 24).'ftypmp42'.pack('N', 0).pack('N', 0).'mp42'.str_repeat("\0", 1100);
     $path = Storage::disk('local')->path('mp4-generic-detection.upload');
     file_put_contents($path, $video);
@@ -823,7 +846,27 @@ test('record attachment MIME validation recognizes generic-detected MP4 containe
 
     file_put_contents($path, 'not an MP4 container');
     expect($types->normalizeDetectedMimeType('renamed.mp4', 'application/octet-stream', $path))
-        ->toBe('application/octet-stream');
+        ->toBe('video/mp4');
+    $types->assertAllowedFile(
+        'renamed.mp4',
+        $types->normalizeDetectedMimeType('renamed.mp4', 'application/octet-stream', $path),
+        RecordAttachmentTypes::PERSON_GALLERY,
+    );
+
+    expect($types->normalizeDetectedMimeType('portrait.jpg', 'application/octet-stream', $path))
+        ->toBe('image/jpeg');
+    $types->assertAllowedFile(
+        'portrait.jpg',
+        $types->normalizeDetectedMimeType('portrait.jpg', 'application/octet-stream', $path),
+        RecordAttachmentTypes::PERSON_GALLERY,
+    );
+    expect($types->normalizeDetectedMimeType('renamed.jpg', 'text/plain', $path))
+        ->toBe('text/plain');
+    expect(fn () => $types->assertAllowedFile(
+        'renamed.jpg',
+        'text/plain',
+        RecordAttachmentTypes::PERSON_GALLERY,
+    ))->toThrow(ValidationException::class);
 });
 
 test('record finalization immediately fails mismatched detected MIME and cleans its chunks', function () {
@@ -950,8 +993,10 @@ test('person create supports JSON SPA submission while preserving the success me
         'public_id' => 'USR-STAGE3-EDIT',
         'name' => 'Existing person',
     ]);
-    $this->actingAs(User::factory()->create())
-        ->get(route('people.edit', $person))
+    $editor = User::factory()->create();
+    $this->actingAs($editor);
+    $token = app(PersonMediaAccess::class)->issue(request(), $person)['token'];
+    $this->get(route('people.edit', ['person' => $person, 'auth' => $token]))
         ->assertOk()
         ->assertSee('ADD DOCUMENT')
         ->assertDontSee('ADD IMAGE')

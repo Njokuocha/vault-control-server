@@ -75,6 +75,48 @@ test('profile pages require a token and preserve it through Livewire gallery nav
         ->and(substr_count($response->getContent(), 'MANAGE MEDIA'))->toBe(1);
 });
 
+test('admin and profile manager edit pages preserve gallery authorization for existing media', function () {
+    $person = profileGalleryPerson('Edit Authorization Subject');
+    $person->update(['main_image_path' => 'people/main/private-main.jpg']);
+    $image = profileGalleryImage($person, 'private-gallery-filename.jpg');
+    $video = $person->images()->create([
+        'path' => 'people/gallery/private-video.mp4',
+        'original_name' => 'private-video-filename.mp4',
+        'type' => 'video',
+    ]);
+    $admin = Admin::query()->create([
+        'name' => 'Edit Authorization Administrator',
+        'email' => 'edit-authorization-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $staff = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
+
+    foreach ([
+        [$admin, 'admin', 'people.edit', 'people.image', 'people.update', 'people.show'],
+        [$staff, 'web', 'pm.people.edit', 'pm.people.image', 'pm.people.update', 'pm.people.show'],
+    ] as [$actor, $guard, $editRoute, $imageRoute, $updateRoute, $showRoute]) {
+        $this->actingAs($actor, $guard);
+        $token = profileGalleryToken($person);
+        $editUrl = route($editRoute, ['person' => $person, 'auth' => $token]);
+
+        $this->get(route($editRoute, $person))
+            ->assertRedirect($editUrl);
+
+        $response = $this->get($editUrl);
+        $response->assertOk()
+            ->assertSee(route($imageRoute, ['person' => $person, 'image' => $image->id, 'auth' => $token]), false)
+            ->assertSee(route($imageRoute, ['person' => $person, 'image' => $video->id, 'auth' => $token]), false)
+            ->assertSee(route($updateRoute, ['person' => $person, 'auth' => $token]), false)
+            ->assertSee('video-media-mark', false)
+            ->assertDontSee('private-gallery-filename.jpg')
+            ->assertDontSee('private-video-filename.mp4');
+
+        $this->put(route($updateRoute, ['person' => $person, 'auth' => $token]), [
+            'name' => 'Updated Edit Authorization Subject',
+        ])->assertRedirect(route($showRoute, ['person' => $person, 'auth' => $token]));
+    }
+});
+
 test('admin and profile manager preserve media tokens while navigating profiles and galleries with Livewire', function () {
     $person = profileGalleryPerson('SPA Gallery Subject');
     $person->galleryCategories()->create(['title' => 'Archive']);
@@ -100,6 +142,59 @@ test('admin and profile manager preserve media tokens while navigating profiles 
         $gallery = $this->get($galleryUrl);
         $gallery->assertOk()
             ->assertSee('href="'.$profileUrl.'" wire:navigate', false);
+    }
+});
+
+test('active profile authorization is restored from the server for returning account and profile routes', function () {
+    $person = profileGalleryPerson('Returning Authorized Subject');
+    $otherPerson = profileGalleryPerson('Other Returning Subject');
+    $category = $person->galleryCategories()->create(['title' => 'Evidence']);
+    $admin = Admin::query()->create([
+        'name' => 'Returning Profile Administrator',
+        'email' => 'returning-profile-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $otherAdmin = Admin::query()->create([
+        'name' => 'Other Profile Administrator',
+        'email' => 'other-profile-admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $staff = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
+    $otherStaff = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
+
+    foreach ([
+        [$admin, $otherAdmin, 'admin', 'people.show', 'people.gallery', 'people.edit'],
+        [$staff, $otherStaff, 'web', 'pm.people.show', 'pm.people.gallery', 'pm.people.edit'],
+    ] as [$actor, $otherActor, $guard, $showRoute, $galleryRoute, $editRoute]) {
+        $this->actingAs($actor, $guard);
+        $token = profileGalleryToken($person);
+
+        $this->get(route($showRoute, $person))
+            ->assertRedirect(route($showRoute, ['person' => $person, 'auth' => $token]));
+        $this->get(route($galleryRoute, ['person' => $person, 'category' => $category->id]))
+            ->assertRedirect(route($galleryRoute, [
+                'person' => $person,
+                'auth' => $token,
+                'category' => $category->id,
+            ]));
+        $this->get(route($editRoute, $person))
+            ->assertRedirect(route($editRoute, ['person' => $person, 'auth' => $token]));
+        $this->get(route($showRoute, ['person' => $person, 'auth' => 'unauthed']))
+            ->assertOk()
+            ->assertSee('data-media-authorized="false"', false);
+
+        $this->get(route($showRoute, $otherPerson))
+            ->assertRedirect(route($showRoute, ['person' => $otherPerson, 'auth' => 'unauthed']));
+
+        $this->actingAs($otherActor, $guard)
+            ->get(route($showRoute, $person))
+            ->assertRedirect(route($showRoute, ['person' => $person, 'auth' => 'unauthed']));
+
+        $this->actingAs($actor, $guard);
+        $this->travel(61)->minutes();
+        $this->get(route($showRoute, $person))
+            ->assertRedirect(route($showRoute, ['person' => $person, 'auth' => 'unauthed']));
+        $this->travelBack();
     }
 });
 
@@ -308,12 +403,12 @@ test('one profile media item can be assigned to multiple categories without reup
     $this->actingAs($staff, 'web');
     $token = profileGalleryToken($person);
     $this->putJson(route('pm.people.gallery-images.category', [
-            'person' => $person,
-            'image' => $image,
-            'auth' => $token,
-        ]), [
-            'category_ids' => [$firstCategory->id, $secondCategory->id],
-        ])
+        'person' => $person,
+        'image' => $image,
+        'auth' => $token,
+    ]), [
+        'category_ids' => [$firstCategory->id, $secondCategory->id],
+    ])
         ->assertOk()
         ->assertJsonPath('redirect_url', route('pm.people.gallery', ['person' => $person, 'auth' => $token, 'category' => $firstCategory->id]));
 

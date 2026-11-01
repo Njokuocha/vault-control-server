@@ -18,6 +18,7 @@ use App\Services\PublicRecordId;
 use App\Services\RecordUploadAttachmentService;
 use App\Services\ReportAccess;
 use App\Services\SettingService;
+use App\Support\CaseAnalysisCache;
 use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
@@ -154,6 +155,16 @@ class PersonController extends Controller
         request()->session()->forget('unlocked_person_images');
         $profileManagement = request()->routeIs('pm.*');
         $requestedToken = request()->query('auth');
+        if ($requestedToken === null) {
+            $activeToken = $personMediaAccess->activeToken(request(), $person->getKey());
+            if ($activeToken !== null) {
+                return redirect()->to(route($this->routePrefix().'.show', [
+                    'person' => $person,
+                    'auth' => $activeToken,
+                ]));
+            }
+        }
+
         $mediaAuthorized = $personMediaAccess->allows(
             request(),
             $person->getKey(),
@@ -251,6 +262,18 @@ class PersonController extends Controller
         PersonMediaAccess $personMediaAccess,
     ): Response|RedirectResponse {
         $requestedToken = $request->query('auth');
+        if ($requestedToken === null) {
+            $activeToken = $personMediaAccess->activeToken($request, $person->getKey());
+            if ($activeToken !== null) {
+                $parameters = ['person' => $person, 'auth' => $activeToken];
+                if ($request->query->has('category')) {
+                    $parameters['category'] = $request->query('category');
+                }
+
+                return redirect()->to(route($this->routePrefix().'.gallery', $parameters));
+            }
+        }
+
         if (! $personMediaAccess->allows(
             $request,
             $person->getKey(),
@@ -453,21 +476,47 @@ class PersonController extends Controller
         return redirect()->to($redirectUrl)->with('status', $message);
     }
 
-    public function edit(Person $person): View
+    public function edit(Request $request, Person $person, PersonMediaAccess $personMediaAccess): Response|RedirectResponse
     {
-        if (request()->routeIs('pm.*')) {
-            return view('departments.pm.form', [
-                'person' => $person,
-            ]);
+        $requestedToken = $request->query('auth');
+        if ($requestedToken === null) {
+            $activeToken = $personMediaAccess->activeToken($request, $person->getKey());
+            if ($activeToken !== null) {
+                return redirect()->to(route($this->routePrefix().'.edit', [
+                    'person' => $person,
+                    'auth' => $activeToken,
+                ]));
+            }
         }
 
-        return view('people.form', [
+        $mediaAuthorized = $personMediaAccess->allows(
+            $request,
+            $person->getKey(),
+            is_string($requestedToken) ? $requestedToken : null,
+        );
+        if (! $mediaAuthorized && $requestedToken !== 'unauthed') {
+            return redirect()->to(route($this->routePrefix().'.edit', [
+                'person' => $person,
+                'auth' => 'unauthed',
+            ]));
+        }
+
+        $view = $request->routeIs('pm.*') ? 'departments.pm.form' : 'people.form';
+
+        return response()->view($view, [
             'person' => $person,
-        ]);
+            'authToken' => $mediaAuthorized ? $requestedToken : 'unauthed',
+            'mediaAuthorized' => $mediaAuthorized,
+        ])->header('Cache-Control', 'no-store, private')
+            ->header('Referrer-Policy', 'no-referrer');
     }
 
-    public function update(Request $request, Person $person, RecordUploadAttachmentService $attachments): RedirectResponse|JsonResponse
-    {
+    public function update(
+        Request $request,
+        Person $person,
+        RecordUploadAttachmentService $attachments,
+        PersonMediaAccess $personMediaAccess,
+    ): RedirectResponse|JsonResponse {
         $validated = $this->validatePerson($request);
         $actor = $request->user('admin') ?? $request->user('web');
         abort_unless($actor instanceof User || $actor instanceof Admin, 401);
@@ -540,7 +589,16 @@ class PersonController extends Controller
             Storage::disk(config('vault.upload_disk'))->delete($previousMainImage);
         }
 
-        $redirectUrl = route($this->routePrefix().'.show', $person);
+        $requestedToken = $request->query('auth');
+        $authToken = $personMediaAccess->allows(
+            $request,
+            $person->getKey(),
+            is_string($requestedToken) ? $requestedToken : null,
+        ) ? $requestedToken : 'unauthed';
+        $redirectUrl = route($this->routePrefix().'.show', [
+            'person' => $person,
+            'auth' => $authToken,
+        ]);
         if ($request->expectsJson()) {
             return response()->json([
                 'redirect_url' => $redirectUrl,
@@ -557,8 +615,7 @@ class PersonController extends Controller
         Person $person,
         SettingService $settings,
         PersonMediaAccess $personMediaAccess,
-    ): JsonResponse
-    {
+    ): JsonResponse {
         $validated = $request->validate(['pin' => ['required', 'digits:4']]);
         $actor = $request->user();
         abort_unless($actor !== null, 401);
@@ -778,7 +835,7 @@ class PersonController extends Controller
         $person->cases()->syncWithoutDetaching([$validated['case_id']]);
         app(VersionedCache::class)->bump('people');
         app(VersionedCache::class)->bump('cases');
-        app(\App\Support\CaseAnalysisCache::class)->invalidate((int) $validated['case_id']);
+        app(CaseAnalysisCache::class)->invalidate((int) $validated['case_id']);
 
         return response()->json(['status' => 'linked']);
     }
@@ -788,7 +845,7 @@ class PersonController extends Controller
         $person->cases()->detach($case->id);
         app(VersionedCache::class)->bump('people');
         app(VersionedCache::class)->bump('cases');
-        app(\App\Support\CaseAnalysisCache::class)->invalidate((int) $case->getKey());
+        app(CaseAnalysisCache::class)->invalidate((int) $case->getKey());
 
         return response()->json(['status' => 'unlinked']);
     }

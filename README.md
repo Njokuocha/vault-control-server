@@ -289,10 +289,20 @@ All profile and case images are limited to raster formats and 10 MB per image.
 Their bytes remain on the private `vault` disk and are served only through
 authenticated routes. Person images additionally require a four-digit
 administrator-configured PIN; the PIN is stored as an encrypted password hash.
+Person and case record uploads accept supported image/video formats based on
+their detected media family, so valid files are not rejected when the server
+reports a MIME variant such as `video/quicktime` for an MP4. When the server
+reports a generic/ambiguous MIME type, the uploader falls back to the supported
+extension's canonical MIME type. Unsupported extensions and files with a
+specific incompatible MIME type are still rejected.
 Successful PIN verification issues a cryptographically random 32-character
 token stored server-side for one hour and bound to the authenticated account
 and profile. The profile, gallery, category-navigation, and media URLs carry
 that token as `auth`; changing categories or refreshing does not reset access.
+The server also retains an account-and-profile-scoped pointer to the active
+token for the same hour, so returning to a profile, gallery, or edit page
+without an `auth` parameter redirects to the current token URL. This pointer
+does not replace token validation on protected media endpoints.
 Missing or invalid gallery tokens render a generic unavailable state, and
 every protected media endpoint validates the token independently. Updating the
 PIN invalidates outstanding tokens. File Management retains its separate

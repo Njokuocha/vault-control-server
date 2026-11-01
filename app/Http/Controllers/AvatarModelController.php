@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\SettingService;
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -26,7 +27,7 @@ class AvatarModelController extends Controller
         return view('avatar-models.index', ['models' => $models, 'groups' => self::GROUPS]);
     }
 
-    public function update(Request $request, string $group, SettingService $settings): RedirectResponse
+    public function update(Request $request, string $group, SettingService $settings): RedirectResponse|JsonResponse
     {
         abort_unless(in_array($group, self::GROUPS, true), 404);
         $validated = $request->validate([
@@ -35,6 +36,13 @@ class AvatarModelController extends Controller
         $model = $validated['model'];
 
         if (strtolower($model->getClientOriginalExtension()) !== 'glb' || ! $this->isSafeGlb($model->getRealPath())) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Select a valid binary glTF 2.0 (.glb) with embedded assets only.',
+                    'errors' => ['model' => ['Select a valid binary glTF 2.0 (.glb) with embedded assets only.']],
+                ], 422);
+            }
+
             return back()->withErrors(['model' => 'Select a valid binary glTF 2.0 (.glb) with embedded assets only.']);
         }
 
@@ -47,6 +55,13 @@ class AvatarModelController extends Controller
         $settings->set('avatar_model_'.$group, $path);
         if (is_string($oldPath) && $oldPath !== '') {
             Storage::disk(config('vault.upload_disk'))->delete($oldPath);
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => ucfirst($group).' avatar model updated.',
+                'model_url' => route('avatar-models.stream', ['group' => $group, 'v' => now()->timestamp]),
+            ]);
         }
 
         return back()->with('status', ucfirst($group).' avatar model updated.');

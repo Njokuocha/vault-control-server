@@ -4,6 +4,7 @@ import './upload-tracker';
 import './upload-transfer-uploader';
 import './record-form-submitter';
 import './video-uploader';
+import './avatar-model-uploader';
 import { syncReportRealtimeSubscription } from './report-system';
 import './admin-mail';
 import './staff-status';
@@ -1927,15 +1928,6 @@ listenForPageEvent(document, 'click', async (event) => {
         const input = addDocument.closest('[data-case-category]')?.querySelector('[data-case-document-input]');
         if (input instanceof HTMLInputElement) input.click();
     }
-});
-
-document.querySelectorAll('[data-glb-form]').forEach((form) => {
-    const input = form.querySelector('[data-glb-input]');
-    form.querySelector('[data-glb-select]')?.addEventListener('click', () => input.click());
-    input.addEventListener('change', () => {
-        const name = form.querySelector('[data-glb-file-name]');
-        name.textContent = input.files?.[0]?.name ?? 'No file selected';
-    });
 });
 
 let imagePinDialog = null;

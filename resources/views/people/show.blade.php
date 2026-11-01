@@ -8,7 +8,7 @@
 @section($profileManagement ? 'department_content' : 'content')
     <section class="page-heading">
         <div><div class="eyebrow"><span class="eyebrow-line"></span> SUBJECT DOSSIER <span class="eyebrow-index">{{ $person->public_id }}</span></div><h1>{{ $person->name }} <span>profile</span></h1><p class="page-description">Private subject record · last updated {{ $person->updated_at->format('M j, Y H:i') }}</p></div>
-        <div class="profile-heading-actions"><button class="button-secondary" type="button" data-open-image-pin>{{ $mediaAuthorized ? 'VIEWABLES UNLOCKED' : 'UNLOCK VIEWABLES' }}</button><a class="button-secondary" href="{{ route($routePrefix.'.index') }}" wire:navigate>ALL PROFILES</a><a class="button-primary" href="{{ route($routePrefix.'.edit', $person) }}" wire:navigate>EDIT PROFILE</a></div>
+        <div class="profile-heading-actions"><button class="button-secondary" type="button" data-open-image-pin>{{ $mediaAuthorized ? 'VIEWABLES UNLOCKED' : 'UNLOCK VIEWABLES' }}</button><a class="button-secondary" href="{{ route($routePrefix.'.index') }}" wire:navigate>ALL PROFILES</a><a class="button-primary" href="{{ route($routePrefix.'.edit', ['person' => $person, 'auth' => $authToken]) }}" wire:navigate>EDIT PROFILE</a></div>
     </section>
     <section class="person-profile-hero" data-person-profile-page data-media-authorized="{{ $mediaAuthorized ? 'true' : 'false' }}" data-media-auth-expires-at="{{ $mediaAuthExpiresAt }}">
         <div class="profile-visual-panel">
@@ -79,7 +79,7 @@
                 @endif
             </div>
             <div class="profile-gallery-block">
-                <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h3>Gallery <span>{{ $galleryTotalCount }}</span></h3></div><a href="{{ route($routePrefix.'.edit', $person) }}" wire:navigate class="text-action">MANAGE MEDIA</a></div>
+                <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h3>Gallery <span>{{ $galleryTotalCount }}</span></h3></div><a href="{{ route($routePrefix.'.edit', ['person' => $person, 'auth' => $authToken]) }}" wire:navigate class="text-action">MANAGE MEDIA</a></div>
                 <div class="profile-gallery-category-heading">
                     <strong>{{ $mediaAuthorized ? ($galleryPreviewCategory?->title ?? 'Uncategorized media') : 'Protected media' }} @if($mediaAuthorized && $canManageGalleryAccess && $galleryPreviewCategory?->is_locked)<i class="ri ri-lock-line gallery-category-lock-indicator" title="Restricted category" aria-label="Restricted category"></i>@endif</strong>
                     <a class="text-action" href="{{ route($routePrefix.'.gallery', ['person' => $person, 'auth' => $authToken]) }}" wire:navigate>VIEW GALLERY ↗</a>
