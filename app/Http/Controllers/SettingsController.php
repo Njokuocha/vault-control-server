@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Admin;
 use App\Services\ActivityLogger;
+use App\Services\PersonMediaAccess;
 use App\Services\SettingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -85,13 +86,18 @@ class SettingsController extends Controller
         return back()->with('status', 'Upload policy updated.');
     }
 
-    public function updateImagePin(Request $request, SettingService $settings): RedirectResponse
+    public function updateImagePin(
+        Request $request,
+        SettingService $settings,
+        PersonMediaAccess $personMediaAccess,
+    ): RedirectResponse
     {
         $validated = $request->validate([
             'image_pin' => ['required', 'digits:4', 'confirmed'],
         ]);
 
         $settings->set('person_image_pin_hash', Hash::make($validated['image_pin']));
+        $personMediaAccess->invalidateAll();
         $request->session()->forget('unlocked_person_images');
         app(ActivityLogger::class)->record(
             'configuration',

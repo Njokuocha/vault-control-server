@@ -13,6 +13,7 @@ use App\Models\VideoUpload;
 use App\Services\ActivityLogger;
 use App\Services\GalleryCategoryAccess;
 use App\Services\ImageThumbnailService;
+use App\Services\PersonMediaAccess;
 use App\Services\PublicRecordId;
 use App\Services\RecordUploadAttachmentService;
 use App\Services\ReportAccess;
@@ -148,9 +149,26 @@ class PersonController extends Controller
         SettingService $settings,
         ReportAccess $reportAccess,
         GalleryCategoryAccess $galleryAccess,
-    ): Response {
+        PersonMediaAccess $personMediaAccess,
+    ): Response|RedirectResponse {
         request()->session()->forget('unlocked_person_images');
         $profileManagement = request()->routeIs('pm.*');
+        $requestedToken = request()->query('auth');
+        $mediaAuthorized = $personMediaAccess->allows(
+            request(),
+            $person->getKey(),
+            is_string($requestedToken) ? $requestedToken : null,
+        );
+        if (! $mediaAuthorized && $requestedToken !== 'unauthed') {
+            return redirect()->to(route($this->routePrefix().'.show', [
+                'person' => $person,
+                'auth' => 'unauthed',
+            ]));
+        }
+        $authToken = $mediaAuthorized ? $requestedToken : 'unauthed';
+        $mediaAuthExpiresAt = $mediaAuthorized
+            ? $personMediaAccess->expiresAt(request(), $person->getKey(), $authToken)
+            : null;
         $person = app(VersionedCache::class)->remember(
             'people',
             ($profileManagement ? 'pm:' : '').'profile:'.$person->getKey(),
@@ -185,7 +203,7 @@ class PersonController extends Controller
             $previewCategory = $galleryCategories->first(fn (PersonGalleryCategory $category): bool => $category->has_restricted_media);
             $galleryPreviewRestricted = $previewCategory instanceof PersonGalleryCategory;
         }
-        if ($galleryPreviewRestricted) {
+        if (! $mediaAuthorized || $galleryPreviewRestricted) {
             $galleryPreviewMedia = collect();
             $galleryPreviewCount = 0;
         } else {
@@ -211,23 +229,52 @@ class PersonController extends Controller
             'galleryPreviewCategory' => $previewCategory,
             'galleryPreviewCount' => $galleryPreviewCount,
             'galleryPreviewRestricted' => $galleryPreviewRestricted,
-            'galleryTotalCount' => $galleryCategories->sum('images_count') + $uncategorizedCount,
+            'galleryTotalCount' => $mediaAuthorized ? $galleryCategories->sum('images_count') + $uncategorizedCount : 0,
             'profileManagement' => $profileManagement,
             'routePrefix' => $this->routePrefix(),
+            'authToken' => $authToken,
+            'mediaAuthorized' => $mediaAuthorized,
+            'mediaAuthExpiresAt' => $mediaAuthExpiresAt,
             'canManageGalleryAccess' => $galleryAccess->isAdministrator(request()),
             'imagePinConfigured' => $settings->get('person_image_pin_hash') !== null,
             'avatarModelUrl' => is_string($avatarPath) && Storage::disk(config('vault.upload_disk'))->exists($avatarPath)
                 ? route($profileManagement ? 'pm.avatar-models.stream' : 'avatar-models.stream', $avatarGroup)
                 : null,
-        ])->header('Cache-Control', 'no-store, private');
+        ])->header('Cache-Control', 'no-store, private')
+            ->header('Referrer-Policy', 'no-referrer');
     }
 
-    public function gallery(Request $request, Person $person, GalleryCategoryAccess $galleryAccess): Response
-    {
-        $request->session()->put('unlocked_person_gallery', $person->getKey());
-        if ((string) $request->session()->get('unlocked_person_images') !== (string) $person->getKey()) {
-            $request->session()->forget('unlocked_person_images');
+    public function gallery(
+        Request $request,
+        Person $person,
+        GalleryCategoryAccess $galleryAccess,
+        PersonMediaAccess $personMediaAccess,
+    ): Response|RedirectResponse {
+        $requestedToken = $request->query('auth');
+        if (! $personMediaAccess->allows(
+            $request,
+            $person->getKey(),
+            is_string($requestedToken) ? $requestedToken : null,
+        )) {
+            if ($requestedToken === null) {
+                $parameters = ['person' => $person, 'auth' => 'unauthed'];
+                if ($request->query->has('category')) {
+                    $parameters['category'] = $request->query('category');
+                }
+
+                return redirect()->to(route($this->routePrefix().'.gallery', $parameters));
+            }
+
+            return response()->view('people.gallery-locked', [
+                'person' => $person,
+                'profileManagement' => $request->routeIs('pm.*'),
+                'routePrefix' => $this->routePrefix(),
+            ])->header('Cache-Control', 'no-store, private')
+                ->header('Referrer-Policy', 'no-referrer');
         }
+
+        $authToken = $requestedToken;
+        $mediaAuthExpiresAt = $personMediaAccess->expiresAt($request, $person->getKey(), $authToken);
 
         $categories = $person->galleryCategories()->withCount('images')->get();
         $visibleCategoryIds = $galleryAccess->visiblePersonCategoryIds($person->getKey(), $request);
@@ -286,9 +333,12 @@ class PersonController extends Controller
             'galleryTotalCount' => $categories->sum('images_count') + $uncategorizedCount,
             'profileManagement' => request()->routeIs('pm.*'),
             'routePrefix' => $this->routePrefix(),
-            'galleryMediaUnlocked' => $request->session()->get('unlocked_person_gallery') === $person->getKey(),
+            'galleryMediaUnlocked' => true,
+            'authToken' => $authToken,
+            'mediaAuthExpiresAt' => $mediaAuthExpiresAt,
             'canManageGalleryAccess' => $galleryAccess->isAdministrator($request),
-        ])->header('Cache-Control', 'no-store, private');
+        ])->header('Cache-Control', 'no-store, private')
+            ->header('Referrer-Policy', 'no-referrer');
     }
 
     public function createGalleryCategory(Request $request, Person $person): RedirectResponse|JsonResponse
@@ -386,6 +436,11 @@ class PersonController extends Controller
         string $message,
     ): RedirectResponse|JsonResponse {
         $parameters = ['person' => $person];
+        $authToken = $request->input('auth', $request->query('auth'));
+        if (! is_string($authToken) || $authToken === '') {
+            $authToken = 'unauthed';
+        }
+        $parameters['auth'] = $authToken;
         if ($category !== null) {
             $parameters['category'] = $category;
         }
@@ -497,7 +552,12 @@ class PersonController extends Controller
         return redirect()->to($redirectUrl)->with('status', 'Person profile updated.');
     }
 
-    public function authenticateImages(Request $request, Person $person, SettingService $settings): JsonResponse
+    public function authenticateImages(
+        Request $request,
+        Person $person,
+        SettingService $settings,
+        PersonMediaAccess $personMediaAccess,
+    ): JsonResponse
     {
         $validated = $request->validate(['pin' => ['required', 'digits:4']]);
         $actor = $request->user();
@@ -512,12 +572,25 @@ class PersonController extends Controller
 
         if ($pinIsValid) {
             RateLimiter::clear($failureKey);
-            $request->session()->put('unlocked_person_images', $person->getKey());
-            if ((string) $request->session()->get('unlocked_person_gallery') !== (string) $person->getKey()) {
-                $request->session()->forget('unlocked_person_gallery');
+            if ($request->routeIs('fm.*')) {
+                $request->session()->put('unlocked_person_images', $person->getKey());
+
+                return response()->json(['status' => 'unlocked'])
+                    ->header('Cache-Control', 'no-store, private');
             }
 
-            return response()->json(['status' => 'unlocked']);
+            $authorization = $personMediaAccess->issue($request, $person);
+            $request->session()->forget(['unlocked_person_images', 'unlocked_person_gallery']);
+
+            return response()->json([
+                'status' => 'unlocked',
+                ...$authorization,
+                'redirect_url' => route($this->routePrefix().'.show', [
+                    'person' => $person,
+                    'auth' => $authorization['token'],
+                ]),
+            ])->header('Cache-Control', 'no-store, private')
+                ->header('Referrer-Policy', 'no-referrer');
         }
 
         if (RateLimiter::tooManyAttempts($failureKey, 8)) {
@@ -541,8 +614,17 @@ class PersonController extends Controller
         bool $download = false,
         bool $thumbnail = false,
     ): mixed {
+        $token = request()->query('auth');
         if ($image === 'main') {
-            abort_unless(request()->session()->get('unlocked_person_images') === $person->getKey(), 403);
+            if (request()->routeIs('fm.*')) {
+                abort_unless(request()->session()->get('unlocked_person_images') === $person->getKey(), 403);
+            } else {
+                abort_unless(app(PersonMediaAccess::class)->allows(
+                    request(),
+                    $person->getKey(),
+                    is_string($token) ? $token : null,
+                ), 403);
+            }
         } else {
             abort_unless($this->hasUnlockedPersonMedia($person), 403);
         }
@@ -635,10 +717,17 @@ class PersonController extends Controller
 
     private function hasUnlockedPersonMedia(Person $person): bool
     {
-        $session = request()->session();
+        if (request()->routeIs('fm.*')) {
+            return request()->session()->get('unlocked_person_images') === $person->getKey();
+        }
 
-        return $session->get('unlocked_person_images') === $person->getKey()
-            || $session->get('unlocked_person_gallery') === $person->getKey();
+        $token = request()->query('auth');
+
+        return app(PersonMediaAccess::class)->allows(
+            request(),
+            $person->getKey(),
+            is_string($token) ? $token : null,
+        );
     }
 
     public function destroyImage(Person $person, PersonImage $image, GalleryCategoryAccess $galleryAccess): JsonResponse

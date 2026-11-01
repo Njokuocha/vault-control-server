@@ -294,7 +294,7 @@ test('profile management gets an isolated profile workspace with complete person
         ->assertSee($person->public_id)
         ->assertSee('GALLERY ITEM')
         ->assertDontSee('LINKED CASE');
-    $this->get(route('pm.people.show', $person))
+    $this->get(route('pm.people.show', ['person' => $person, 'auth' => 'unauthed']))
         ->assertOk()
         ->assertSee('Profile Subject')
         ->assertDontSee('Linked case files')

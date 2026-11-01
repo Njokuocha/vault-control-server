@@ -42,9 +42,11 @@
         </template>
     </div>
 
-    <div class="vault-confirm-backdrop" x-show="$store.vaultAlerts.confirmation" x-cloak
-        x-transition.opacity @click.self="$store.vaultAlerts.cancelConfirmation()">
-        <section class="vault-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="vault-confirm-title"
+    <dialog class="vault-confirm-backdrop" aria-labelledby="vault-confirm-title" x-cloak
+        x-effect="$store.vaultAlerts.confirmation ? (!$el.open && $el.showModal()) : ($el.open && $el.close())"
+        @click.self="$store.vaultAlerts.cancelConfirmation()"
+        @cancel.prevent="$store.vaultAlerts.cancelConfirmation()">
+        <section class="vault-confirm-dialog"
             @keydown.tab.prevent="
                 const nodes = [...$el.querySelectorAll('button:not([disabled])')];
                 const index = nodes.indexOf(document.activeElement);
@@ -70,7 +72,7 @@
                     x-text="$store.vaultAlerts.confirmation?.destructive ? 'HOLD TO CONFIRM' : $store.vaultAlerts.confirmation?.confirmLabel"></button>
             </div>
         </section>
-    </div>
+    </dialog>
 
     <div x-init="$nextTick(() => $store.vaultAlerts.seed(@js($initialAlerts)))"></div>
 </div>

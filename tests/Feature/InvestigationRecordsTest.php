@@ -13,6 +13,7 @@ use App\Models\Person;
 use App\Models\PersonImage;
 use App\Models\UploadTransfer;
 use App\Models\User;
+use App\Services\PersonMediaAccess;
 use App\Services\SettingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -29,6 +30,14 @@ function investigationImageUpload(string $name): UploadedFile
     $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=', true);
 
     return UploadedFile::fake()->createWithContent($name, $png);
+}
+
+function investigationPersonToken(Person $person, User $actor): string
+{
+    $request = request();
+    $request->setUserResolver(fn () => $actor);
+
+    return app(PersonMediaAccess::class)->issue($request, $person)['token'];
 }
 
 beforeEach(function () {
@@ -52,9 +61,9 @@ test('person profiles are optional, receive unique public identifiers, and store
     $secondPerson = Person::query()->latest('id')->firstOrFail();
     expect($secondPerson->public_id)->not->toBe($person->public_id);
 
-    $this->get(route('people.show', $person))
+    $this->get(route('people.show', ['person' => $person, 'auth' => 'unauthed']))
         ->assertOk()
-        ->assertSee('NO IMAGE FOR THE CURRENT USER')
+        ->assertSee('UNLOCK VIEWABLES TO VIEW THE MAIN IMAGE')
         ->assertSee('Linked case files')
         ->assertSee('Unknown');
 
@@ -461,9 +470,9 @@ test('cached profile and case galleries refresh immediately after media changes'
         'case_status' => 'OPEN',
     ]);
 
-    $this->get(route('people.show', $person))
+    $this->get(route('people.show', ['person' => $person, 'auth' => 'unauthed']))
         ->assertOk()
-        ->assertSee('No media in this preview category yet.');
+        ->assertSee('Protected media');
     $this->get(route('cases.show', $case))
         ->assertOk()
         ->assertSee('No image categories have been added.');
@@ -484,7 +493,8 @@ test('cached profile and case galleries refresh immediately after media changes'
         'original_name' => 'case-cache-image.jpg',
     ]);
 
-    $this->get(route('people.show', $person))
+    $token = investigationPersonToken($person, User::query()->firstOrFail());
+    $this->get(route('people.show', ['person' => $person, 'auth' => $token]))
         ->assertOk()
         ->assertSee('profile-cache-image.jpg');
     $this->get(route('cases.show', $case))
@@ -515,17 +525,19 @@ test('person profiles securely store a main image and multiple gallery images', 
         ->and(Storage::disk('vault')->exists($person->main_image_path))->toBeTrue();
 
     app(SettingService::class)->set('person_image_pin_hash', Hash::make('0427'));
-    $this->actingAs($admin)
+    $unlock = $this->actingAs($admin)
         ->postJson(route('people.images.unlock', $person), ['pin' => '0427'])
         ->assertOk();
+    $token = $unlock->json('token');
 
-    $this->get(route('people.image', ['person' => $person, 'image' => 'main']))
+    $this->get(route('people.image', ['person' => $person, 'image' => 'main', 'auth' => $token]))
         ->assertOk()
         ->assertHeader('X-Content-Type-Options', 'nosniff');
 });
 
 test('profile previews stay bounded and the dedicated gallery shows all media', function () {
-    $this->actingAs(User::factory()->create())
+    $user = User::factory()->create();
+    $this->actingAs($user)
         ->post(route('people.store'), [
             'other_images' => array_map(
                 fn (int $index): UploadedFile => investigationImageUpload('gallery-'.$index.'.png'),
@@ -535,15 +547,19 @@ test('profile previews stay bounded and the dedicated gallery shows all media', 
         ->assertRedirect();
 
     $person = Person::query()->firstOrFail();
-    $response = $this->get(route('people.show', $person))
+    app(SettingService::class)->set('person_image_pin_hash', Hash::make('0427'));
+    $token = $this->postJson(route('people.images.unlock', $person), ['pin' => '0427'])
+        ->assertOk()
+        ->json('token');
+    $response = $this->get(route('people.show', ['person' => $person, 'auth' => $token]))
         ->assertOk()
         ->assertSee('data-profile-gallery', false)
-        ->assertSee(route('people.gallery', $person), false)
+        ->assertSee(route('people.gallery', ['person' => $person, 'auth' => $token]), false)
         ->assertSee('VIEW GALLERY', false);
 
     expect(substr_count($response->getContent(), 'class="profile-gallery-tile'))->toBe(4);
 
-    $galleryResponse = $this->get(route('people.gallery', $person))
+    $galleryResponse = $this->get(route('people.gallery', ['person' => $person, 'auth' => $token]))
         ->assertOk()
         ->assertSee('gallery-1.png')
         ->assertSee('gallery-2.png')
@@ -633,7 +649,8 @@ test('case files create grouped evidence and link to person profiles', function 
         ->assertSee('Updated witnesses')
         ->assertSee('Linked people');
 
-    $this->get(route('people.show', $person))
+    $token = investigationPersonToken($person, $user);
+    $this->get(route('people.show', ['person' => $person, 'auth' => $token]))
         ->assertOk()
         ->assertSee($case->public_id)
         ->assertSee('Linked case files');
@@ -659,7 +676,7 @@ test('case file index links to the full-page new-case form when there are no exi
         ->assertSee('CREATE CASE');
 });
 
-test('person images require a PIN on every profile visit and downloads stay authenticated', function () {
+test('person media requires a PIN-issued profile token and downloads stay authenticated', function () {
     $admin = User::factory()->create();
     $this->actingAs($admin)
         ->post(route('people.store'), [
@@ -678,33 +695,36 @@ test('person images require a PIN on every profile visit and downloads stay auth
     expect(app(SettingService::class)->get('person_image_pin_hash'))->not->toBe('0427');
 
     $this->get(route('people.show', $person))
+        ->assertRedirect(route('people.show', ['person' => $person, 'auth' => 'unauthed']));
+    $this->get(route('people.show', ['person' => $person, 'auth' => 'unauthed']))
         ->assertOk()
         ->assertSee('data-image-pin-dialog', false)
         ->assertSee('data-image-pin-form', false)
         ->assertSee('type="submit" class="button-primary pin-submit"', false)
-        ->assertSee('loading="lazy"', false)
-        ->assertSee('data-vault-image-zoom-in', false)
-        ->assertSee('data-vault-image-zoom-out', false)
-        ->assertSee('data-vault-image-grayscale', false)
-        ->assertSee('data-vault-image-stage', false)
+        ->assertSee('UNLOCK VIEWABLES TO VIEW THE MAIN IMAGE')
+        ->assertDontSee('data-protected-image', false)
+        ->assertDontSee('private-main.png')
+        ->assertDontSee('private-gallery.png')
         ->assertSee('UNKNOWN MODEL NOT CONFIGURED')
-        ->assertDontSee('src="'.route('people.image', ['person' => $person, 'image' => 'main']).'"', false)
-        ->assertSee('data-image-url="'.route('people.image', ['person' => $person, 'image' => 'main']).'"', false);
+        ->assertDontSee('src="'.route('people.image', ['person' => $person, 'image' => 'main', 'auth' => 'unauthed']).'"', false)
+        ->assertDontSee('data-image-url="'.route('people.image', ['person' => $person, 'image' => 'main', 'auth' => 'unauthed']).'"', false);
     $this->get(route('people.image', ['person' => $person, 'image' => 'main']))->assertForbidden();
     $this->postJson(route('people.images.unlock', $person), ['pin' => '9999'])->assertUnprocessable();
-    $this->postJson(route('people.images.unlock', $person), ['pin' => '0427'])
+    $unlock = $this->postJson(route('people.images.unlock', $person), ['pin' => '0427'])
         ->assertOk()
         ->assertJsonPath('status', 'unlocked');
+    $token = $unlock->json('token');
 
-    $this->get(route('people.image', ['person' => $person, 'image' => 'main']))->assertOk();
-    $download = $this->get(route('people.images.download', ['person' => $person, 'image' => 'main']))
+    $this->get(route('people.image', ['person' => $person, 'image' => 'main', 'auth' => $token]))->assertOk();
+    $download = $this->get(route('people.images.download', ['person' => $person, 'image' => 'main', 'auth' => $token]))
         ->assertOk();
     expect($download->headers->get('Content-Disposition'))
         ->toStartWith('attachment; filename=')
         ->toEndWith('.png');
-    $this->get(route('people.image', ['person' => $person, 'image' => $person->images()->first()->id]))->assertOk();
+    $this->get(route('people.image', ['person' => $person, 'image' => $person->images()->first()->id, 'auth' => $token]))->assertOk();
 
-    $this->get(route('people.show', $person))->assertOk();
+    $this->get(route('people.show', $person))
+        ->assertRedirect(route('people.show', ['person' => $person, 'auth' => 'unauthed']));
     $this->get(route('people.image', ['person' => $person, 'image' => 'main']))->assertForbidden();
 });
 
@@ -957,7 +977,7 @@ test('avatar models accept valid embedded GLB files and reject external asset re
     $suspect = Person::query()->firstOrFail();
     expect($suspect->gender)->toBe('Other')
         ->and($suspect->avatar_group)->toBe('Suspect');
-    $this->get(route('people.show', $suspect))
+    $this->get(route('people.show', ['person' => $suspect, 'auth' => 'unauthed']))
         ->assertOk()
         ->assertSee(route('avatar-models.stream', 'suspect'));
 
@@ -967,7 +987,7 @@ test('avatar models accept valid embedded GLB files and reject external asset re
     ])->assertRedirect();
     $suspect->refresh();
     expect($suspect->avatar_group)->toBe('Verified');
-    $this->get(route('people.show', $suspect))
+    $this->get(route('people.show', ['person' => $suspect, 'auth' => 'unauthed']))
         ->assertOk()
         ->assertSee(route('avatar-models.stream', 'verified'));
 

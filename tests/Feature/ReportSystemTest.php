@@ -123,7 +123,7 @@ test('staff can publish reports with permitted case and person links and recipro
     $personReport = Report::query()->where('body', 'A person-linked operational report.')->firstOrFail();
     expect($personReport->people()->whereKey($person->id)->exists())->toBeTrue();
     $this->actingAs($profileManager, 'web')
-        ->get(route('pm.people.show', $person))
+        ->get(route('pm.people.show', ['person' => $person, 'auth' => 'unauthed']))
         ->assertOk()
         ->assertSee('Linked reports')
         ->assertSee('A person-linked operational report.')
@@ -207,14 +207,14 @@ test('person and case dossiers paginate linked reports while retaining report vi
     $hiddenReport->cases()->attach($caseFile->id);
 
     $this->actingAs($staff, 'web')
-        ->get(route('pm.people.show', $person))
+        ->get(route('pm.people.show', ['person' => $person, 'auth' => 'unauthed']))
         ->assertOk()
         ->assertSee('Linked reports <span>11</span>', false)
         ->assertSee('Visible linked report 11.')
         ->assertDontSee('Hidden linked report.')
         ->assertSee('linkedReportsPage=2');
 
-    $this->get(route('pm.people.show', $person).'?linkedReportsPage=2')
+    $this->get(route('pm.people.show', ['person' => $person, 'auth' => 'unauthed']).'&linkedReportsPage=2')
         ->assertOk()
         ->assertSee('Visible linked report 1.')
         ->assertDontSee('Visible linked report 11.')

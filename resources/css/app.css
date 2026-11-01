@@ -1192,8 +1192,9 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
 .vault-alert-close:hover { border-color: var(--glass-border); color: var(--text-primary); }
 .vault-alert-progress { position: absolute; right: 0; bottom: 0; left: 0; height: 2px; transform-origin: left; background: var(--alert-accent); animation: vault-alert-countdown linear forwards; }
 .vault-alert-progress.is-paused { animation-play-state: paused; }
-.vault-confirm-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(3 7 12 / 76%); backdrop-filter: blur(8px); }
-.vault-confirm-backdrop[x-cloak] { display: none; }
+.vault-confirm-backdrop { position: fixed; z-index: 100; inset: 0; width: auto; max-width: none; height: auto; max-height: none; margin: 0; padding: 20px; border: 0; color: inherit; background: transparent; overflow: auto; }
+.vault-confirm-backdrop[open] { display: grid; place-items: center; }
+.vault-confirm-backdrop::backdrop { background: rgb(3 7 12 / 76%); backdrop-filter: blur(8px); }
 .vault-confirm-dialog { position: relative; width: min(460px, 100%); padding: 30px; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius-lg); background: var(--glass-bg); box-shadow: 0 24px 80px rgb(0 0 0 / 50%); }
 .vault-confirm-strip { position: absolute; inset: 0 0 auto; height: 3px; background: var(--brass); }
 .vault-confirm-kicker { margin: 0 0 9px; color: var(--brass); font-size: 13px; letter-spacing: .12em; }

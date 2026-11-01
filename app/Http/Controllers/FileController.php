@@ -8,6 +8,7 @@ use App\Models\File;
 use App\Models\Person;
 use App\Models\PersonImage;
 use App\Services\GalleryCategoryAccess;
+use App\Services\PersonMediaAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -330,16 +331,20 @@ class FileController extends Controller
             ->where(fn ($query) => $query->where('file_id', $file->getKey())->orWhere('path', $file->stored_path))
             ->get();
         foreach ($personImages->pluck('person_id')->unique() as $personId) {
-            $hasPinAuthorization = $request->session()->get('unlocked_person_images') === $personId;
-            $hasGalleryAuthorization = $request->session()->get('unlocked_person_gallery') === $personId;
-            abort_unless($hasPinAuthorization || $hasGalleryAuthorization, 403);
+            $authorized = $request->routeIs('fm.*')
+                ? $request->session()->get('unlocked_person_images') === $personId
+                : app(PersonMediaAccess::class)->allows($request, (int) $personId);
+            abort_unless($authorized, 403);
         }
 
         $mainImagePersonIds = Person::query()
             ->where(fn ($query) => $query->where('main_image_file_id', $file->getKey())->orWhere('main_image_path', $file->stored_path))
             ->pluck('id');
         foreach ($mainImagePersonIds as $personId) {
-            abort_unless($request->session()->get('unlocked_person_images') === $personId, 403);
+            $authorized = $request->routeIs('fm.*')
+                ? $request->session()->get('unlocked_person_images') === $personId
+                : app(PersonMediaAccess::class)->allows($request, (int) $personId);
+            abort_unless($authorized, 403);
         }
         foreach ($personImages as $image) {
             abort_unless($access->canViewPersonImage($image, $request), 403);

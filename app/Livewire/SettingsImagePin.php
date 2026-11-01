@@ -2,6 +2,7 @@
 
 namespace App\Livewire;
 
+use App\Services\PersonMediaAccess;
 use App\Services\SettingService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Hash;
@@ -13,7 +14,7 @@ class SettingsImagePin extends Component
 
     public string $imagePinConfirmation = '';
 
-    public function save(SettingService $settings): void
+    public function save(SettingService $settings, PersonMediaAccess $personMediaAccess): void
     {
         $validated = $this->validate([
             'imagePin' => ['required', 'digits:4', 'same:imagePinConfirmation'],
@@ -21,6 +22,7 @@ class SettingsImagePin extends Component
         ]);
 
         $settings->set('person_image_pin_hash', Hash::make($validated['imagePin']));
+        $personMediaAccess->invalidateAll();
         session()->forget('unlocked_person_images');
         $this->reset('imagePin', 'imagePinConfirmation');
         $this->dispatch('alert', type: 'success', message: 'Person image access PIN updated.');

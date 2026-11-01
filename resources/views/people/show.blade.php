@@ -8,9 +8,9 @@
 @section($profileManagement ? 'department_content' : 'content')
     <section class="page-heading">
         <div><div class="eyebrow"><span class="eyebrow-line"></span> SUBJECT DOSSIER <span class="eyebrow-index">{{ $person->public_id }}</span></div><h1>{{ $person->name }} <span>profile</span></h1><p class="page-description">Private subject record · last updated {{ $person->updated_at->format('M j, Y H:i') }}</p></div>
-        <div class="profile-heading-actions"><button class="button-secondary" type="button" data-open-image-pin>UNLOCK VIEWABLES</button><a class="button-secondary" href="{{ route($routePrefix.'.index') }}" wire:navigate>ALL PROFILES</a><a class="button-primary" href="{{ route($routePrefix.'.edit', $person) }}" wire:navigate>EDIT PROFILE</a></div>
+        <div class="profile-heading-actions"><button class="button-secondary" type="button" data-open-image-pin>{{ $mediaAuthorized ? 'VIEWABLES UNLOCKED' : 'UNLOCK VIEWABLES' }}</button><a class="button-secondary" href="{{ route($routePrefix.'.index') }}" wire:navigate>ALL PROFILES</a><a class="button-primary" href="{{ route($routePrefix.'.edit', $person) }}" wire:navigate>EDIT PROFILE</a></div>
     </section>
-    <section class="person-profile-hero">
+    <section class="person-profile-hero" data-person-profile-page data-media-authorized="{{ $mediaAuthorized ? 'true' : 'false' }}" data-media-auth-expires-at="{{ $mediaAuthExpiresAt }}">
         <div class="profile-visual-panel">
             <div class="profile-visual-top"><span>IDENTITY VISUAL</span><span>{{ $person->public_id }}</span></div>
             <div class="profile-avatar-stage">
@@ -20,15 +20,17 @@
                     <div class="profile-unknown-avatar" data-profile-model aria-label="{{ $person->avatar_group }} avatar model unavailable"><span>?</span><small>{{ strtoupper($person->avatar_group) }} MODEL NOT CONFIGURED</small></div>
                 @endif
                 <div class="profile-main-image" data-profile-main-image hidden>
-                    @if ($person->main_image_path)
-                        <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => 'main']) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => 'main']) }}" alt="{{ $person->name }} main image" loading="lazy" data-image-viewer>
+                    @if (! $mediaAuthorized)
+                        <div class="profile-no-image">UNLOCK VIEWABLES TO VIEW THE MAIN IMAGE</div>
+                    @elseif ($person->main_image_path)
+                        <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => 'main', 'auth' => $authToken]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => 'main', 'auth' => $authToken]) }}" alt="{{ $person->name }} main image" loading="lazy" data-image-viewer>
                     @else
                         <div class="profile-no-image">NO IMAGE FOR THE CURRENT USER</div>
                     @endif
                 </div>
             </div>
             @if ($imagePinConfigured)
-                <button class="profile-visual-toggle" type="button" data-profile-visual-toggle data-has-main-image="{{ $person->main_image_path ? 'true' : 'false' }}" disabled>VIEW MAIN IMAGE <span>↗</span></button>
+                <button class="profile-visual-toggle" type="button" data-profile-visual-toggle data-has-main-image="{{ $mediaAuthorized && $person->main_image_path ? 'true' : 'false' }}" disabled>VIEW MAIN IMAGE <span>↗</span></button>
             @else
                 @if ($profileManagement)
                     <div class="profile-visual-toggle profile-visual-setup">IMAGE ACCESS REQUIRES AN ADMINISTRATOR PIN</div>
@@ -79,10 +81,16 @@
             <div class="profile-gallery-block">
                 <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h3>Gallery <span>{{ $galleryTotalCount }}</span></h3></div><a href="{{ route($routePrefix.'.edit', $person) }}" wire:navigate class="text-action">MANAGE MEDIA</a></div>
                 <div class="profile-gallery-category-heading">
-                    <strong>{{ $galleryPreviewCategory?->title ?? 'Uncategorized media' }} @if($canManageGalleryAccess && $galleryPreviewCategory?->is_locked)<i class="ri ri-lock-line gallery-category-lock-indicator" title="Restricted category" aria-label="Restricted category"></i>@endif</strong>
-                    <a class="text-action" href="{{ route($routePrefix.'.gallery', $person) }}">VIEW GALLERY ↗</a>
+                    <strong>{{ $mediaAuthorized ? ($galleryPreviewCategory?->title ?? 'Uncategorized media') : 'Protected media' }} @if($mediaAuthorized && $canManageGalleryAccess && $galleryPreviewCategory?->is_locked)<i class="ri ri-lock-line gallery-category-lock-indicator" title="Restricted category" aria-label="Restricted category"></i>@endif</strong>
+                    <a class="text-action" href="{{ route($routePrefix.'.gallery', ['person' => $person, 'auth' => $authToken]) }}" wire:navigate>VIEW GALLERY ↗</a>
                 </div>
-                @if ($galleryPreviewRestricted)
+                @if (! $mediaAuthorized)
+                    <div class="profile-gallery is-restricted" aria-label="Protected gallery preview">
+                        <button class="profile-gallery-tile profile-gallery-tile--restricted" type="button" data-open-image-pin aria-label="Unlock protected gallery media">
+                            <i class="ri ri-lock-line gallery-restricted-card__icon" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                @elseif ($galleryPreviewRestricted)
                     <div class="profile-gallery is-restricted" aria-label="Restricted gallery preview">
                         <button class="profile-gallery-tile profile-gallery-tile--restricted" type="button" data-gallery-restricted aria-label="Restricted file">
                             <i class="ri ri-lock-line gallery-restricted-card__icon" aria-hidden="true"></i>
@@ -92,19 +100,19 @@
                     <div class="profile-gallery is-locked" data-profile-gallery>
                         @foreach ($galleryPreviewMedia as $image)
                             @if ($image->type === 'video')
-                                <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-video-title="{{ $image->original_name }}" data-video-pin-required aria-label="Locked video. Unlock viewables to preview.">
+                                <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-title="{{ $image->original_name }}" data-video-pin-required aria-label="Locked video. Unlock viewables to preview.">
                                     <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
                                     @if ($image->poster_path || $image->file?->video_poster_path)
-                                        <img data-protected-image data-image-url="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id]) }}" alt="" loading="lazy" hidden>
+                                        <img data-protected-image data-image-url="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" alt="" loading="lazy" hidden>
                                     @else
-                                        <video class="profile-gallery-video-thumbnail" data-protected-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
+                                        <video class="profile-gallery-video-thumbnail" data-protected-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
                                     @endif
                                     <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                                 </button>
                             @else
-                                <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-image-title="{{ $image->original_name }}" aria-label="Locked image. Unlock viewables to preview.">
+                                <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-image-title="{{ $image->original_name }}" aria-label="Locked image. Unlock viewables to preview.">
                                     <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
-                                    <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-thumbnail-url="{{ route($routePrefix.'.images.thumbnail', ['person' => $person, 'image' => $image->id]) }}" alt="{{ $image->original_name }}" loading="lazy" hidden>
+                                    <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-thumbnail-url="{{ route($routePrefix.'.images.thumbnail', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" alt="{{ $image->original_name }}" loading="lazy" hidden>
                                 </button>
                             @endif
                         @endforeach

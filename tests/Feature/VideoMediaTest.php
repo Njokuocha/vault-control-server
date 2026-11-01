@@ -75,21 +75,25 @@ test('completed private videos can be attached to person galleries and require t
         ->and($media->file_id)->toBe($upload->file_id)
         ->and($upload->fresh()->attached_at)->not->toBeNull();
 
-    $this->get(route('people.show', $person))
+    $this->get(route('people.show', ['person' => $person, 'auth' => 'unauthed']))
         ->assertOk()
-        ->assertSee('data-video-viewer', false)
-        ->assertSee('data-video-pin-required', false);
+        ->assertDontSee('profile-video.mp4');
     $this->get(route('people.image', ['person' => $person, 'image' => $media->id]))
         ->assertForbidden();
     $this->get(route('people.images.poster', ['person' => $person, 'image' => $media->id]))
         ->assertForbidden();
 
     app(SettingService::class)->set('person_image_pin_hash', Hash::make('0427'));
-    $this->postJson(route('people.images.unlock', $person), ['pin' => '0427'])->assertOk();
-    $this->get(route('people.image', ['person' => $person, 'image' => $media->id]), ['Range' => 'bytes=0-5'])
+    $unlock = $this->postJson(route('people.images.unlock', $person), ['pin' => '0427'])->assertOk();
+    $token = $unlock->json('token');
+    $this->get(route('people.show', ['person' => $person, 'auth' => $token]))
+        ->assertOk()
+        ->assertSee('data-video-viewer', false)
+        ->assertSee('data-video-pin-required', false);
+    $this->get(route('people.image', ['person' => $person, 'image' => $media->id, 'auth' => $token]), ['Range' => 'bytes=0-5'])
         ->assertStatus(206)
         ->assertHeader('Content-Range', 'bytes 0-5/'.strlen(Storage::disk('vault')->get($media->playable_path)));
-    $this->get(route('people.images.poster', ['person' => $person, 'image' => $media->id]))
+    $this->get(route('people.images.poster', ['person' => $person, 'image' => $media->id, 'auth' => $token]))
         ->assertOk()
         ->assertHeader('Content-Type', 'image/jpeg');
 });
@@ -178,7 +182,14 @@ test('person galleries defer a protected video thumbnail until image access is u
         ->assertRedirect();
 
     $person = Person::query()->firstOrFail();
-    $this->get(route('people.show', $person))
+    $this->get(route('people.show', ['person' => $person, 'auth' => 'unauthed']))
+        ->assertOk()
+        ->assertDontSee('profile-video.mp4');
+    app(SettingService::class)->set('person_image_pin_hash', Hash::make('0427'));
+    $token = $this->postJson(route('people.images.unlock', $person), ['pin' => '0427'])
+        ->assertOk()
+        ->json('token');
+    $this->get(route('people.show', ['person' => $person, 'auth' => $token]))
         ->assertOk()
         ->assertSee('data-protected-video-thumbnail', false)
         ->assertSee('data-video-pin-required', false);
@@ -268,11 +279,12 @@ test('PIN-protected legacy person images support private byte-range delivery', f
         'type' => 'image',
     ]);
     app(SettingService::class)->set('person_image_pin_hash', Hash::make('0427'));
-    $this->actingAs($staff, 'web')
+    $unlock = $this->actingAs($staff, 'web')
         ->postJson(route('pm.people.images.unlock', $person), ['pin' => '0427'])
         ->assertOk();
+    $token = $unlock->json('token');
 
-    $response = $this->get(route('pm.people.image', ['person' => $person, 'image' => $image->id]), [
+    $response = $this->get(route('pm.people.image', ['person' => $person, 'image' => $image->id, 'auth' => $token]), [
         'Range' => 'bytes=3-6',
     ]);
 

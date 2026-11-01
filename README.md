@@ -288,12 +288,16 @@ reference uploaded video files. People and cases are linked through the
 All profile and case images are limited to raster formats and 10 MB per image.
 Their bytes remain on the private `vault` disk and are served only through
 authenticated routes. Person images additionally require a four-digit
-administrator-configured PIN; the PIN is stored as an encrypted password hash,
-and gallery authorization persists across category changes and page refreshes
-for that profile, then clears when leaving the gallery or opening another
-profile. Successful PIN checks are not throttled; only repeated incorrect attempts are limited per
-authenticated account, so shared office networks do not block other staff.
-Main images and galleries are not requested by the browser before PIN verification. Male,
+administrator-configured PIN; the PIN is stored as an encrypted password hash.
+Successful PIN verification issues a cryptographically random 32-character
+token stored server-side for one hour and bound to the authenticated account
+and profile. The profile, gallery, category-navigation, and media URLs carry
+that token as `auth`; changing categories or refreshing does not reset access.
+Missing or invalid gallery tokens render a generic unavailable state, and
+every protected media endpoint validates the token independently. Updating the
+PIN invalidates outstanding tokens. File Management retains its separate
+session-based PIN authorization. Main images and galleries are not requested
+by the browser before PIN verification. Male,
 Female, and Group GLB avatars are stored on the same private disk; uploads are
 checked for a GLB 2.0 header and external asset references are rejected. The
 model-viewer JavaScript is loaded only on pages that display a 3D model.

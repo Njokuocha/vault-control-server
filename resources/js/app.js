@@ -204,9 +204,6 @@ let pageCleanup = [];
 let clockInterval = null;
 let navigationInProgress = false;
 let pageMediaClickHandler = null;
-let unlockedPersonGalleryPath = document.querySelector('[data-profile-gallery-page][data-gallery-media-unlocked="true"]')
-    ? window.location.pathname
-    : null;
 
 document.addEventListener('click', (event) => {
     if (!(event.target instanceof Element) || !event.target.closest('[data-image-viewer], [data-video-viewer], [data-expand-gallery]')) return;
@@ -1962,7 +1959,6 @@ const loadProtectedImage = (image) => {
 
 const activatePersonViewables = () => {
     personViewablesUnlocked = true;
-    if (profileGalleryPage) unlockedPersonGalleryPath = window.location.pathname;
     document.querySelectorAll('[data-protected-image]').forEach((image) => {
         image.hidden = false;
         if (!image.closest('[hidden]')) loadProtectedImage(image);
@@ -2010,9 +2006,13 @@ const authenticateImagePin = async () => {
             body: JSON.stringify({ pin }),
         });
         if (!response.ok) throw new Error(await responseError(response));
-        activatePersonViewables();
+        const result = await response.json();
+        if (typeof result.redirect_url !== 'string') {
+            throw new Error('PIN verification did not return a profile access link.');
+        }
         imagePinDigits.forEach((input) => { input.value = ''; });
         imagePinDialog.close();
+        window.location.assign(result.redirect_url);
     } catch (error) {
         if (imagePinError) imagePinError.textContent = error instanceof Error ? error.message : 'PIN verification failed.';
         imagePinDigits.forEach((input) => { input.value = ''; });
@@ -2074,9 +2074,16 @@ const syncPersonImagePinPage = () => {
     profileMainImage = document.querySelector('[data-profile-main-image]');
     profileGalleryPage = document.querySelector('[data-profile-gallery-page]');
 
-    const serverAuthorized = profileGalleryPage?.dataset.galleryMediaUnlocked === 'true';
-    personViewablesUnlocked = serverAuthorized || unlockedPersonGalleryPath === window.location.pathname;
-    if (serverAuthorized) unlockedPersonGalleryPath = window.location.pathname;
+    const profilePage = document.querySelector('[data-person-profile-page]');
+    const serverAuthorized = profileGalleryPage?.dataset.galleryMediaUnlocked === 'true'
+        || profilePage?.dataset.mediaAuthorized === 'true';
+    personViewablesUnlocked = serverAuthorized;
+    const expiresAt = Number(profileGalleryPage?.dataset.mediaAuthExpiresAt ?? profilePage?.dataset.mediaAuthExpiresAt);
+    if (serverAuthorized && Number.isFinite(expiresAt)) {
+        const remainingMs = expiresAt * 1000 - Date.now();
+        const expiryTimer = window.setTimeout(() => window.location.reload(), Math.max(remainingMs, 0));
+        pageCleanup.push(() => window.clearTimeout(expiryTimer));
+    }
     if (imagePinDialog) bindImagePinDialog(imagePinDialog);
 
     if (profileImageToggle && !boundProfileImageToggles.has(profileImageToggle)) {
@@ -2720,10 +2727,6 @@ syncPersonImagePinPage();
 document.addEventListener('livewire:navigating', (event) => {
     navigationInProgress = true;
     const destinationPath = new URL(event.detail.url, window.location.href).pathname;
-    if (unlockedPersonGalleryPath && destinationPath !== unlockedPersonGalleryPath) {
-        unlockedPersonGalleryPath = null;
-        personViewablesUnlocked = false;
-    }
     const galleryPage = document.querySelector('[data-profile-gallery-page]');
     if (galleryPage && destinationPath !== window.location.pathname) {
         galleryPage.dataset.galleryMediaUnlocked = 'false';

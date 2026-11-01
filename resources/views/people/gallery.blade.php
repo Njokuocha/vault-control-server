@@ -13,26 +13,26 @@
             <p class="page-description">{{ $galleryTotalCount }} media items across {{ $categories->count() }} categories.</p>
         </div>
         <div class="profile-heading-actions">
-            <a class="button-secondary" href="{{ route($routePrefix.'.show', $person) }}" wire:navigate>BACK TO PROFILE</a>
+            <a class="button-secondary" href="{{ route($routePrefix.'.show', ['person' => $person, 'auth' => $authToken]) }}" wire:navigate>BACK TO PROFILE</a>
         </div>
     </section>
 
-    <section class="profile-gallery-page" data-profile-gallery-page data-gallery-media-unlocked="{{ $galleryMediaUnlocked ? 'true' : 'false' }}">
+    <section class="profile-gallery-page" data-profile-gallery-page data-gallery-media-unlocked="{{ $galleryMediaUnlocked ? 'true' : 'false' }}" data-media-auth-expires-at="{{ $mediaAuthExpiresAt }}">
         <aside class="profile-gallery-category-panel">
             <div class="profile-section-heading">
                 <div><span class="section-kicker">PROFILE ORGANISATION</span><h3>Categories</h3></div>
             </div>
             <nav class="profile-gallery-category-list" aria-label="Gallery categories">
                 @foreach ($categories as $category)
-                    <a class="profile-gallery-category-link {{ $selectedCategory?->is($category) ? 'is-active' : '' }}" href="{{ route($routePrefix.'.gallery', ['person' => $person, 'category' => $category->id]) }}" wire:navigate>
+                    <a class="profile-gallery-category-link {{ $selectedCategory?->is($category) ? 'is-active' : '' }}" href="{{ route($routePrefix.'.gallery', ['person' => $person, 'category' => $category->id, 'auth' => $authToken]) }}" wire:navigate>
                         <span>{{ $category->title }} @if($canManageGalleryAccess && $category->is_locked)<i class="ri ri-lock-line gallery-category-lock-indicator" title="Restricted category" aria-label="Restricted category"></i>@endif</span><span>{{ $category->images_count }}</span>
                     </a>
                 @endforeach
-                <a class="profile-gallery-category-link {{ $selectedUncategorized ? 'is-active' : '' }}" href="{{ route($routePrefix.'.gallery', ['person' => $person, 'category' => 'uncategorized']) }}" wire:navigate>
+                <a class="profile-gallery-category-link {{ $selectedUncategorized ? 'is-active' : '' }}" href="{{ route($routePrefix.'.gallery', ['person' => $person, 'category' => 'uncategorized', 'auth' => $authToken]) }}" wire:navigate>
                     <span>Uncategorized</span><span>{{ $uncategorizedCount }}</span>
                 </a>
             </nav>
-            <form method="post" action="{{ route($routePrefix.'.gallery-categories.store', $person) }}" class="profile-gallery-category-create" data-gallery-action-form>
+            <form method="post" action="{{ route($routePrefix.'.gallery-categories.store', ['person' => $person, 'auth' => $authToken]) }}" class="profile-gallery-category-create" data-gallery-action-form>
                 @csrf
                 <label for="gallery-category-title">Add a category</label>
                 <input id="gallery-category-title" name="title" type="text" maxlength="255" required value="{{ old('title') }}" placeholder="Category name">
@@ -73,7 +73,7 @@
                                 aria-label="Access settings for {{ $selectedCategory->title }}"><i class="ri ri-settings-3-line" aria-hidden="true"></i></button>
                         @endif
                     </div>
-                    <form method="post" action="{{ route($routePrefix.'.gallery-categories.destroy', ['person' => $person, 'category' => $selectedCategory->id]) }}" data-gallery-action-form data-confirm="Delete this category? Its media will be kept as uncategorized." data-confirm-title="Delete gallery category" data-confirm-label="DELETE CATEGORY" data-confirm-destructive="true">
+                    <form method="post" action="{{ route($routePrefix.'.gallery-categories.destroy', ['person' => $person, 'category' => $selectedCategory->id, 'auth' => $authToken]) }}" data-gallery-action-form data-confirm="Delete this category? Its media will be kept as uncategorized." data-confirm-title="Delete gallery category" data-confirm-label="DELETE CATEGORY" data-confirm-destructive="true">
                         @csrf
                         @method('DELETE')
                         <button class="button-danger" type="submit"><span data-action-label>DELETE CATEGORY</span><span class="gallery-action-spinner" hidden aria-hidden="true"></span></button>
@@ -95,27 +95,27 @@
                         @php($mediaLabel = $mediaNumber >= 1000000 ? rtrim(rtrim(number_format($mediaNumber / 1000000, 1, '.', ''), '0'), '.').'M' : ($mediaNumber >= 1000 ? rtrim(rtrim(number_format($mediaNumber / 1000, 1, '.', ''), '0'), '.').'K' : str_pad((string) $mediaNumber, 2, '0', STR_PAD_LEFT)))
                         <div class="profile-gallery-entry">
                         @if ($image->type === 'video')
-                            <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-video-title="IMG {{ $mediaLabel }}" aria-label="Play video {{ $mediaLabel }}">
+                            <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-title="IMG {{ $mediaLabel }}" aria-label="Play video {{ $mediaLabel }}">
                                 @if ($image->poster_path || $image->file?->video_poster_path)
-                                    <img data-protected-image data-image-url="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id]) }}" alt="" loading="lazy" hidden>
+                                    <img data-protected-image data-image-url="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" alt="" loading="lazy" hidden>
                                 @else
-                                    <video class="profile-gallery-video-thumbnail" data-protected-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
+                                    <video class="profile-gallery-video-thumbnail" data-protected-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
                                 @endif
                                 <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                             </button>
                         @elseif (in_array($image->type, [null, 'image'], true))
-                            <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}" data-image-title="IMG {{ $mediaLabel }}" aria-label="View image {{ $mediaLabel }}">
-                                <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id]) }}" data-thumbnail-url="{{ route($routePrefix.'.images.thumbnail', ['person' => $person, 'image' => $image->id]) }}" alt="{{ $image->original_name }}" loading="lazy" hidden>
+                            <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-image-title="IMG {{ $mediaLabel }}" aria-label="View image {{ $mediaLabel }}">
+                                <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-thumbnail-url="{{ route($routePrefix.'.images.thumbnail', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" alt="{{ $image->original_name }}" loading="lazy" hidden>
                             </button>
                         @else
-                            <a class="profile-gallery-tile profile-gallery-file-tile" href="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id]) }}">
+                            <a class="profile-gallery-tile profile-gallery-file-tile" href="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}">
                                 <span aria-hidden="true"><i class="ri ri-download-2-line"></i></span>
                                 <strong>IMG {{ $mediaLabel }}</strong>
                                 <small>DOWNLOAD FILE</small>
                             </a>
                         @endif
                         <span class="profile-gallery-item-label">IMG {{ $mediaLabel }}</span>
-                        <button class="gallery-change-category-button" type="button" data-open-category-picker data-category-dialog="[data-gallery-category-dialog]" data-category-action="{{ route($routePrefix.'.gallery-images.category', ['person' => $person, 'image' => $image->id]) }}" data-category-ids="{{ $image->galleryCategories->modelKeys() ? json_encode($image->galleryCategories->modelKeys()) : '[]' }}" aria-label="Change categories for IMG {{ $mediaLabel }}">CHANGE CATEGORY</button>
+                        <button class="gallery-change-category-button" type="button" data-open-category-picker data-category-dialog="[data-gallery-category-dialog]" data-category-action="{{ route($routePrefix.'.gallery-images.category', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-category-ids="{{ $image->galleryCategories->modelKeys() ? json_encode($image->galleryCategories->modelKeys()) : '[]' }}" aria-label="Change categories for IMG {{ $mediaLabel }}">CHANGE CATEGORY</button>
                         </div>
                     @endforeach
                 </div>
@@ -135,7 +135,7 @@
     @if ($selectedCategory && ! $categoryRestricted)
         <dialog class="gallery-management-dialog" data-gallery-edit-dialog aria-labelledby="gallery-edit-title">
             <form method="dialog" class="gallery-picker-close"><button value="close" aria-label="Close category editor">×</button></form>
-            <form method="post" action="{{ route($routePrefix.'.gallery-categories.update', ['person' => $person, 'category' => $selectedCategory]) }}" data-gallery-action-form data-confirm="Save the name and description for this gallery category?" data-confirm-title="Update gallery category" data-confirm-label="SAVE CHANGES">
+            <form method="post" action="{{ route($routePrefix.'.gallery-categories.update', ['person' => $person, 'category' => $selectedCategory, 'auth' => $authToken]) }}" data-gallery-action-form data-confirm="Save the name and description for this gallery category?" data-confirm-title="Update gallery category" data-confirm-label="SAVE CHANGES">
                 @csrf
                 @method('PUT')
                 <header class="gallery-picker-header">
