@@ -451,6 +451,8 @@ test('file managers can access their restricted archive, upload, media and shell
         ->assertSee('data-vault-image-rotate', false)
         ->assertSee('data-vault-image-dimensions', false)
         ->assertSee('data-vault-image-extension', false)
+        ->assertSee('data-vault-image-download-icon', false)
+        ->assertSee('data-vault-image-download-spinner', false)
         ->assertSee('data-vault-image-grayscale', false)
         ->assertDontSee('Restricted Person Name')
         ->assertDontSee('Confidential dossier statement');

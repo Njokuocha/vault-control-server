@@ -490,10 +490,12 @@ test('report media previews include videos in detail and gallery without exposin
         ]);
     }
 
+    $video = $report->media()->where('media_type', 'video')->firstOrFail();
     $workspace = Livewire::actingAs($reporter, 'web')
         ->test(ReportWorkspace::class)
         ->assertSee('data-report-video-thumbnail', false)
-        ->assertSee(route('reports.media', ['report' => $report, 'media' => $report->media()->where('media_type', 'video')->firstOrFail()]), false)
+        ->assertSee(route('reports.media', ['report' => $report, 'media' => $video]), false)
+        ->assertSee('wire:key="report-detail-video-'.$report->id.'-'.$video->id.'"', false)
         ->assertSee('data-report-gallery-open="true"', false)
         ->assertSee('data-report-media-item', false)
         ->assertDontSee('evidence-video-secret.mp4')
@@ -504,11 +506,50 @@ test('report media previews include videos in detail and gallery without exposin
 
     $workspace->call('editReport', $report->uuid)
         ->assertSee('data-report-video-thumbnail', false)
+        ->assertSee('wire:key="report-edit-video-'.$report->id.'-'.$video->id.'"', false)
         ->assertDontSee('evidence-video-secret.mp4')
         ->assertDontSee('evidence-image-one-secret.jpg')
         ->assertDontSee('evidence-image-two-secret.jpg')
         ->assertDontSee('evidence-image-three-secret.jpg')
         ->assertDontSee('evidence-image-four-secret.jpg');
+});
+
+test('switching reports replaces video thumbnails with the selected report media', function () {
+    Storage::fake(config('vault.upload_disk', 'vault'));
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $firstReport = createTestReport($reporter, 'First report with a video.');
+    $secondReport = createTestReport($reporter, 'Second report with a video.');
+
+    $videos = [];
+    foreach ([$firstReport, $secondReport] as $index => $report) {
+        $path = "reports/{$report->id}/report-video-{$index}.mp4";
+        Storage::disk(config('vault.upload_disk', 'vault'))->put($path, "video-{$index}");
+        $videos[] = $report->media()->create([
+            'path' => $path,
+            'original_name' => "report-video-{$index}.mp4",
+            'mime_type' => 'video/mp4',
+            'media_type' => 'video',
+            'size' => 8,
+            'sort_order' => 0,
+        ]);
+    }
+
+    $workspace = Livewire::actingAs($reporter, 'web')
+        ->test(ReportWorkspace::class)
+        ->call('selectReport', $firstReport->uuid, $firstReport->id)
+        ->assertSee('wire:key="report-detail-video-'.$firstReport->id.'-'.$videos[0]->id.'"', false)
+        ->call('selectReport', $secondReport->uuid, $secondReport->id)
+        ->assertSee('wire:key="report-detail-video-'.$secondReport->id.'-'.$videos[1]->id.'"', false)
+        ->assertSee(route('reports.media', ['report' => $secondReport, 'media' => $videos[1]]), false)
+        ->assertDontSee(route('reports.media', ['report' => $firstReport, 'media' => $videos[0]]), false);
+
+    $workspace->call('openComposer')
+        ->assertSee('wire:model.blur="body"', false)
+        ->assertSee('PREPARING MEDIA…')
+        ->assertSee('PUBLISHING…');
 });
 
 test('report narratives render nested formatting in reports and the composer preview safely', function () {

@@ -113,7 +113,7 @@
                                         @if ($media->media_type === 'image')
                                             <img src="{{ route('reports.media.thumbnail', [$report, $media]) }}" alt="Report attachment {{ $loop->iteration }}" loading="lazy" decoding="async">
                                         @else
-                                            <video class="report-video-thumbnail" data-report-video-thumbnail data-thumbnail-url="{{ route('reports.media', [$report, $media]) }}" preload="none" muted playsinline hidden aria-hidden="true"></video>
+                                            <video wire:key="report-detail-video-{{ $report->id }}-{{ $media->id }}" class="report-video-thumbnail" data-report-video-thumbnail data-thumbnail-url="{{ route('reports.media', [$report, $media]) }}" preload="none" muted playsinline hidden aria-hidden="true"></video>
                                             <span class="report-video-mark" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
                                         @endif
                                         @if ($report->media->count() > 4 && $loop->last)
@@ -233,7 +233,7 @@
                 <header><div><span class="section-kicker">{{ $editingUuid ? 'UPDATE RECORD' : 'NEW SITUATION REPORT' }}</span><h2 id="report-composer-title">{{ $editingUuid ? 'Edit report' : 'Publish a report' }}</h2></div><button type="button" data-report-composer-close aria-label="Close report form" x-on:click="composerOpen = false" wire:click="closeComposer">×</button></header>
                 <form wire:submit="saveReport">
                     <label class="report-form-label" for="report-body">REPORT NARRATIVE <span>NO TITLE REQUIRED</span></label>
-                    <textarea id="report-body" wire:model.live.debounce.350ms="body" rows="7" maxlength="20000" placeholder="Record the event, timing, location, source, and operational context…"></textarea>
+                    <textarea id="report-body" wire:model.blur="body" rows="7" maxlength="20000" placeholder="Record the event, timing, location, source, and operational context…"></textarea>
                     <p class="report-format-help">Formatting: <code>_#caption_#</code> for a modest caption, <code>_##bold_##</code> for bold, and <code>_###uppercase_###</code> for uppercase. Markers can be nested.</p>
                     @if (trim($body) !== '')
                         <div class="report-format-preview"><span class="section-kicker">FORMATTED PREVIEW</span><div>{{ $formattedBodyPreview }}</div></div>
@@ -245,7 +245,7 @@
                             @foreach ($report->media as $media)
                                 <button type="button" data-report-media-toggle class="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'is-marked-remove' : '' }}" wire:click="toggleMediaRemoval({{ $media->id }})" aria-label="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'Keep' : 'Remove' }} attachment {{ $loop->iteration }}">
                                     @if ($media->media_type === 'image')<img src="{{ route('reports.media.thumbnail', [$report, $media]) }}" alt="Report attachment {{ $loop->iteration }}">
-                                    @else <video class="report-video-thumbnail" data-report-video-thumbnail data-thumbnail-url="{{ route('reports.media', [$report, $media]) }}" preload="none" muted playsinline hidden aria-hidden="true"></video><span class="report-video-mark" aria-hidden="true"><i class="ri ri-play-fill"></i></span>@endif
+                                    @else <video wire:key="report-edit-video-{{ $report->id }}-{{ $media->id }}" class="report-video-thumbnail" data-report-video-thumbnail data-thumbnail-url="{{ route('reports.media', [$report, $media]) }}" preload="none" muted playsinline hidden aria-hidden="true"></video><span class="report-video-mark" aria-hidden="true"><i class="ri ri-play-fill"></i></span>@endif
                                 </button>
                             @endforeach
                         </div></div>
@@ -318,7 +318,7 @@
                     @error('caseIds.*')<small class="report-form-error">{{ $message }}</small>@enderror
                     @error('personIds.*')<small class="report-form-error">{{ $message }}</small>@enderror
 
-                    <footer><button class="button-secondary" type="button" data-report-composer-close x-on:click="composerOpen = false" wire:click="closeComposer">CANCEL</button><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="saveReport,uploads"><span wire:loading.remove wire:target="saveReport"> {{ $editingUuid ? 'SAVE REPORT' : 'PUBLISH REPORT' }}</span><span wire:loading wire:target="saveReport">SUBMITTING…</span></button></footer>
+                    <footer><button class="button-secondary" type="button" data-report-composer-close x-on:click="composerOpen = false" wire:click="closeComposer">CANCEL</button><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="saveReport,uploads"><span wire:loading.remove wire:target="saveReport,uploads"> {{ $editingUuid ? 'SAVE REPORT' : 'PUBLISH REPORT' }}</span><span wire:loading wire:target="uploads">PREPARING MEDIA…</span><span wire:loading wire:target="saveReport">PUBLISHING…</span></button></footer>
                 </form>
             </section>
         </div>

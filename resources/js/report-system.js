@@ -143,26 +143,45 @@ function mediaElement(type, url) {
 }
 
 function loadReportVideoThumbnail(video) {
-    if (!(video instanceof HTMLVideoElement) || video.dataset.reportThumbnailLoaded === 'true') return;
+    if (!(video instanceof HTMLVideoElement)) return;
     const url = video.dataset.thumbnailUrl;
     if (!url) return;
+    if (
+        video.dataset.reportThumbnailLoaded === 'true'
+        && video.dataset.reportThumbnailSource === url
+    ) return;
 
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    video.hidden = true;
+    video.closest('.report-media-tile, .report-gallery-grid button, .report-existing-media button, .report-upload-preview')
+        ?.classList.remove('has-no-video-thumbnail');
     video.dataset.reportThumbnailLoaded = 'true';
+    video.dataset.reportThumbnailSource = url;
     video.preload = 'metadata';
     video.muted = true;
     video.playsInline = true;
+    const isCurrentThumbnail = () => (
+        video.dataset.thumbnailUrl === url
+        && video.dataset.reportThumbnailSource === url
+    );
     video.addEventListener('loadedmetadata', () => {
+        if (!isCurrentThumbnail()) return;
         if (video.duration > 0) video.currentTime = Math.min(0.1, video.duration / 2);
     }, { once: true });
     video.addEventListener('loadeddata', () => {
+        if (!isCurrentThumbnail()) return;
         video.hidden = false;
         video.pause();
     }, { once: true });
     video.addEventListener('seeked', () => {
+        if (!isCurrentThumbnail()) return;
         video.hidden = false;
         video.pause();
     }, { once: true });
     video.addEventListener('error', () => {
+        if (!isCurrentThumbnail()) return;
         video.hidden = true;
         video.closest('.report-media-tile, .report-gallery-grid button, .report-existing-media button, .report-upload-preview')
             ?.classList.add('has-no-video-thumbnail');
@@ -176,7 +195,7 @@ function initializeReportVideoThumbnails(root = document) {
         loadReportVideoThumbnail(root);
     }
 
-    root.querySelectorAll?.('[data-report-video-thumbnail]:not([data-report-thumbnail-loaded])')
+    root.querySelectorAll?.('[data-report-video-thumbnail]')
         .forEach(loadReportVideoThumbnail);
 }
 

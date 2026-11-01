@@ -20,7 +20,7 @@ let rotation = 0;
 let dragPointer = null;
 let lastTrigger = null;
 const boundDialogs = new WeakSet();
-let downloadBusyTimer = null;
+let activeDownloadController = null;
 let slowZoomFrame = null;
 const slowZoomCycleDuration = 10_000;
 const slowZoomInDuration = 8_000;
@@ -68,10 +68,33 @@ const refreshViewer = () => {
 const setDownloadBusy = (anchor, busy) => {
     if (!(anchor instanceof HTMLAnchorElement)) return;
     anchor.setAttribute('aria-busy', String(busy));
+    if (!anchor.dataset.downloadLabel) {
+        anchor.dataset.downloadLabel = anchor.getAttribute('aria-label') || 'Download image';
+    }
+    anchor.setAttribute('aria-label', busy ? 'Preparing download' : anchor.dataset.downloadLabel);
+    anchor.title = busy ? 'Preparing download' : anchor.dataset.downloadLabel;
     const icon = anchor.querySelector('[data-vault-image-download-icon]');
     const spinner = anchor.querySelector('[data-vault-image-download-spinner]');
     if (icon instanceof HTMLElement) icon.hidden = busy;
     if (spinner instanceof HTMLElement) spinner.hidden = !busy;
+};
+
+const startImageDownload = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+};
+
+const reportDownloadError = (error) => {
+    window.vaultAlert?.({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Could not prepare the image download.',
+    });
 };
 
 const imageBounds = () => {
@@ -253,6 +276,8 @@ export function openImageViewer({
     refreshViewer();
     if (!(dialog instanceof HTMLDialogElement) || !(image instanceof HTMLImageElement) || !src) return;
 
+    activeDownloadController?.abort();
+    activeDownloadController = null;
     lastTrigger = returnFocus instanceof HTMLElement ? returnFocus : null;
     if (dimensionsLabel) dimensionsLabel.textContent = 'Loading…';
     if (extensionLabel) extensionLabel.textContent = inferImageExtension(src, name, extension, mimeType);
@@ -270,8 +295,8 @@ export function openImageViewer({
 }
 
 const close = () => {
-    window.clearTimeout(downloadBusyTimer);
-    downloadBusyTimer = null;
+    activeDownloadController?.abort();
+    activeDownloadController = null;
     image?.removeAttribute('src');
     download?.removeAttribute('href');
     setDownloadBusy(download, false);
@@ -314,18 +339,40 @@ document.addEventListener('click', async (event) => {
 
     const downloadLink = event.target.closest('[data-vault-image-download]');
     if (!(downloadLink instanceof HTMLAnchorElement)) return;
-    if (!(grayscale instanceof HTMLInputElement) || !grayscale.checked || !image?.src) {
-        setDownloadBusy(downloadLink, true);
-        window.clearTimeout(downloadBusyTimer);
-        downloadBusyTimer = window.setTimeout(() => setDownloadBusy(downloadLink, false), 1800);
+    if (downloadLink.getAttribute('aria-busy') === 'true') {
+        event.preventDefault();
         return;
     }
 
     event.preventDefault();
-    const sourceImage = image;
-    window.clearTimeout(downloadBusyTimer);
     setDownloadBusy(downloadLink, true);
 
+    if (!(grayscale instanceof HTMLInputElement) || !grayscale.checked || !image?.src) {
+        const controller = new AbortController();
+        activeDownloadController = controller;
+        try {
+            const response = await fetch(downloadLink.href, {
+                credentials: 'same-origin',
+                signal: controller.signal,
+            });
+            if (!response.ok) {
+                throw new Error(`The image download could not be prepared (HTTP ${response.status}).`);
+            }
+
+            const blob = await response.blob();
+            startImageDownload(blob, downloadLink.download || title?.textContent || 'image');
+        } catch (error) {
+            if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                reportDownloadError(error);
+            }
+        } finally {
+            if (activeDownloadController === controller) activeDownloadController = null;
+            setDownloadBusy(downloadLink, false);
+        }
+        return;
+    }
+
+    const sourceImage = image;
     try {
         await sourceImage.decode();
         const canvas = document.createElement('canvas');
@@ -338,23 +385,13 @@ document.addEventListener('click', async (event) => {
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
         if (!blob) throw new Error('Could not create the grayscale image download.');
 
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
         const baseName = (title?.textContent || 'image')
             .replace(/\.[^.]+$/, '')
             .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
             .trim() || 'image';
-        anchor.href = url;
-        anchor.download = `${baseName}-grayscale.png`;
-        document.body.append(anchor);
-        anchor.click();
-        anchor.remove();
-        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        startImageDownload(blob, `${baseName}-grayscale.png`);
     } catch (error) {
-        window.vaultAlert?.({
-            type: 'error',
-            message: error instanceof Error ? error.message : 'Could not prepare the grayscale image download.',
-        });
+        reportDownloadError(error);
     } finally {
         setDownloadBusy(downloadLink, false);
     }
