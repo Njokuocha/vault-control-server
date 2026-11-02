@@ -129,6 +129,10 @@ function loadReportVideoThumbnail(video) {
         video.dataset.reportThumbnailLoaded === 'true'
         && video.dataset.reportThumbnailSource === url
     ) return;
+    if (
+        video.dataset.reportThumbnailLoading === 'true'
+        && video.dataset.reportThumbnailSource === url
+    ) return;
 
     video.pause();
     video.removeAttribute('src');
@@ -136,7 +140,7 @@ function loadReportVideoThumbnail(video) {
     video.hidden = true;
     video.closest('.report-media-tile, .report-gallery-grid button, .report-existing-media button, .report-upload-preview')
         ?.classList.remove('has-no-video-thumbnail');
-    video.dataset.reportThumbnailLoaded = 'true';
+    video.dataset.reportThumbnailLoading = 'true';
     video.dataset.reportThumbnailSource = url;
     video.preload = 'metadata';
     video.muted = true;
@@ -153,15 +157,21 @@ function loadReportVideoThumbnail(video) {
         if (!isCurrentThumbnail()) return;
         video.hidden = false;
         video.pause();
+        video.dataset.reportThumbnailLoaded = 'true';
+        delete video.dataset.reportThumbnailLoading;
     }, { once: true });
     video.addEventListener('seeked', () => {
         if (!isCurrentThumbnail()) return;
         video.hidden = false;
         video.pause();
+        video.dataset.reportThumbnailLoaded = 'true';
+        delete video.dataset.reportThumbnailLoading;
     }, { once: true });
     video.addEventListener('error', () => {
         if (!isCurrentThumbnail()) return;
         video.hidden = true;
+        delete video.dataset.reportThumbnailLoaded;
+        delete video.dataset.reportThumbnailLoading;
         video.closest('.report-media-tile, .report-gallery-grid button, .report-existing-media button, .report-upload-preview')
             ?.classList.add('has-no-video-thumbnail');
     }, { once: true });
@@ -386,6 +396,7 @@ document.addEventListener('livewire:navigating', () => {
 document.addEventListener('livewire:init', () => {
     window.Livewire?.hook('morph.updated', syncReportRealtimeSubscription);
     window.Livewire?.hook('morph.updated', ({ el }) => initializeReportVideoThumbnails(el));
+    window.Livewire?.hook('morph.added', ({ el }) => initializeReportVideoThumbnails(el));
     window.Livewire?.hook('morph.updating', ({ el, toEl }) => {
         if (
             el instanceof HTMLTextAreaElement
