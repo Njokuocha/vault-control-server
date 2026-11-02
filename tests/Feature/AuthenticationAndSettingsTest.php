@@ -1,11 +1,12 @@
 <?php
 
+use App\Livewire\Admin\DepartmentManagement;
+use App\Livewire\Admin\StaffManagement;
 use App\Livewire\LoginForm;
 use App\Livewire\SettingsImagePin;
 use App\Livewire\SettingsPassword;
 use App\Livewire\SettingsUploadKey;
 use App\Livewire\SettingsUploadPolicy;
-use App\Livewire\Admin\DepartmentManagement;
 use App\Models\Admin;
 use App\Models\Department;
 use App\Models\Setting;
@@ -50,7 +51,8 @@ test('authenticated users can access the upload and calculator workspaces', func
     $this->get(route('dashboard.index'))
         ->assertOk()
         ->assertSee('wire:navigate', false)
-        ->assertSee('data-video-upload-widget', false);
+        ->assertSee('data-video-upload-widget', false)
+        ->assertDontSee('portable-calc-global-launch');
 
     $this->get(route('uploads.create'))
         ->assertOk()
@@ -65,13 +67,31 @@ test('authenticated users can access the upload and calculator workspaces', func
         ->assertSee('Precision')
         ->assertSee('SCIENTIFIC')
         ->assertSee('localStorage')
-        ->assertSee('data-shell-layer', false);
+        ->assertSee('data-shell-layer', false)
+        ->assertSee('data-portable-calc-open', false)
+        ->assertDontSee('portable-calc-global-launch');
 
     $this->get(route('settings.index'))
         ->assertOk()
         ->assertSee('vault-confirm-backdrop', false)
         ->assertSee('data-settings-key-rotate', false)
-        ->assertSee('data-shell-layer', false);
+        ->assertSee('data-shell-layer', false)
+        ->assertDontSee('portable-calc-global-launch');
+});
+
+test('the portable calculator launcher is available in every department workspace', function () {
+    foreach (['cfm', 'pm', 'fm', 'sm'] as $department) {
+        $staff = User::factory()->create([
+            'department' => $department,
+            'account_status' => 'active',
+        ]);
+
+        $this->actingAs($staff, 'web')
+            ->get(route($department.'.dashboard'))
+            ->assertOk()
+            ->assertSee('data-portable-calculator-layer', false)
+            ->assertDontSee('portable-calc-global-launch');
+    }
 });
 
 test('an administrator can authenticate and sign out', function () {
@@ -129,7 +149,7 @@ test('an admin-only session can reach staff management and create a case manager
         ->assertSee('SAVE CHANGES')
         ->assertSee('Add department row');
 
-    Livewire::test(\App\Livewire\Admin\StaffManagement::class)
+    Livewire::test(StaffManagement::class)
         ->set('name', 'Case Officer')
         ->set('email', 'case.officer@example.test')
         ->set('username', 'case_officer')
@@ -288,10 +308,10 @@ test('the administrator can update the upload size and API access policy', funct
     actingAsLegacyAdmin($this);
 
     $this->post(route('settings.upload-policy.update'), [
-            'max_upload_mb' => 25,
-            'max_video_upload_mb' => 12,
-            'api_upload_enabled' => '1',
-        ])
+        'max_upload_mb' => 25,
+        'max_video_upload_mb' => 12,
+        'api_upload_enabled' => '1',
+    ])
         ->assertRedirect();
 
     $size = Setting::query()->findOrFail('max_upload_mb');

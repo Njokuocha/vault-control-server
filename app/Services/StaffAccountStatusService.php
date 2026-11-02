@@ -134,6 +134,7 @@ class StaffAccountStatusService
             return;
         }
 
+        app(StaffSessionHistoryService::class)->closeMany($sessionIds);
         DB::table($sessionTable)->whereIn('id', $sessionIds)->delete();
         SecuritySessionPresence::query()->whereIn('session_id', $sessionIds)->delete();
     }

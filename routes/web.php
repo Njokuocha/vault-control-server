@@ -4,8 +4,8 @@ use App\Http\Controllers\AdminEmailAttachmentController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\AuthSecurityController;
 use App\Http\Controllers\AvatarModelController;
-use App\Http\Controllers\CaseManagerDashboardController;
 use App\Http\Controllers\CaseAnalysisController;
+use App\Http\Controllers\CaseManagerDashboardController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\FileManagerController;
@@ -16,8 +16,8 @@ use App\Http\Controllers\PersonController;
 use App\Http\Controllers\ProfileManagerDashboardController;
 use App\Http\Controllers\ReportMediaController;
 use App\Http\Controllers\SettingsController;
-use App\Http\Controllers\StaffProfilePhotoController;
 use App\Http\Controllers\StaffGalleryController;
+use App\Http\Controllers\StaffProfilePhotoController;
 use App\Http\Controllers\UploadTransferController;
 use App\Http\Controllers\VaultShellController;
 use App\Http\Controllers\VideoUploadController;
@@ -31,12 +31,14 @@ use App\Livewire\Admin\DepartmentStaffDirectory;
 use App\Livewire\Admin\InactiveStaffIndex;
 use App\Livewire\Admin\MailCenter;
 use App\Livewire\Admin\ReportManagement;
+use App\Livewire\Admin\StaffAnalyticsDashboard;
 use App\Livewire\Admin\StaffManagement;
 use App\Livewire\Admin\StaffProfile;
-use App\Livewire\StaffManager\StaffManagerDirectory;
-use App\Livewire\StaffManager\StaffManagerProfile;
 use App\Livewire\Admin\WhitelistedIpIndex;
 use App\Livewire\ReportWorkspace;
+use App\Livewire\StaffManager\StaffManagerDashboard;
+use App\Livewire\StaffManager\StaffManagerDirectory;
+use App\Livewire\StaffManager\StaffManagerProfile;
 use App\Models\Department;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -129,10 +131,7 @@ foreach ($departments as $department => $departmentName) {
             Route::delete('/people/{person}/images/{image}', [PersonController::class, 'destroyImage'])->name('people.images.destroy');
             Route::get('/avatar-models/{group}/file', [AvatarModelController::class, 'stream'])->name('avatar-models.stream');
         } elseif ($department === 'sm') {
-            Route::view('/', 'departments.staff-management-dashboard', [
-                'department' => $department,
-                'departmentName' => $departmentName,
-            ])->name('dashboard');
+            Route::get('/', StaffManagerDashboard::class)->name('dashboard');
             Route::get('/staff', StaffManagerDirectory::class)->name('staff.index');
             Route::get('/staff/{user}', StaffManagerProfile::class)->whereNumber('user')->name('staff.show');
             Route::get('/staff/{user}/photo', [StaffProfilePhotoController::class, 'departmentStaff'])
@@ -352,6 +351,7 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
             ->name('admin.mail.attachments.download');
     });
     Route::get('/staff', StaffManagement::class)->name('admin.staff.index');
+    Route::get('/staff/analytics', StaffAnalyticsDashboard::class)->name('admin.staff.analytics');
     Route::get('/staff/non-active', InactiveStaffIndex::class)->name('admin.staff.inactive');
     Route::get('/reports', ReportWorkspace::class)->name('admin.reports.index');
     Route::get('/reports/manage', ReportManagement::class)->name('admin.reports.manage');

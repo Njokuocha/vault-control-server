@@ -71,6 +71,15 @@ class SecuritySessionMetrics
             return;
         }
 
+        if ($actor instanceof User && $actor->department !== null) {
+            app(StaffSessionHistoryService::class)->track(
+                $actor,
+                $sessionId,
+                $presence?->created_at ?? $now,
+                $now,
+            );
+        }
+
         $legacyAdmin = $actor instanceof User
             && $actor->department === null
             && strtolower((string) $actor->email) === strtolower((string) config('vault.admin.email'));
@@ -104,6 +113,7 @@ class SecuritySessionMetrics
 
     public function forgetSession(string $sessionId): void
     {
+        app(StaffSessionHistoryService::class)->close($sessionId);
         SecuritySessionPresence::query()->where('session_id', $sessionId)->delete();
 
         if (config('session.driver') === 'database') {

@@ -7,6 +7,7 @@ use App\Models\AuthEvent;
 use App\Models\BlacklistedIp;
 use App\Models\BruteForceRecord;
 use App\Models\SecuritySessionPresence;
+use App\Models\StaffSessionHistory;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -27,6 +28,7 @@ class PruneSecurityRecords extends Command
         BlacklistedIp::query()->whereNotNull('triggered_at')->where('triggered_at', '<', $securityBefore)->delete();
         AuthEvent::query()->where('occurred_at', '<', $securityBefore)->delete();
         SecuritySessionPresence::query()->where('last_seen_at', '<', now()->subDay())->delete();
+        StaffSessionHistory::query()->where('started_at', '<', now()->subDays(90))->delete();
         $sessionTable = (string) config('session.table', 'sessions');
         if (config('session.driver') === 'database' && Schema::hasTable($sessionTable)) {
             DB::table($sessionTable)

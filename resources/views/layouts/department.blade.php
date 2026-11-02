@@ -138,6 +138,7 @@
                 <footer class="department-footer">RESTRICTED · AUTHORIZED PERSONNEL ONLY <span>{{ strtoupper(config('app.acronym')) }} SYSTEMS</span></footer>
             </div>
         @endif
+        @include('components.portable-calculator')
         @include('components.video-upload-widget')
         @if (auth('web')->user()->department === 'fm')
             @persist('fm-file-preview')

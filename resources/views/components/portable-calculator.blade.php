@@ -1,3 +1,4 @@
+<div class="portable-calculator-layer" data-portable-calculator-layer></div>
 <template id="portable-calculator-template">
     <section class="portable-calculator" role="dialog" aria-modal="false" aria-label="Portable calculator" data-portable-calculator>
         <header class="portable-calculator-titlebar" data-portable-calc-drag>

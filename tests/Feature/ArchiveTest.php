@@ -1,8 +1,10 @@
 <?php
 
-use App\Models\File as VaultFile;
+use App\Livewire\DashboardArchive;
+use App\Livewire\DashboardLatestFiles;
 use App\Models\CaseCategory;
 use App\Models\CaseImage;
+use App\Models\File as VaultFile;
 use App\Models\InvestigationCase;
 use App\Models\Person;
 use App\Models\PersonImage;
@@ -39,6 +41,8 @@ test('the archive overview shows only the latest twenty records', function () {
         ->assertSee('record-24.txt')
         ->assertDontSee('record-0.txt')
         ->assertSee('VIEW FULL ARCHIVE')
+        ->assertSee('archive-opening-indicator', false)
+        ->assertSee('Opening file...')
         ->assertSee('LATEST OF');
 });
 
@@ -174,15 +178,17 @@ test('all archive listings exclude files attached to case and person records', f
         ->assertJsonMissing(['name' => 'person-gallery-image.jpg'])
         ->assertJsonMissing(['name' => 'case-evidence.jpg']);
 
-    Livewire::test(\App\Livewire\DashboardArchive::class)
+    Livewire::test(DashboardArchive::class)
         ->call('open')
+        ->assertSee('archive-opening-indicator', false)
+        ->assertSee('Opening file...')
         ->assertSee($standaloneManual->original_name)
         ->assertSee($standaloneApi->original_name)
         ->assertDontSee($personMainImage->original_name)
         ->assertDontSee($personGalleryImage->original_name)
         ->assertDontSee($caseEvidence->original_name);
 
-    Livewire::test(\App\Livewire\DashboardLatestFiles::class)
+    Livewire::test(DashboardLatestFiles::class)
         ->assertSee($standaloneManual->original_name)
         ->assertSee($standaloneApi->original_name)
         ->assertDontSee($personMainImage->original_name)
@@ -281,7 +287,7 @@ test('the full dashboard archive searches through Livewire and privately preview
 
     $this->actingAs($user);
 
-    Livewire::test(\App\Livewire\DashboardArchive::class)
+    Livewire::test(DashboardArchive::class)
         ->assertDontSee($file->original_name)
         ->call('open')
         ->assertSee($file->original_name)
@@ -318,7 +324,7 @@ test('dashboard archive search and category filters update through Livewire even
         'checksum' => hash('sha256', 'dashboard-image'),
     ]);
 
-    Livewire::test(\App\Livewire\DashboardLatestFiles::class)
+    Livewire::test(DashboardLatestFiles::class)
         ->assertSee('dashboard-document.txt')
         ->assertSee('dashboard-image.png')
         ->dispatch('dashboard-archive-search', search: 'document')

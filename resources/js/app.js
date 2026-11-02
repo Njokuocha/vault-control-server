@@ -13,6 +13,7 @@ import './gallery-management';
 import './case-analysis';
 import { openImageViewer } from './image-viewer.js';
 import { openVaultVideoViewer } from './video-viewer.js';
+import { openPortableCalculator } from './portable-calculator.js';
 import { evaluateTriggerExpression } from './shell-math.mjs';
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
@@ -1197,185 +1198,9 @@ listenForPageEvent(document, 'keydown', (event) => {
     if (event.key === 'Escape' && archiveBrowser && !archiveBrowser.hidden) closeFullArchive();
 });
 
-const portableCalculatorTemplate = document.querySelector('#portable-calculator-template');
-const portableCalculatorStorageKey = 'vcs.portable-calculator.v1';
-let portableCalculator = null;
-let portableCalculatorExpression = '';
-let portableCalculatorCompleted = false;
-
-const savePortableCalculator = () => {
-    if (!portableCalculator) return;
-    const rect = portableCalculator.getBoundingClientRect();
-    try {
-        sessionStorage.setItem(portableCalculatorStorageKey, JSON.stringify({
-            open: true,
-            expression: portableCalculatorExpression,
-            completed: portableCalculatorCompleted,
-            left: rect.left,
-            top: rect.top,
-        }));
-    } catch {
-        showToast('Unable to preserve the portable calculator in this browser session.', 'warning');
-    }
-};
-
-const updatePortableCalculator = () => {
-    if (!portableCalculator) return;
-    const expressionDisplay = portableCalculator.querySelector('[data-portable-calc-expression]');
-    const resultDisplay = portableCalculator.querySelector('[data-portable-calc-result]');
-    expressionDisplay.textContent = portableCalculatorExpression || '0';
-    if (!portableCalculatorExpression) {
-        resultDisplay.textContent = '0';
-        return;
-    }
-    try {
-        resultDisplay.textContent = evaluateTriggerExpression(portableCalculatorExpression) ?? '—';
-    } catch {
-        resultDisplay.textContent = 'Error';
-    }
-};
-
-const closePortableCalculator = () => {
-    if (!portableCalculator) return;
-    portableCalculator.remove();
-    portableCalculator = null;
-    portableCalculatorExpression = '';
-    portableCalculatorCompleted = false;
-    try {
-        sessionStorage.removeItem(portableCalculatorStorageKey);
-    } catch {
-        showToast('Unable to clear the saved portable calculator state.', 'error');
-    }
-};
-
-const openPortableCalculator = (savedState = null) => {
-    if (!(portableCalculatorTemplate instanceof HTMLTemplateElement)) return;
-    if (portableCalculator) {
-        portableCalculator.style.zIndex = String(++nextZIndex);
-        return;
-    }
-
-    portableCalculator = portableCalculatorTemplate.content.firstElementChild.cloneNode(true);
-    portableCalculatorExpression = typeof savedState?.expression === 'string'
-        && /^[\d.eE+\-*/%()]*$/.test(savedState.expression)
-        ? savedState.expression.slice(0, 120)
-        : '';
-    portableCalculatorCompleted = savedState?.completed === true;
-    portableCalculator.style.zIndex = String(++nextZIndex);
-    if (Number.isFinite(savedState?.left) && Number.isFinite(savedState?.top)) {
-        portableCalculator.style.left = `${savedState.left}px`;
-        portableCalculator.style.top = `${savedState.top}px`;
-        portableCalculator.style.right = 'auto';
-    }
-    shellLayer?.append(portableCalculator);
-    const calculatorRect = portableCalculator.getBoundingClientRect();
-    const maxLeft = Math.max(8, window.innerWidth - calculatorRect.width - 8);
-    const maxTop = Math.max(8, window.innerHeight - calculatorRect.height - 8);
-    portableCalculator.style.left = `${Math.min(Math.max(8, calculatorRect.left), maxLeft)}px`;
-    portableCalculator.style.top = `${Math.min(Math.max(8, calculatorRect.top), maxTop)}px`;
-    portableCalculator.style.right = 'auto';
-    portableCalculator.style.bottom = 'auto';
-
-    portableCalculator.querySelector('[data-portable-calc-close]').addEventListener('click', closePortableCalculator);
-    portableCalculator.addEventListener('pointerdown', () => {
-        portableCalculator.style.zIndex = String(++nextZIndex);
-    });
-    portableCalculator.querySelector('[data-portable-calc-keys]').addEventListener('click', (event) => {
-        const button = event.target.closest('[data-portable-calc-key]');
-        if (!button) return;
-        const action = button.dataset.portableCalcKey;
-        const value = button.dataset.value ?? '';
-
-        if (action === 'clear') {
-            portableCalculatorExpression = '';
-            portableCalculatorCompleted = false;
-        } else if (action === 'backspace') {
-            portableCalculatorExpression = portableCalculatorExpression.slice(0, -1);
-            portableCalculatorCompleted = false;
-        } else if (action === 'digit') {
-            if (portableCalculatorCompleted) {
-                portableCalculatorExpression = '';
-                portableCalculatorCompleted = false;
-            }
-            const currentNumber = portableCalculatorExpression.split(/[+\-*/%()]/).at(-1) ?? '';
-            if (value === '.' && currentNumber.includes('.')) return;
-            portableCalculatorExpression += value;
-        } else if (action === 'operator') {
-            portableCalculatorCompleted = false;
-            if (!portableCalculatorExpression && value !== '-') return;
-            if (/[+\-*/%]$/.test(portableCalculatorExpression)) {
-                portableCalculatorExpression = portableCalculatorExpression.slice(0, -1);
-            }
-            portableCalculatorExpression += value;
-        } else if (action === 'equals') {
-            try {
-                const result = evaluateTriggerExpression(portableCalculatorExpression);
-                if (result === null) throw new Error('Enter a valid calculation.');
-                portableCalculatorExpression = result;
-                portableCalculatorCompleted = true;
-            } catch (error) {
-                showToast(error instanceof Error ? error.message : 'Unable to calculate this expression.', 'error');
-                return;
-            }
-        }
-
-        updatePortableCalculator();
-        savePortableCalculator();
-    });
-
-    const dragHandle = portableCalculator.querySelector('[data-portable-calc-drag]');
-    dragHandle.addEventListener('pointerdown', (event) => {
-        if (event.target.closest('button')) return;
-        event.preventDefault();
-        const rect = portableCalculator.getBoundingClientRect();
-        const startX = event.clientX;
-        const startY = event.clientY;
-        const left = rect.left;
-        const top = rect.top;
-        dragHandle.setPointerCapture(event.pointerId);
-        const move = (moveEvent) => {
-            const maxLeft = Math.max(8, window.innerWidth - rect.width - 8);
-            const maxTop = Math.max(8, window.innerHeight - rect.height - 8);
-            portableCalculator.style.left = `${Math.min(Math.max(8, left + moveEvent.clientX - startX), maxLeft)}px`;
-            portableCalculator.style.top = `${Math.min(Math.max(8, top + moveEvent.clientY - startY), maxTop)}px`;
-            portableCalculator.style.right = 'auto';
-            portableCalculator.style.bottom = 'auto';
-        };
-        const finish = () => {
-            dragHandle.removeEventListener('pointermove', move);
-            dragHandle.removeEventListener('pointerup', finish);
-            dragHandle.removeEventListener('pointercancel', finish);
-            savePortableCalculator();
-        };
-        dragHandle.addEventListener('pointermove', move);
-        dragHandle.addEventListener('pointerup', finish);
-        dragHandle.addEventListener('pointercancel', finish);
-    });
-
-    updatePortableCalculator();
-    savePortableCalculator();
-};
-
-document.querySelectorAll('[data-portable-calc-open]').forEach((button) => {
-    button.addEventListener('click', () => openPortableCalculator());
-});
-listenForPageEvent(document, 'keydown', (event) => {
-    if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'q') {
-        event.preventDefault();
-        if (portableCalculator) closePortableCalculator();
-        else openPortableCalculator();
-    }
-});
-try {
-    const savedCalculator = JSON.parse(sessionStorage.getItem(portableCalculatorStorageKey) ?? 'null');
-    if (savedCalculator?.open === true) openPortableCalculator(savedCalculator);
-} catch {
-    showToast('Saved portable calculator state could not be restored.', 'warning');
-}
 document.querySelector('.sidebar-logout')?.addEventListener('submit', () => {
     try {
         sessionStorage.removeItem(shellWindowStorageKey);
-        sessionStorage.removeItem(portableCalculatorStorageKey);
     } catch {
         showToast('Temporary window state could not be cleared before sign out.', 'warning');
     }
@@ -1795,14 +1620,6 @@ listenForPageEvent(window, 'resize', () => {
         const rect = windowElement.getBoundingClientRect();
         clampWindow(windowElement, rect.left, rect.top);
     });
-    if (portableCalculator) {
-        const rect = portableCalculator.getBoundingClientRect();
-        const maxLeft = Math.max(8, window.innerWidth - rect.width - 8);
-        const maxTop = Math.max(8, window.innerHeight - rect.height - 8);
-        portableCalculator.style.left = `${Math.min(Math.max(8, rect.left), maxLeft)}px`;
-        portableCalculator.style.top = `${Math.min(Math.max(8, rect.top), maxTop)}px`;
-        savePortableCalculator();
-    }
 });
 
 const apiUploadSwitch = document.querySelector('#api-upload-enabled');
