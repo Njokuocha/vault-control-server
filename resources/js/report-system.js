@@ -1,9 +1,9 @@
 import { openImageViewer } from './image-viewer.js';
+import { openVaultVideoViewer } from './video-viewer.js';
 
 const previewObjectUrls = new WeakMap();
 const activeObjectUrls = new Set();
 let galleryTrigger = null;
-let mediaTrigger = null;
 let subscribedReportId = null;
 const preservedCommentDrafts = new WeakMap();
 
@@ -121,27 +121,6 @@ function activateReportSection(button) {
     component?.call('showSection', section);
 }
 
-function mediaElement(type, url) {
-    if (type === 'image') {
-        const image = document.createElement('img');
-        image.src = url;
-        image.alt = 'Report attachment preview';
-        image.decoding = 'async';
-
-        return image;
-    }
-
-    const video = document.createElement('video');
-    video.src = url;
-    video.controls = true;
-    video.autoplay = true;
-    video.playsInline = true;
-    video.preload = 'metadata';
-    video.setAttribute('aria-label', 'Report video preview');
-
-    return video;
-}
-
 function loadReportVideoThumbnail(video) {
     if (!(video instanceof HTMLVideoElement)) return;
     const url = video.dataset.thumbnailUrl;
@@ -200,26 +179,13 @@ function initializeReportVideoThumbnails(root = document) {
 }
 
 function closeReportModals() {
-    document.querySelectorAll('[data-report-gallery-modal], [data-report-media-modal]').forEach((modal) => {
+    document.querySelectorAll('[data-report-gallery-modal]').forEach((modal) => {
         modal.hidden = true;
     });
-    document.querySelectorAll('[data-report-gallery-items], [data-report-media-content]').forEach((content) => {
+    document.querySelectorAll('[data-report-gallery-items]').forEach((content) => {
         content.replaceChildren();
     });
     galleryTrigger = null;
-    mediaTrigger = null;
-}
-
-function closeReportMediaModal(restoreFocus = true) {
-    document.querySelectorAll('[data-report-media-modal]').forEach((modal) => {
-        modal.hidden = true;
-    });
-    document.querySelectorAll('[data-report-media-content]').forEach((content) => {
-        content.replaceChildren();
-    });
-    const trigger = mediaTrigger;
-    mediaTrigger = null;
-    if (restoreFocus) trigger?.focus();
 }
 
 function closeReportGalleryModal(restoreFocus = true) {
@@ -235,10 +201,6 @@ function closeReportGalleryModal(restoreFocus = true) {
 }
 
 function openReportMedia(source, trigger) {
-    const modal = reportWorkspaceRoot(trigger).querySelector('[data-report-media-modal]');
-    const content = modal?.querySelector('[data-report-media-content]');
-    if (!(modal instanceof HTMLElement) || !(content instanceof HTMLElement)) return;
-
     const mediaUrl = source.dataset.mediaUrl;
     const mediaType = source.dataset.mediaType;
     if (!mediaUrl || !['image', 'video'].includes(mediaType ?? '')) return;
@@ -258,10 +220,14 @@ function openReportMedia(source, trigger) {
         return;
     }
 
-    mediaTrigger = trigger;
-    content.append(mediaElement(mediaType, mediaUrl));
-    modal.hidden = false;
-    modal.querySelector('[data-report-modal-close]')?.focus();
+    openVaultVideoViewer({
+        source: mediaUrl,
+        downloadUrl: mediaUrl,
+        mimeType: source.dataset.mediaMimeType,
+        name: source.dataset.mediaTitle || `Report video ${source.dataset.mediaIndex ?? ''}`.trim(),
+        returnFocus: trigger,
+        autoplay: true,
+    });
 }
 
 function openReportGallery(trigger) {
@@ -281,6 +247,7 @@ function openReportGallery(trigger) {
         button.dataset.mediaUrl = item.dataset.mediaUrl ?? '';
         button.dataset.mediaType = item.dataset.mediaType ?? '';
         button.dataset.mediaIndex = item.dataset.mediaIndex ?? '';
+        button.dataset.mediaTitle = item.dataset.mediaTitle ?? '';
         button.dataset.mediaExtension = item.dataset.mediaExtension ?? '';
         button.dataset.mediaMimeType = item.dataset.mediaMimeType ?? '';
         button.setAttribute('aria-label', `Preview report attachment ${button.dataset.mediaIndex}`);
@@ -394,12 +361,6 @@ document.addEventListener('click', (event) => {
 
     const closeButton = event.target.closest('[data-report-modal-close]');
     const galleryBackdrop = event.target.closest('[data-report-gallery-modal]');
-    const mediaBackdrop = event.target.closest('[data-report-media-modal]');
-    if ((closeButton instanceof HTMLElement && closeButton.closest('[data-report-media-modal]')) || event.target === mediaBackdrop) {
-        closeReportMediaModal();
-        return;
-    }
-
     if ((closeButton instanceof HTMLElement && closeButton.closest('[data-report-gallery-modal]')) || event.target === galleryBackdrop) {
         closeReportGalleryModal();
         return;
@@ -408,13 +369,7 @@ document.addEventListener('click', (event) => {
 
 document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
-    if (document.querySelector('[data-vault-image-viewer][open]')) return;
-
-    const mediaModal = document.querySelector('[data-report-media-modal]:not([hidden])');
-    if (mediaModal) {
-        closeReportMediaModal();
-        return;
-    }
+    if (document.querySelector('[data-vault-image-viewer][open], [data-video-viewer-dialog][open]')) return;
 
     if (document.querySelector('[data-report-gallery-modal]:not([hidden])')) closeReportGalleryModal();
 });

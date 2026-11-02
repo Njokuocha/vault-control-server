@@ -87,7 +87,7 @@
                         @foreach ($category->images as $image)
                             <div class="case-evidence-entry" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
                             @if ($image->type === 'video')
-                                <button class="evidence-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-title="{{ $image->original_name }}" aria-label="Play {{ $image->original_name }}">
+                                <button class="evidence-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-title="{{ $image->original_name }}" data-video-mime-type="{{ $image->file?->mime_type }}" aria-label="Play {{ $image->original_name }}">
                                     @if ($image->poster_path || $image->file?->video_poster_path)
                                         <img src="{{ route($routePrefix.'cases.images.poster', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="" loading="lazy" decoding="async" onerror="this.remove()">
                                     @else
@@ -138,5 +138,4 @@
             <form method="dialog"><button class="button-secondary" value="close">UNDERSTOOD</button></form>
         </div>
     </dialog>
-    <x-video-viewer />
     <footer class="page-footer"><span>{{ strtoupper(config('app.name')) }} · {{ $caseFile->public_id }}</span><span>RESTRICTED <i>·</i> AUTHENTICATED ACCESS</span></footer>

@@ -91,7 +91,7 @@
                         @php($mediaLabel = $mediaNumber >= 1000000 ? rtrim(rtrim(number_format($mediaNumber / 1000000, 1, '.', ''), '0'), '.').'M' : ($mediaNumber >= 1000 ? rtrim(rtrim(number_format($mediaNumber / 1000, 1, '.', ''), '0'), '.').'K' : str_pad((string) $mediaNumber, 2, '0', STR_PAD_LEFT)))
                         <div class="case-evidence-entry">
                             @if ($image->type === 'video')
-                                <button class="evidence-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-title="{{ $image->original_name }}" aria-label="Play {{ $image->original_name }}">
+                                <button class="evidence-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-title="{{ $image->original_name }}" data-video-mime-type="{{ $image->file?->mime_type }}" aria-label="Play {{ $image->original_name }}">
                                     @if ($image->poster_path || $image->file?->video_poster_path)
                                         <img src="{{ route($routePrefix.'cases.images.poster', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="" loading="lazy" decoding="async" onerror="this.remove()">
                                     @else
@@ -193,6 +193,5 @@
             </div>
         </form>
     </dialog>
-    <x-video-viewer />
     <footer class="page-footer"><span>{{ strtoupper(config('app.name')) }} · {{ $caseFile->public_id }}</span><span>RESTRICTED · AUTHENTICATED ACCESS</span></footer>
 @endsection

@@ -341,11 +341,5 @@
                 <div class="report-gallery-grid" data-report-gallery-items></div>
             </section>
         </div>
-        <div class="report-file-backdrop" data-report-media-modal hidden role="presentation">
-            <section class="report-file-modal" role="dialog" aria-modal="true" aria-label="Report attachment preview">
-                <header><button type="button" data-report-modal-close aria-label="Close preview">×</button></header>
-                <div class="report-file-content" data-report-media-content></div>
-            </section>
-        </div>
     @endif
 </div>

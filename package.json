@@ -18,6 +18,7 @@
         "@google/model-viewer": "^4.4.0",
         "laravel-echo": "^2.6.1",
         "pusher-js": "^8.6.0",
-        "remixicon": "^4.9.1"
+        "remixicon": "^4.9.1",
+        "video.js": "^8.24.2"
     }
 }

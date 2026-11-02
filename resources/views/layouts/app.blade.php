@@ -125,6 +125,7 @@
         @include('components.portable-calculator')
         @include('components.video-upload-widget')
         <x-image-viewer />
+        <x-video-viewer />
         @persist('alert-host')
             <x-alert-host />
         @endpersist

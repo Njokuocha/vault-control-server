@@ -147,6 +147,7 @@
             <x-file-preview-modal />
         @endif
         <x-image-viewer />
+        <x-video-viewer />
         <x-alert-host />
         @livewireScripts
     </body>

@@ -100,7 +100,7 @@
                     <div class="profile-gallery is-locked" data-profile-gallery>
                         @foreach ($galleryPreviewMedia as $image)
                             @if ($image->type === 'video')
-                                <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-title="{{ $image->original_name }}" data-video-pin-required aria-label="Locked video. Unlock viewables to preview.">
+                                <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-title="{{ $image->original_name }}" data-video-mime-type="{{ $image->file?->mime_type }}" data-video-pin-required aria-label="Locked video. Unlock viewables to preview.">
                                     <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
                                     @if ($image->poster_path || $image->file?->video_poster_path)
                                         <img data-protected-image data-image-url="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" alt="" loading="lazy" hidden>
@@ -177,7 +177,6 @@
             @endif
         </div>
     </dialog>
-    <x-video-viewer />
     @unless($profileManagement)
     <dialog class="case-link-dialog" data-case-link-dialog>
         <form method="dialog" class="case-link-dialog-header"><div><span class="section-kicker">RELATIONSHIP INDEX</span><h2>Link a case file</h2></div><button value="close" aria-label="Close case file search">×</button></form>

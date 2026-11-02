@@ -97,7 +97,7 @@
                         @php($mediaLabel = $mediaNumber >= 1000000 ? rtrim(rtrim(number_format($mediaNumber / 1000000, 1, '.', ''), '0'), '.').'M' : ($mediaNumber >= 1000 ? rtrim(rtrim(number_format($mediaNumber / 1000, 1, '.', ''), '0'), '.').'K' : str_pad((string) $mediaNumber, 2, '0', STR_PAD_LEFT)))
                         <div class="profile-gallery-entry">
                             @if ($image->type === 'video')
-                                <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($galleryRoutePrefix.'.image', ['user' => $staff, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-download-url="{{ route($galleryRoutePrefix.'.images.download', ['user' => $staff, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-title="IMG {{ $mediaLabel }}" aria-label="Play video {{ $mediaLabel }}">
+                                <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($galleryRoutePrefix.'.image', ['user' => $staff, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-download-url="{{ route($galleryRoutePrefix.'.images.download', ['user' => $staff, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-title="IMG {{ $mediaLabel }}" data-video-mime-type="{{ $image->file?->mime_type }}" aria-label="Play video {{ $mediaLabel }}">
                                     @if ($image->file?->video_poster_path)
                                         <img data-protected-image data-image-url="{{ route($galleryRoutePrefix.'.images.poster', ['user' => $staff, 'image' => $image->id, 'auth' => $authToken]) }}" alt="" loading="lazy" hidden>
                                     @else
@@ -196,6 +196,5 @@
         </form>
     </dialog>
 
-    <x-video-viewer />
     <footer class="page-footer"><span>{{ strtoupper(config('app.name')) }} · STAFF GALLERY</span><span>PRIVATE BY DESIGN <i>·</i> ACCESS CONTROLLED</span></footer>
 @endsection

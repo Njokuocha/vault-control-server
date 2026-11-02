@@ -89,6 +89,11 @@ test('completed private videos can be attached to person galleries and require t
     $this->get(route('people.show', ['person' => $person, 'auth' => $token]))
         ->assertOk()
         ->assertSee('data-video-viewer', false)
+        ->assertSee('data-video-viewer-dialog', false)
+        ->assertSee('data-video-mode="normal"', false)
+        ->assertSee('data-video-mode="standard"', false)
+        ->assertSee('data-video-mode="professional"', false)
+        ->assertSee('data-video-seek-back', false)
         ->assertSee('data-video-pin-required', false);
     $this->get(route('people.image', ['person' => $person, 'image' => $media->id, 'auth' => $token]), ['Range' => 'bytes=0-5'])
         ->assertStatus(206)
@@ -122,6 +127,11 @@ test('completed private videos can be attached to any case evidence category and
     $this->get(route('cases.show', $case))
         ->assertOk()
         ->assertSee('data-video-viewer', false)
+        ->assertSee('data-video-viewer-dialog', false)
+        ->assertSee('data-video-viewer-download-icon', false)
+        ->assertSee('data-video-viewer-download-spinner', false)
+        ->assertSee('data-video-mode="professional"', false)
+        ->assertSee('data-video-grayscale', false)
         ->assertSee('data-case-video-thumbnail', false)
         ->assertSee('witness-video.mp4');
     $this->get(route('cases.edit', $case))

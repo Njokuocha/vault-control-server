@@ -12,6 +12,7 @@ import './case-media-previews';
 import './gallery-management';
 import './case-analysis';
 import { openImageViewer } from './image-viewer.js';
+import { openVaultVideoViewer } from './video-viewer.js';
 import { evaluateTriggerExpression } from './shell-math.mjs';
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
@@ -737,11 +738,21 @@ const makePreviewElement = (file) => {
     }
 
     if (file.mime.startsWith('video/')) {
-        const video = document.createElement('video');
-        video.className = 'preview-video';
-        video.controls = true;
-        video.src = streamUrl;
-        return [video];
+        const button = document.createElement('button');
+        button.className = 'preview-video-launch';
+        button.type = 'button';
+        button.dataset.videoViewer = '';
+        button.dataset.videoUrl = streamUrl;
+        button.dataset.videoDownloadUrl = file.download_url ?? pathUrl(shellEndpoints.download, file.path).toString();
+        button.dataset.videoTitle = file.name;
+        button.dataset.videoMimeType = file.mime;
+        const playIcon = document.createElement('i');
+        playIcon.className = 'ri ri-play-circle-line';
+        playIcon.setAttribute('aria-hidden', 'true');
+        const label = document.createElement('span');
+        label.textContent = 'PLAY VIDEO';
+        button.append(playIcon, label);
+        return [button];
     }
 
     const unavailable = document.createElement('div');
@@ -2120,55 +2131,14 @@ document.querySelectorAll('[data-gallery-assignment-select]').forEach((select) =
     select.addEventListener('change', () => select.form?.requestSubmit());
 });
 
-const boundVideoDialogs = new WeakSet();
-const boundVideoPlayers = new WeakSet();
-const bindVideoDialog = (dialog) => {
-    if (boundVideoDialogs.has(dialog)) return;
-    boundVideoDialogs.add(dialog);
-    dialog.addEventListener('click', (event) => {
-        if (event.target === dialog || event.target instanceof Element && event.target.closest('[data-close-video-viewer]')) {
-            dialog.close();
-        }
-    });
-    dialog.addEventListener('close', () => {
-        const player = dialog.querySelector('[data-video-viewer-player]');
-        const download = dialog.querySelector('[data-video-viewer-download]');
-        const fallback = dialog.querySelector('[data-video-viewer-fallback]');
-        if (player) {
-            player.pause();
-            player.removeAttribute('src');
-            player.load();
-        }
-        download?.removeAttribute('href');
-        if (fallback) fallback.hidden = true;
-    });
-};
 const openVideoViewer = (trigger) => {
-    const root = trigger.closest('[wire\\:id]') ?? document;
-    const dialog = root.querySelector('[data-video-viewer-dialog]')
-        ?? document.querySelector('[data-video-viewer-dialog]');
-    if (!(dialog instanceof HTMLDialogElement)) return;
-    bindVideoDialog(dialog);
-    const player = dialog.querySelector('[data-video-viewer-player]');
-    const title = dialog.querySelector('[data-video-viewer-title]');
-    const download = dialog.querySelector('[data-video-viewer-download]');
-    const fallback = dialog.querySelector('[data-video-viewer-fallback]');
-    if (!(player instanceof HTMLVideoElement)) return;
-    if (!boundVideoPlayers.has(player)) {
-        boundVideoPlayers.add(player);
-        player.addEventListener('error', () => {
-            const currentFallback = dialog.querySelector('[data-video-viewer-fallback]');
-            if (currentFallback) currentFallback.hidden = false;
-        });
-    }
-    const source = trigger.dataset.videoUrl;
-    if (!source) return;
-    player.src = source;
-    player.load();
-    if (fallback) fallback.hidden = true;
-    if (title) title.textContent = trigger.dataset.videoTitle ?? 'Private video';
-    if (download) download.href = trigger.dataset.videoDownloadUrl ?? source;
-    dialog.showModal();
+    openVaultVideoViewer({
+        source: trigger.dataset.videoUrl,
+        downloadUrl: trigger.dataset.videoDownloadUrl ?? trigger.dataset.videoUrl,
+        mimeType: trigger.dataset.videoMimeType,
+        name: trigger.dataset.videoTitle ?? 'Private video',
+        returnFocus: trigger,
+    });
 };
 
 pageMediaClickHandler = (event) => {
@@ -2750,13 +2720,6 @@ document.addEventListener('click', (event) => {
         return;
     }
 
-    const closePreview = event.target.closest('[data-fm-preview-close]');
-    if (closePreview) {
-        const dialog = document.querySelector('[data-fm-media-preview-dialog]');
-        if (dialog instanceof HTMLDialogElement) dialog.close();
-        return;
-    }
-
     const mediaTrigger = event.target.closest('[data-fm-media-preview]');
     if (mediaTrigger instanceof HTMLButtonElement) {
         const mediaPage = mediaTrigger.closest('[data-fm-media-page]');
@@ -2766,11 +2729,6 @@ document.addEventListener('click', (event) => {
             return;
         }
 
-        const dialog = document.querySelector('[data-fm-media-preview-dialog]');
-        const video = dialog?.querySelector('[data-fm-preview-video]');
-        const title = dialog?.querySelector('[data-fm-preview-title]');
-        const download = dialog?.querySelector('[data-fm-preview-download]');
-        const stage = dialog?.querySelector('[data-fm-preview-stage]');
         const mediaUrl = mediaTrigger.dataset.mediaUrl;
         if (!mediaUrl) return;
 
@@ -2785,21 +2743,13 @@ document.addEventListener('click', (event) => {
             });
             return;
         }
-        if (!(dialog instanceof HTMLDialogElement) || !(video instanceof HTMLVideoElement)) return;
-
-        if (video.dataset.active === 'true') {
-            video.pause();
-            video.removeAttribute('src');
-            video.load();
-            delete video.dataset.active;
-        }
-        video.src = mediaUrl;
-        video.dataset.active = 'true';
-        video.load();
-        if (title) title.textContent = mediaTrigger.dataset.mediaTitle ?? 'Private media';
-        if (download instanceof HTMLAnchorElement) download.href = mediaTrigger.dataset.downloadUrl ?? mediaUrl;
-        stage?.classList.add('is-video');
-        dialog.showModal();
+        openVaultVideoViewer({
+            source: mediaUrl,
+            downloadUrl: mediaTrigger.dataset.downloadUrl ?? mediaUrl,
+            mimeType: mediaTrigger.dataset.mediaMimeType,
+            name: mediaTrigger.dataset.mediaTitle ?? 'Protected video',
+            returnFocus: mediaTrigger,
+        });
         return;
     }
 });
@@ -2888,16 +2838,3 @@ document.addEventListener('paste', (event) => {
     });
     digits[Math.min(pasted.length, 3)]?.focus();
 });
-
-document.addEventListener('close', (event) => {
-    const closedDialog = event.target;
-    const video = closedDialog instanceof HTMLDialogElement && closedDialog.matches('[data-fm-media-preview-dialog]')
-        ? closedDialog.querySelector('[data-fm-preview-video]')
-        : null;
-    if (video instanceof HTMLVideoElement) {
-        video.pause();
-        video.removeAttribute('src');
-        video.load();
-        delete video.dataset.active;
-    }
-}, true);
