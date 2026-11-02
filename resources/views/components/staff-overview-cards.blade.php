@@ -1,69 +1,69 @@
 <section class="staff-overview-grid" aria-label="Staff and security overview">
-    <a class="glass-panel staff-overview-card staff-overview-card--total" href="{{ route($routePrefix.'.staff.index') }}">
+    <article class="glass-panel staff-overview-card staff-overview-card--total">
         <span class="section-kicker">REGISTERED PERSONNEL</span>
         <strong>{{ number_format($metrics['totalStaff']) }}</strong>
         <span>STAFF ACCOUNTS</span>
         <i class="ri ri-team-line" aria-hidden="true"></i>
-    </a>
-    <a class="glass-panel staff-overview-card staff-overview-card--active" href="{{ route($routePrefix.'.staff.index') }}">
+    </article>
+    <article class="glass-panel staff-overview-card staff-overview-card--active">
         <span class="section-kicker">ACCOUNT POSTURE</span>
         <strong>{{ number_format($metrics['activeStaff']) }}</strong>
         <span>ACTIVE · AUTHORIZED</span>
         <i class="ri ri-shield-check-line" aria-hidden="true"></i>
-    </a>
-    <a class="glass-panel staff-overview-card staff-overview-card--frozen" href="{{ route($routePrefix.'.staff.index') }}">
+    </article>
+    <article class="glass-panel staff-overview-card staff-overview-card--frozen">
         <span class="section-kicker">ACCOUNT POSTURE</span>
         <strong>{{ number_format($metrics['frozenStaff']) }}</strong>
         <span>FROZEN ACCOUNTS</span>
         <i class="ri ri-snowflake-line" aria-hidden="true"></i>
-    </a>
-    <a class="glass-panel staff-overview-card staff-overview-card--disabled" href="{{ route($routePrefix.'.staff.index') }}">
+    </article>
+    <article class="glass-panel staff-overview-card staff-overview-card--disabled">
         <span class="section-kicker">ACCOUNT POSTURE</span>
         <strong>{{ number_format($metrics['disabledStaff']) }}</strong>
         <span>DISABLED ACCOUNTS</span>
         <i class="ri ri-user-forbid-line" aria-hidden="true"></i>
-    </a>
-    <a class="glass-panel staff-overview-card" href="{{ route($routePrefix.'.staff.index') }}">
+    </article>
+    <article class="glass-panel staff-overview-card">
         <span class="section-kicker">AGENCY STRUCTURE</span>
         <strong>{{ number_format($metrics['departmentCount']) }}</strong>
         <span>REGISTERED DEPARTMENTS</span>
         <i class="ri ri-node-tree" aria-hidden="true"></i>
-    </a>
-    <a class="glass-panel staff-overview-card staff-overview-card--online" href="{{ route($routePrefix.'.staff.index') }}">
+    </article>
+    <article class="glass-panel staff-overview-card staff-overview-card--online">
         <span class="section-kicker">SESSION PRESENCE</span>
         <strong>{{ number_format($metrics['activeStaffCount']) }}</strong>
         <span>STAFF WITH ACTIVE SESSIONS</span>
         <i class="ri ri-radar-line" aria-hidden="true"></i>
-    </a>
-    <a class="glass-panel staff-overview-card" href="{{ route($routePrefix.'.staff.index') }}">
+    </article>
+    <article class="glass-panel staff-overview-card">
         <span class="section-kicker">AUTHENTICATION · 24 HOURS</span>
         <strong>{{ number_format($metrics['passedAuth24Hours']) }}</strong>
         <span>SUCCESSFUL STAFF LOGINS</span>
         <i class="ri ri-login-circle-line" aria-hidden="true"></i>
-    </a>
-    <a class="glass-panel staff-overview-card staff-overview-card--risk" href="{{ route($routePrefix.'.staff.index') }}">
+    </article>
+    <article class="glass-panel staff-overview-card staff-overview-card--risk">
         <span class="section-kicker">AUTHENTICATION · 24 HOURS</span>
         <strong>{{ number_format($metrics['failedAuth24Hours']) }}</strong>
         <span>FAILED STAFF LOGINS</span>
         <i class="ri ri-error-warning-line" aria-hidden="true"></i>
-    </a>
-    <a class="glass-panel staff-overview-card staff-overview-card--risk" href="{{ route($routePrefix.'.staff.index') }}">
+    </article>
+    <article class="glass-panel staff-overview-card staff-overview-card--risk">
         <span class="section-kicker">THREAT WATCH · 30 DAYS</span>
         <strong>{{ number_format($metrics['bruteForce30Days']) }}</strong>
         <span>BRUTE-FORCE INCIDENTS</span>
         <i class="ri ri-spam-2-line" aria-hidden="true"></i>
-    </a>
+    </article>
     <article class="glass-panel staff-overview-card staff-overview-card--person">
         <span class="section-kicker">LAST AUTHENTICATED STAFF</span>
         @if ($metrics['lastAuthenticatedStaff'])
-            <a class="staff-overview-person" href="{{ route($routePrefix.'.staff.show', $metrics['lastAuthenticatedStaff']) }}">
+            <div class="staff-overview-person">
                 @if ($metrics['lastAuthenticatedStaff']->profile_photo_path)
                     <img src="{{ route($routePrefix.'.staff.photo', $metrics['lastAuthenticatedStaff']) }}" alt="">
                 @else
                     <span class="staff-overview-person__fallback" aria-hidden="true">{{ strtoupper(substr($metrics['lastAuthenticatedStaff']->name, 0, 1)) }}</span>
                 @endif
                 <span><strong>{{ $metrics['lastAuthenticatedStaff']->name }}</strong><small>{{ strtoupper($metrics['lastAuthenticatedStaff']->departmentRecord?->rank_short ?? $metrics['lastAuthenticatedStaff']->department) }}</small></span>
-            </a>
+            </div>
             <span class="staff-overview-card__detail">{{ $metrics['lastAuthenticatedAt']?->format('M j, Y · H:i') }} · {{ $metrics['lastAuthenticatedAt']?->diffForHumans() }}</span>
         @else
             <strong class="staff-overview-card__empty">NO STAFF LOGIN RECORDED</strong>

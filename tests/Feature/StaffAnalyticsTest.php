@@ -75,9 +75,14 @@ test('staff management workspace shows security stat cards without analytics cha
         ->assertSee('LAST AUTHENTICATED STAFF')
         ->assertSee('Recently Authenticated Officer')
         ->assertSee('LATEST STAFF BRUTE-FORCE SIGNAL')
+        ->assertSee('staff-manager-dashboard', false)
         ->assertSee('203.0.113.88')
         ->assertSee('Security test client')
         ->assertSee('OPEN STAFF DIRECTORY')
+        ->assertSee('Session and authentication indicators reflect recorded activity; incident IP details are restricted to authenticated Staff Management personnel.')
+        ->assertSee('<article class="glass-panel staff-overview-card', false)
+        ->assertDontSee('<a class="glass-panel staff-overview-card', false)
+        ->assertDontSee('<a class="staff-overview-person"', false)
         ->assertDontSee('staff-analytics-grid', false)
         ->assertDontSee('Highest time in application');
 });
@@ -148,6 +153,9 @@ test('admin full staff display links to analytics and presents security charts',
         ->assertSee('Account status distribution')
         ->assertSee('staff-overview-grid', false)
         ->assertSee('staff-analytics-grid', false)
+        ->assertSee('<article class="glass-panel staff-overview-card', false)
+        ->assertDontSee('<a class="glass-panel staff-overview-card', false)
+        ->assertDontSee('<a class="staff-overview-person"', false)
         ->assertDontSee('203.0.113.18');
 });
 
