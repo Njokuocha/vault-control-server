@@ -5,6 +5,7 @@ use App\Models\AuthEvent;
 use App\Models\BruteForceRecord;
 use App\Models\StaffSessionHistory;
 use App\Models\User;
+use App\Services\StaffManagementMetrics;
 use App\Services\StaffSessionHistoryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -89,6 +90,7 @@ test('staff management workspace shows security stat cards without analytics cha
 
 test('admin full staff display links to analytics and presents security charts', function () {
     config(['session.driver' => 'database']);
+    $this->travelTo(now());
 
     $admin = createStaffAnalyticsAdmin();
     $activeStaff = User::factory()->create([
@@ -130,6 +132,13 @@ test('admin full staff display links to analytics and presents security charts',
         'ended_at' => null,
     ]);
     StaffSessionHistory::query()->create([
+        'session_key' => hash('sha256', 'previous-active-staff-session'),
+        'staff_id' => $activeStaff->getKey(),
+        'started_at' => now()->subDays(2)->subHours(5),
+        'last_seen_at' => now()->subDays(2),
+        'ended_at' => now()->subDays(2),
+    ]);
+    StaffSessionHistory::query()->create([
         'session_key' => hash('sha256', 'historical-staff-session'),
         'staff_id' => $historicalStaff->getKey(),
         'started_at' => now()->subDays(2)->subHours(5),
@@ -147,6 +156,7 @@ test('admin full staff display links to analytics and presents security charts',
     $this->get(route('admin.staff.analytics'))
         ->assertOk()
         ->assertSee('Highest time in application')
+        ->assertSee('Each staff member’s latest login is timed until logout; the next login starts a fresh count.')
         ->assertSee('Current Session Officer')
         ->assertSee('LOGGED IN NOW')
         ->assertSee('Passed vs. failed attempts')
@@ -157,6 +167,14 @@ test('admin full staff display links to analytics and presents security charts',
         ->assertDontSee('<a class="glass-panel staff-overview-card', false)
         ->assertDontSee('<a class="staff-overview-person"', false)
         ->assertDontSee('203.0.113.18');
+
+    $currentLogin = app(StaffManagementMetrics::class)
+        ->analytics()['topSessions']
+        ->firstWhere('id', $activeStaff->getKey());
+
+    expect($currentLogin->duration_seconds)->toBeGreaterThanOrEqual(10799)
+        ->toBeLessThanOrEqual(10801)
+        ->and($currentLogin->is_active)->toBeTrue();
 });
 
 test('staff session tracking records login duration and closes it on logout', function () {
@@ -180,4 +198,21 @@ test('staff session tracking records login duration and closes it on logout', fu
 
     expect($session->fresh()->ended_at)->not->toBeNull()
         ->and($session->fresh()->last_seen_at->toDateTimeString())->toBe($session->fresh()->ended_at->toDateTimeString());
+});
+
+test('department logout ends the tracked login duration', function () {
+    config(['session.driver' => 'database']);
+    $staff = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+
+    $this->actingAs($staff, 'web')
+        ->post(route('cfm.logout'))
+        ->assertRedirect(route('home'));
+
+    $session = StaffSessionHistory::query()->where('staff_id', $staff->getKey())->sole();
+
+    expect($session->ended_at)->not->toBeNull()
+        ->and($session->last_seen_at->toDateTimeString())->toBe($session->ended_at->toDateTimeString());
 });

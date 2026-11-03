@@ -111,48 +111,53 @@ class StaffManagementMetrics
         $activeSessionKeys = $this->activeStaffSessions()
             ->pluck('session_id')
             ->map(fn (string $id): string => hash('sha256', $id))
-            ->values()
-            ->all();
-        $driver = DB::connection()->getDriverName();
-        $durationBindings = [];
-        $activeBindings = [];
-
-        if ($activeSessionKeys === []) {
-            $endTime = 'COALESCE(ended_at, last_seen_at)';
-            $activeFlag = '0';
-        } else {
-            $placeholders = implode(', ', array_fill(0, count($activeSessionKeys), '?'));
-            $activeCondition = "session_key IN ({$placeholders})";
-            $endTime = "CASE WHEN ended_at IS NULL AND {$activeCondition} THEN ? ELSE COALESCE(ended_at, last_seen_at) END";
-            $now = now()->format('Y-m-d H:i:s');
-            $durationBindings = [...$activeSessionKeys, $now, ...$activeSessionKeys, $now];
-            $activeFlag = "MAX(CASE WHEN {$activeCondition} THEN 1 ELSE 0 END)";
-            $activeBindings = $activeSessionKeys;
-        }
-
-        $durationExpression = match ($driver) {
-            'sqlite' => "(julianday({$endTime}) - julianday(started_at)) * 86400",
-            'mysql', 'mariadb' => "TIMESTAMPDIFF(SECOND, started_at, {$endTime})",
-            'pgsql' => "EXTRACT(EPOCH FROM ({$endTime} - started_at))",
-            default => throw new \RuntimeException("Staff session analytics do not support the {$driver} database driver."),
-        };
-        $nonNegativeDuration = "CASE WHEN {$durationExpression} > 0 THEN {$durationExpression} ELSE 0 END";
+            ->flip();
+        $cutoff = now()->subDays(30);
 
         return DB::table('staff_session_history as history')
             ->join('users', 'users.id', '=', 'history.staff_id')
             ->whereNotNull('users.department')
-            ->where('history.started_at', '>=', now()->subDays(30))
-            ->groupBy('users.id', 'users.name', 'users.username', 'users.department')
-            ->select('users.id', 'users.name', 'users.username', 'users.department')
-            ->selectRaw("SUM({$nonNegativeDuration}) as duration_seconds", $durationBindings)
-            ->selectRaw("{$activeFlag} as is_active", $activeBindings)
-            ->orderByDesc('duration_seconds')
-            ->limit(5)
+            ->where('history.started_at', '>=', $cutoff)
+            ->whereNotExists(function ($query) use ($cutoff): void {
+                $query->selectRaw('1')
+                    ->from('staff_session_history as newer')
+                    ->whereColumn('newer.staff_id', 'history.staff_id')
+                    ->where('newer.started_at', '>=', $cutoff)
+                    ->where(function ($query): void {
+                        $query->whereColumn('newer.started_at', '>', 'history.started_at')
+                            ->orWhere(function ($query): void {
+                                $query->whereColumn('newer.started_at', '=', 'history.started_at')
+                                    ->whereColumn('newer.session_key', '>', 'history.session_key');
+                            });
+                    });
+            })
+            ->select([
+                'users.id',
+                'users.name',
+                'users.username',
+                'users.department',
+                'history.session_key',
+                'history.started_at',
+                'history.last_seen_at',
+                'history.ended_at',
+            ])
             ->get()
-            ->map(function (object $session): object {
-                $session->duration_seconds = (int) round((float) $session->duration_seconds);
+            ->map(function (object $session) use ($activeSessionKeys): object {
+                $session->is_active = $activeSessionKeys->has($session->session_key);
+                $endTime = $session->is_active
+                    ? now()
+                    : CarbonImmutable::parse($session->ended_at ?? $session->last_seen_at);
+                $startedAt = CarbonImmutable::parse($session->started_at);
+                $session->duration_seconds = max(0, $endTime->getTimestamp() - $startedAt->getTimestamp());
                 $session->duration_label = $this->formatDuration($session->duration_seconds);
-                $session->is_active = (bool) $session->is_active;
+
+                return $session;
+            })
+            ->sortByDesc('duration_seconds')
+            ->take(5)
+            ->values()
+            ->map(function (object $session): object {
+                unset($session->session_key, $session->started_at, $session->last_seen_at, $session->ended_at);
 
                 return $session;
             });

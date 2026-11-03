@@ -1,4 +1,4 @@
-<div class="content-inner report-system-page" data-report-selected-id="{{ $selectedReportId }}" x-data="{ composerOpen: @entangle('composerOpen') }" x-init="$watch('composerOpen', open => { if (!open) window.dispatchEvent(new Event('report-composer-closed')) })" x-on:keydown.escape.window="if (composerOpen) { composerOpen = false; $wire.closeComposer() }">
+<div class="content-inner report-system-page" data-report-selected-id="{{ $selectedReportId }}" x-data="{ composerOpen: @entangle('composerOpen'), reportPreviewOpen: @entangle('reportPreviewOpen') }" x-init="$watch('composerOpen', open => { if (!open) window.dispatchEvent(new Event('report-composer-closed')) })">
     <header class="report-system-heading">
         <div>
             <span class="section-kicker">AGENCY-WIDE INTELLIGENCE · INTERNAL REPORTING</span>
@@ -228,16 +228,24 @@
         </main>
     </div>
 
-        <div class="report-modal-backdrop" data-report-composer-backdrop role="presentation" x-show="composerOpen" x-cloak x-on:click.self="composerOpen = false; $wire.closeComposer()">
+        <div class="report-modal-backdrop" data-report-composer-backdrop role="presentation" x-show="composerOpen" x-cloak>
             <section class="report-composer-modal" data-report-composer role="dialog" aria-modal="true" aria-labelledby="report-composer-title">
                 <header><div><span class="section-kicker">{{ $editingUuid ? 'UPDATE RECORD' : 'NEW SITUATION REPORT' }}</span><h2 id="report-composer-title">{{ $editingUuid ? 'Edit report' : 'Publish a report' }}</h2></div><button type="button" data-report-composer-close aria-label="Close report form" x-on:click="composerOpen = false" wire:click="closeComposer">×</button></header>
                 <form wire:submit="saveReport">
                     <label class="report-form-label" for="report-body">REPORT NARRATIVE <span>NO TITLE REQUIRED</span></label>
-                    <textarea id="report-body" wire:model.blur="body" rows="7" maxlength="20000" placeholder="Record the event, timing, location, source, and operational context…"></textarea>
-                    <p class="report-format-help">Formatting: <code>_#caption_#</code> for a modest caption, <code>_##bold_##</code> for bold, and <code>_###uppercase_###</code> for uppercase. Markers can be nested.</p>
-                    @if (trim($body) !== '')
-                        <div class="report-format-preview"><span class="section-kicker">FORMATTED PREVIEW</span><div>{{ $formattedBodyPreview }}</div></div>
-                    @endif
+                    <div class="report-editor-tools" role="toolbar" aria-label="Report text formatting">
+                        <button type="button" data-report-format-command="bold" aria-label="Bold" title="Bold"><strong>B</strong></button>
+                        <button type="button" data-report-format-command="italic" aria-label="Italic" title="Italic"><em>I</em></button>
+                        <button type="button" data-report-format-command="underline" aria-label="Underline" title="Underline"><u>U</u></button>
+                        <button type="button" data-report-format-command="strikeThrough" aria-label="Strikethrough" title="Strikethrough"><s>S</s></button>
+                        <span aria-hidden="true"></span>
+                        <button type="button" data-report-format-command="insertUnorderedList" aria-label="Bulleted list" title="Bulleted list"><i class="ri ri-list-unordered"></i></button>
+                        <button type="button" data-report-format-command="insertOrderedList" aria-label="Numbered list" title="Numbered list"><i class="ri ri-list-ordered"></i></button>
+                        <button type="button" data-report-format-command="formatBlock" data-report-format-value="blockquote" aria-label="Quote" title="Quote"><i class="ri ri-double-quotes-l"></i></button>
+                        <button type="button" data-report-format-command="removeFormat" aria-label="Clear formatting" title="Clear formatting"><i class="ri ri-format-clear"></i></button>
+                        <button class="report-editor-preview-trigger" type="button" wire:click="openReportPreview" aria-label="Preview report"><i class="ri ri-eye-line" aria-hidden="true"></i> PREVIEW</button>
+                    </div>
+                    <div id="report-body" class="report-rich-editor" data-report-editor contenteditable="true" role="textbox" aria-multiline="true" aria-label="Report narrative" data-placeholder="Record the event, timing, location, source, and operational context…">{!! app(\App\Support\ReportBodyFormatter::class)->format($body) !!}</div>
                     @error('body')<small class="report-form-error">{{ $message }}</small>@enderror
 
                     @if ($report && $report->uuid === $editingUuid && $report->media->isNotEmpty())
@@ -318,8 +326,14 @@
                     @error('caseIds.*')<small class="report-form-error">{{ $message }}</small>@enderror
                     @error('personIds.*')<small class="report-form-error">{{ $message }}</small>@enderror
 
-                    <footer><button class="button-secondary" type="button" data-report-composer-close x-on:click="composerOpen = false" wire:click="closeComposer">CANCEL</button><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="saveReport,uploads"><span wire:loading.remove wire:target="saveReport,uploads"> {{ $editingUuid ? 'SAVE REPORT' : 'PUBLISH REPORT' }}</span><span wire:loading wire:target="uploads">PREPARING MEDIA…</span><span wire:loading wire:target="saveReport">PUBLISHING…</span></button></footer>
+                    <footer><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="saveReport,uploads"><span wire:loading.remove wire:target="saveReport,uploads"> {{ $editingUuid ? 'SAVE REPORT' : 'PUBLISH REPORT' }}</span><span wire:loading wire:target="uploads">PREPARING MEDIA…</span><span wire:loading wire:target="saveReport">PUBLISHING…</span></button></footer>
                 </form>
+            </section>
+        </div>
+        <div class="report-preview-backdrop" data-report-preview-backdrop role="presentation" x-show="reportPreviewOpen && composerOpen" x-cloak>
+            <section class="report-preview-modal" role="dialog" aria-modal="true" aria-labelledby="report-preview-title">
+                <header><div><span class="section-kicker">REPORT PREVIEW</span><h2 id="report-preview-title">Situation report</h2></div><button type="button" wire:click="closeReportPreview" aria-label="Close report preview">×</button></header>
+                <div class="report-preview-content">{{ $formattedBodyPreview }}</div>
             </section>
         </div>
     @if ($report && $report->media->isNotEmpty())

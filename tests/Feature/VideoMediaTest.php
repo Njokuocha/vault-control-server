@@ -93,6 +93,9 @@ test('completed private videos can be attached to person galleries and require t
         ->assertSee('data-video-mode="normal"', false)
         ->assertSee('data-video-mode="standard"', false)
         ->assertSee('data-video-mode="professional"', false)
+        ->assertSee('data-video-fit-label', false)
+        ->assertSee('data-video-fit', false)
+        ->assertSee('Cycle between Auto, 16:9, 4:3, 1:1, and Fill', false)
         ->assertSee('data-video-seek-back', false)
         ->assertSee('data-video-pin-required', false);
     $this->get(route('people.image', ['person' => $person, 'image' => $media->id, 'auth' => $token]), ['Range' => 'bytes=0-5'])

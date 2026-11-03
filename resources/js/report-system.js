@@ -303,10 +303,48 @@ document.addEventListener('change', (event) => {
     }
 });
 
+document.addEventListener('input', (event) => {
+    const editor = event.target;
+    if (!(editor instanceof HTMLElement) || !editor.matches('[data-report-editor]')) return;
+    const root = reportWorkspaceRoot(editor);
+    const componentId = root.getAttribute('wire:id');
+    const component = componentId ? window.Livewire?.find(componentId) : null;
+    component?.set('body', editor.innerHTML, false);
+});
+
+document.addEventListener('mousedown', (event) => {
+    if (event.target instanceof Element && event.target.closest('[data-report-format-command]')) {
+        event.preventDefault();
+    }
+});
+
 document.addEventListener('report-composer-closed', clearAllPreviewUrls);
 
 document.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;
+
+    const formatButton = event.target.closest('[data-report-format-command]');
+    if (formatButton instanceof HTMLButtonElement) {
+        const editor = formatButton.closest('[data-report-composer]')?.querySelector('[data-report-editor]');
+        if (!(editor instanceof HTMLElement)) return;
+        editor.focus();
+        const command = formatButton.dataset.reportFormatCommand;
+        const value = formatButton.dataset.reportFormatValue ?? null;
+        document.execCommand(command, false, value);
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+    }
+
+    const previewTrigger = event.target.closest('.report-editor-preview-trigger');
+    if (previewTrigger instanceof HTMLButtonElement) {
+        const editor = previewTrigger.closest('[data-report-composer]')?.querySelector('[data-report-editor]');
+        if (editor instanceof HTMLElement) {
+            const root = reportWorkspaceRoot(editor);
+            const componentId = root.getAttribute('wire:id');
+            const component = componentId ? window.Livewire?.find(componentId) : null;
+            component?.set('body', editor.innerHTML, false);
+        }
+    }
 
     const stagedMediaButton = event.target.closest('[data-report-media-toggle]');
     if (stagedMediaButton instanceof HTMLButtonElement) {

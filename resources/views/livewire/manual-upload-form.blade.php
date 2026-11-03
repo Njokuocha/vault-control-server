@@ -14,6 +14,7 @@
                 <code>MAX {{ number_format($maxUploadMb) }} MB PER FILE</code>
             </label>
             <p class="field-hint">Video limit: {{ $maxVideoUploadMb > 0 ? number_format(min($maxVideoUploadMb, $maxUploadMb)) . ' MB per video' : number_format($maxUploadMb) . ' MB per video (global limit)' }}. File content and size are verified server-side.</p>
+            <div class="manual-upload-previews" data-upload-previews role="list" aria-label="Selected file previews"></div>
             <div class="manual-upload-footer"><span class="field-hint">Files remain private and are never written to the public web directory.</span><button class="button-primary" type="submit" data-upload-submit disabled>UPLOAD SELECTED FILES</button></div>
         </form>
         <noscript><div class="upload-disabled-notice"><span>!</span> Enable JavaScript to upload files with resumable background transfers.</div></noscript>

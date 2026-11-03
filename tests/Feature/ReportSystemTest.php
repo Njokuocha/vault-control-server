@@ -12,6 +12,7 @@ use App\Models\Report;
 use App\Models\ReportComment;
 use App\Models\ReportMedia;
 use App\Models\User;
+use App\Services\SettingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\DB;
@@ -297,7 +298,7 @@ test('staff can comment but only the report owner or an administrator can reply'
 });
 
 test('disabling report comments hides discussion surfaces and blocks comment actions', function () {
-    app(\App\Services\SettingService::class)->set('report_comments_enabled', '0');
+    app(SettingService::class)->set('report_comments_enabled', '0');
     $owner = User::factory()->create([
         'department' => 'cfm',
         'account_status' => 'active',
@@ -547,42 +548,47 @@ test('switching reports replaces video thumbnails with the selected report media
         ->assertDontSee(route('reports.media', ['report' => $firstReport, 'media' => $videos[0]]), false);
 
     $workspace->call('openComposer')
-        ->assertSee('wire:model.blur="body"', false)
+        ->assertSee('data-report-editor contenteditable="true"', false)
         ->assertSee('PREPARING MEDIA…')
         ->assertSee('PUBLISHING…');
 });
 
-test('report narratives render nested formatting in reports and the composer preview safely', function () {
+test('report editor provides rich formatting tools and a separate safe preview overlay', function () {
     $reporter = User::factory()->create([
         'department' => 'cfm',
         'account_status' => 'active',
     ]);
-    $body = '_#Caption with _##bold_##_# and _###uppercase_### <script>alert(1)</script>';
+    $body = '<p>Formatted <strong>bold</strong>, <em>italic</em>, <u>underlined</u> and _#literal marker_#.</p><script>alert(1)</script>';
     $workspace = Livewire::actingAs($reporter, 'web')
         ->test(ReportWorkspace::class)
         ->call('openComposer')
+        ->assertSee('data-report-format-command="bold"', false)
+        ->assertSee('data-report-format-command="italic"', false)
+        ->assertSee('data-report-format-command="underline"', false)
+        ->assertSee('data-report-format-command="insertUnorderedList"', false)
+        ->assertSee('data-report-editor contenteditable="true"', false)
+        ->assertDontSee('Formatting:', false)
+        ->assertDontSee('report-format-preview', false)
+        ->assertDontSee('x-on:click.self', false)
         ->set('body', $body)
-        ->assertSee('FORMATTED PREVIEW')
-        ->assertSee('report-format-caption', false)
-        ->assertSee('report-format-bold', false)
-        ->assertSee('report-format-uppercase', false)
-        ->assertSee('Caption with <span class="report-format-bold">bold</span>', false)
-        ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false)
+        ->call('openReportPreview')
+        ->assertSee('data-report-preview-backdrop', false)
+        ->assertSee('<strong>bold</strong>', false)
+        ->assertSee('_#literal marker_#')
         ->assertDontSee('<script>alert(1)</script>', false)
         ->call('saveReport')
         ->assertHasNoErrors()
-        ->assertSee('report-format-caption', false)
-        ->assertSee('report-format-bold', false)
-        ->assertSee('report-format-uppercase', false)
-        ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false);
-    $report = Report::query()->where('body', $body)->firstOrFail();
+        ->assertSee('<strong>bold</strong>', false)
+        ->assertSee('_#literal marker_#')
+        ->assertDontSee('<script>alert(1)</script>', false);
+    $report = Report::query()->where('body', 'like', '%Formatted%')->firstOrFail();
 
     $workspace->call('editReport', $report->uuid)
-        ->assertSee('FORMATTED PREVIEW')
-        ->assertSee('report-format-caption', false)
-        ->assertSee('report-format-bold', false)
-        ->assertSee('report-format-uppercase', false)
-        ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false);
+        ->assertSee('<strong>bold</strong>', false)
+        ->assertSee('_#literal marker_#')
+        ->assertDontSee('<script>alert(1)</script>', false)
+        ->call('closeReportPreview')
+        ->assertSet('reportPreviewOpen', false);
 });
 
 test('report media remains private and supports byte-range playback', function () {

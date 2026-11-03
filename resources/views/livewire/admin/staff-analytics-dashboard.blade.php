@@ -15,7 +15,7 @@
                 <div><span class="section-kicker">SESSION DURATION · ROLLING 30 DAYS</span><h2>Highest time in application</h2></div>
                 <span class="staff-analytics-live"><i></i> LIVE SESSION SHOWN IN GREEN</span>
             </header>
-            <p class="staff-analytics-description">Time is summed from each tracked login until logout; current sessions accrue through now. Historical tracking begins with this release.</p>
+            <p class="staff-analytics-description">Each staff member’s latest login is timed until logout; the next login starts a fresh count. Current sessions accrue through now. Historical tracking begins with this release.</p>
             @if ($metrics['topSessions']->isNotEmpty())
                 <div class="staff-session-chart" role="list" aria-label="Top five staff by application session duration">
                     @foreach ($metrics['topSessions'] as $session)

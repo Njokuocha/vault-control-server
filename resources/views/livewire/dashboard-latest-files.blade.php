@@ -1,8 +1,9 @@
-<section class="archive-panel" aria-labelledby="archive-title">
+<div class="archive-latest-files">
     <div class="archive-opening-indicator" wire:loading wire:target="preview" role="status" aria-live="polite">
         <span class="archive-opening-indicator__spinner" aria-hidden="true"></span>
         <span>Opening file...</span>
     </div>
+    <section class="archive-panel" aria-labelledby="archive-title">
     <div class="archive-toolbar">
         <div><div class="section-kicker">REPOSITORY INDEX</div><h2 id="archive-title">File archive <span class="archive-count" data-archive-count>{{ number_format($visibleCount) }}</span></h2></div>
         <div class="archive-controls" role="group" aria-label="File type filters">

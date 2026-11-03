@@ -18,7 +18,9 @@ test('authenticated upload page renders the Livewire chunk uploader and persiste
         ->assertSee('data-snapshot-url=', false)
         ->assertSee('data-manual-upload', false)
         ->assertSee('wire:ignore', false)
-        ->assertSee('Select any file type.');
+        ->assertSee('Select any file type.')
+        ->assertSee('data-upload-previews', false)
+        ->assertSee('Selected file previews');
 });
 
 test('the upload tracker control is available across authenticated routes', function () {

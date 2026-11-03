@@ -1,9 +1,10 @@
-<div class="archive-browser" data-archive-browser data-file-url="{{ $fileRoutePrefix === 'fm.files' ? url('/fm/files') : url('/admin/files') }}" @unless($isOpen) hidden @endunless wire:keydown.escape="close" wire:click.self="close">
+<div class="archive-full-browser">
+    <div class="archive-opening-indicator" wire:loading wire:target="preview" role="status" aria-live="polite">
+        <span class="archive-opening-indicator__spinner" aria-hidden="true"></span>
+        <span>Opening file...</span>
+    </div>
+    <div class="archive-browser" data-archive-browser data-file-url="{{ $fileRoutePrefix === 'fm.files' ? url('/fm/files') : url('/admin/files') }}" @unless($isOpen) hidden @endunless wire:keydown.escape="close" wire:click.self="close">
     @if ($isOpen)
-        <div class="archive-opening-indicator" wire:loading wire:target="preview" role="status" aria-live="polite">
-            <span class="archive-opening-indicator__spinner" aria-hidden="true"></span>
-            <span>Opening file...</span>
-        </div>
         <section class="archive-browser-window" role="dialog" aria-modal="true" aria-labelledby="full-archive-title">
             <header class="archive-browser-header">
                 <div>
@@ -92,4 +93,5 @@
             </div>
         </section>
     @endif
+    </div>
 </div>

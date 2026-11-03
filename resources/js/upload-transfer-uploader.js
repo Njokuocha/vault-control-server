@@ -31,8 +31,115 @@ const resumeKey = (file) => JSON.stringify([file.name, file.size, file.lastModif
 const formatBytes = (bytes) => bytes < 1024 * 1024
     ? `${Math.max(1, Math.round(bytes / 1024))} KB`
     : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+const fileExtension = (file) => {
+    const dot = file.name.lastIndexOf('.');
+    return dot > 0 ? file.name.slice(dot + 1).toLowerCase() : '';
+};
 const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content ?? '';
 const recordForm = (element) => element.closest('[data-record-upload-form]');
+const manualUploadPreviewUrls = new WeakMap();
+
+const fileIconClass = (extension) => {
+    if (['html', 'htm', 'xhtml'].includes(extension)) return 'ri-html5-line';
+    if (['css', 'scss', 'sass', 'less'].includes(extension)) return 'ri-css3-line';
+    if (['jsx', 'tsx', 'react'].includes(extension)) return 'ri-reactjs-line';
+    if (['js', 'mjs', 'cjs'].includes(extension)) return 'ri-javascript-line';
+    if (['ts', 'vue', 'xml', 'yaml', 'yml', 'json', 'c', 'cc', 'cpp', 'cs', 'go', 'java', 'kt', 'php', 'py', 'rb', 'rs', 'swift', 'sql'].includes(extension)) return 'ri-file-code-line';
+    if (extension === 'pdf') return 'ri-file-pdf-2-line';
+    if (['doc', 'docx', 'odt'].includes(extension)) return 'ri-file-word-2-line';
+    if (['xls', 'xlsx', 'csv', 'ods'].includes(extension)) return 'ri-file-excel-2-line';
+    if (['ppt', 'pptx', 'odp'].includes(extension)) return 'ri-file-ppt-2-line';
+    if (['zip', '7z', 'rar', 'tar', 'gz', 'bz2'].includes(extension)) return 'ri-file-zip-line';
+    if (['mp3', 'wav', 'm4a', 'ogg', 'flac', 'aac'].includes(extension)) return 'ri-music-2-line';
+    if (['txt', 'rtf', 'md', 'log'].includes(extension)) return 'ri-file-text-line';
+    if (videoExtensions.has(extension)) return 'ri-file-video-line';
+    return 'ri-file-line';
+};
+
+const clearManualUploadPreviews = (input) => {
+    const previewList = input.closest('[data-manual-upload]')?.querySelector('[data-upload-previews]');
+    for (const url of manualUploadPreviewUrls.get(input) ?? []) URL.revokeObjectURL(url);
+    manualUploadPreviewUrls.set(input, []);
+    previewList?.replaceChildren();
+};
+
+const renderManualUploadPreviews = (input, files) => {
+    const previewList = input.closest('[data-manual-upload]')?.querySelector('[data-upload-previews]');
+    if (!previewList) return;
+
+    clearManualUploadPreviews(input);
+    const objectUrls = [];
+    files.forEach((file, index) => {
+        const extension = fileExtension(file);
+        const isImage = file.type.startsWith('image/') || imageExtensions.has(extension);
+        const isVideo = file.type.startsWith('video/') || videoExtensions.has(extension);
+        const card = document.createElement('article');
+        card.className = 'manual-upload-preview';
+        card.setAttribute('role', 'listitem');
+        const visual = document.createElement('div');
+        visual.className = 'manual-upload-preview__visual';
+        const objectUrl = URL.createObjectURL(file);
+        objectUrls.push(objectUrl);
+
+        if (isImage) {
+            const image = document.createElement('img');
+            image.src = objectUrl;
+            image.alt = `Preview of ${file.name}`;
+            visual.append(image);
+        } else if (isVideo) {
+            const video = document.createElement('video');
+            video.src = objectUrl;
+            video.muted = true;
+            video.playsInline = true;
+            video.preload = 'metadata';
+            video.setAttribute('aria-label', `Video thumbnail for ${file.name}`);
+            video.addEventListener('loadedmetadata', () => {
+                if (video.duration > 0) video.currentTime = Math.min(0.1, video.duration / 2);
+            }, { once: true });
+            const playMark = document.createElement('span');
+            playMark.className = 'manual-upload-preview__play';
+            playMark.setAttribute('aria-hidden', 'true');
+            const playIcon = document.createElement('i');
+            playIcon.className = 'ri ri-play-fill';
+            playMark.append(playIcon);
+            visual.append(video, playMark);
+        } else {
+            const extensionBadge = document.createElement('span');
+            extensionBadge.className = 'manual-upload-preview__extension';
+            extensionBadge.textContent = extension.toUpperCase() || 'FILE';
+            const icon = document.createElement('i');
+            icon.className = `ri ${fileIconClass(extension)}`;
+            icon.setAttribute('aria-hidden', 'true');
+            visual.append(icon, extensionBadge);
+        }
+
+        const details = document.createElement('div');
+        details.className = 'manual-upload-preview__details';
+        const name = document.createElement('span');
+        name.textContent = file.name;
+        name.title = file.name;
+        const size = document.createElement('small');
+        size.textContent = formatBytes(file.size);
+        details.append(name, size);
+
+        const remove = document.createElement('button');
+        remove.className = 'manual-upload-preview__remove';
+        remove.type = 'button';
+        remove.textContent = '×';
+        remove.setAttribute('aria-label', `Remove ${file.name}`);
+        remove.addEventListener('click', () => {
+            const remainingFiles = [...(input.files ?? [])].filter((_, fileIndex) => fileIndex !== index);
+            const transfer = new DataTransfer();
+            remainingFiles.forEach((selectedFile) => transfer.items.add(selectedFile));
+            input.files = transfer.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+
+        card.append(visual, details, remove);
+        previewList.append(card);
+    });
+    manualUploadPreviewUrls.set(input, objectUrls);
+};
 
 const ensureRecordDraftToken = (form) => {
     if (form.dataset.recordDraftToken) return form.dataset.recordDraftToken;
@@ -1394,6 +1501,7 @@ const handleSelection = (input) => {
     if (!form) return;
     form.dataset.selectedFiles = '';
     const files = [...(input.files ?? [])];
+    renderManualUploadPreviews(input, files);
     const forcedToken = resumeToken;
     resumeToken = null;
     selectedResumeToken = forcedToken;
@@ -1461,7 +1569,19 @@ if (transferWidget) {
         dropzone.classList.remove('is-dragging');
         const input = dropzone.querySelector('[data-upload-input], [data-record-gallery-input]');
         if (input instanceof HTMLInputElement && event.dataTransfer) {
-            input.files = event.dataTransfer.files;
+            if (input.matches('[data-upload-input]')) {
+                try {
+                    const transfer = new DataTransfer();
+                    [...(input.files ?? []), ...event.dataTransfer.files].forEach((file) => transfer.items.add(file));
+                    input.files = transfer.files;
+                } catch (error) {
+                    console.error('Unable to append dropped files to the upload selection.', error);
+                    window.vaultAlert({ type: 'error', message: 'Your browser could not add the dropped files. Please use the browse control instead.' });
+                    return;
+                }
+            } else {
+                input.files = event.dataTransfer.files;
+            }
             input.dispatchEvent(new Event('change', { bubbles: true }));
         }
     });
@@ -1495,7 +1615,10 @@ if (transferWidget) {
         openUploadTracker();
         const forcedToken = selectedResumeToken;
         selectedResumeToken = null;
-        if (input instanceof HTMLInputElement) input.value = '';
+        if (input instanceof HTMLInputElement) {
+            input.value = '';
+            clearManualUploadPreviews(input);
+        }
         const submit = form.querySelector('[data-upload-submit]');
         if (submit instanceof HTMLButtonElement) {
             submit.disabled = true;

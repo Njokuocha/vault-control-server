@@ -13,9 +13,9 @@ use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\ReportAccess;
 use App\Services\SettingService;
+use App\Support\CaseAnalysisCache;
 use App\Support\ReportBodyFormatter;
 use App\Support\VersionedCache;
-use App\Support\CaseAnalysisCache;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -41,6 +41,8 @@ class ReportWorkspace extends Component
     public string $activeSection = 'report';
 
     public bool $composerOpen = false;
+
+    public bool $reportPreviewOpen = false;
 
     public ?string $editingUuid = null;
 
@@ -118,7 +120,20 @@ class ReportWorkspace extends Component
     {
         $this->authorizeWorkspace($access);
         $this->composerOpen = false;
+        $this->reportPreviewOpen = false;
         $this->resetComposer();
+    }
+
+    public function openReportPreview(ReportAccess $access): void
+    {
+        $this->authorizeWorkspace($access);
+        $this->reportPreviewOpen = true;
+    }
+
+    public function closeReportPreview(ReportAccess $access): void
+    {
+        $this->authorizeWorkspace($access);
+        $this->reportPreviewOpen = false;
     }
 
     public function editReport(string $uuid, ReportAccess $access): void
@@ -193,7 +208,15 @@ class ReportWorkspace extends Component
         }
 
         $validated = $this->validate([
-            'body' => ['required', 'string', 'max:20000'],
+            'body' => ['required', 'string', 'max:60000', function (string $attribute, mixed $value, \Closure $fail): void {
+                $safeBody = app(ReportBodyFormatter::class)->sanitize((string) $value);
+                $text = trim(html_entity_decode(strip_tags($safeBody), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                if ($text === '') {
+                    $fail('Enter a report narrative before publishing.');
+                } elseif (mb_strlen($text) > 20000) {
+                    $fail('The report narrative may not exceed 20,000 characters.');
+                }
+            }],
             'uploads' => ['array', 'max:12'],
             'uploads.*' => [
                 'file',
@@ -209,6 +232,7 @@ class ReportWorkspace extends Component
         ]);
         abort_unless($access->canLinkCases($actor) || $this->caseIds === [], 403);
         abort_unless($access->canLinkPeople($actor) || $this->personIds === [], 403);
+        $formattedBody = app(ReportBodyFormatter::class)->sanitize($validated['body']);
 
         $storedPaths = [];
         $removedPaths = [];
@@ -231,15 +255,15 @@ class ReportWorkspace extends Component
             }
 
             $previousCaseIds = $existing?->cases()->pluck('case_files.id') ?? collect();
-            $report = DB::transaction(function () use ($validated, $actor, $access, $existing, $reportUuid, $storedMedia, &$removedPaths, $previousCaseIds): Report {
+            $report = DB::transaction(function () use ($validated, $actor, $access, $existing, $reportUuid, $storedMedia, &$removedPaths, $previousCaseIds, $formattedBody): Report {
                 $report = $existing ?? Report::query()->create([
                     'uuid' => $reportUuid,
-                    'body' => trim($validated['body']),
+                    'body' => $formattedBody,
                     'reporter_type' => $actor::class,
                     'reporter_id' => $actor->getAuthIdentifier(),
                 ]);
                 if ($existing !== null) {
-                    $report->update(['body' => trim($validated['body'])]);
+                    $report->update(['body' => $formattedBody]);
                 }
 
                 if ($access->canLinkCases($actor)) {
@@ -304,6 +328,7 @@ class ReportWorkspace extends Component
         $this->selectedReport = $report->uuid;
         $this->activeSection = 'report';
         $this->composerOpen = false;
+        $this->reportPreviewOpen = false;
         $this->resetComposer();
         $this->dispatch('alert', type: 'success', message: $existing === null ? 'Report published to the agency.' : 'Report updated.');
     }
@@ -598,13 +623,13 @@ class ReportWorkspace extends Component
             function () use ($access, $actor, $reportId, $uuid, $commentsEnabled): ?Report {
                 $query = $access->visibleQuery($actor)
                     ->with([
-                    'reporter' => fn (MorphTo $relation) => $relation->morphWith([
-                        User::class => ['departmentRecord'],
-                    ]),
-                    'media',
-                    'cases',
-                    'people',
-                ])
+                        'reporter' => fn (MorphTo $relation) => $relation->morphWith([
+                            User::class => ['departmentRecord'],
+                        ]),
+                        'media',
+                        'cases',
+                        'people',
+                    ])
                     ->whereKey($reportId)
                     ->where('uuid', $uuid);
                 if ($commentsEnabled) {
@@ -764,6 +789,7 @@ class ReportWorkspace extends Component
 
     private function resetComposer(): void
     {
+        $this->reportPreviewOpen = false;
         $this->reset([
             'editingUuid',
             'body',

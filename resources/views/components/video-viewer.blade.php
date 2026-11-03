@@ -39,6 +39,7 @@
                     <button type="button" data-video-loop aria-label="Enable video loop" aria-pressed="false" title="Loop"><i class="ri ri-repeat-line" aria-hidden="true"></i></button>
                 </div>
                 <div class="video-professional-group video-professional-adjustments">
+                    <button type="button" data-video-fit aria-label="Video fit: Auto. Change video fit" title="Video fit: Auto. Cycle between Auto, 16:9, 4:3, 1:1, and Fill"><i class="ri ri-aspect-ratio-line" aria-hidden="true"></i><span data-video-fit-label>AUTO</span></button>
                     <button type="button" data-video-mute aria-label="Mute video" title="Mute"><i class="ri ri-volume-up-line" aria-hidden="true"></i></button>
                     <input type="range" min="0" max="1" value="1" step="0.05" data-video-volume aria-label="Video volume">
                     <label class="video-speed-control">SPEED

@@ -75,8 +75,8 @@ const setDownloadBusy = (anchor, busy) => {
     anchor.title = busy ? 'Preparing download' : anchor.dataset.downloadLabel;
     const icon = anchor.querySelector('[data-vault-image-download-icon]');
     const spinner = anchor.querySelector('[data-vault-image-download-spinner]');
-    if (icon instanceof HTMLElement) icon.hidden = busy;
-    if (spinner instanceof HTMLElement) spinner.hidden = !busy;
+    icon?.toggleAttribute('hidden', busy);
+    spinner?.toggleAttribute('hidden', !busy);
 };
 
 const startImageDownload = (blob, filename) => {

@@ -17,6 +17,15 @@ let autoplayOnOpen = false;
 let modeChange = 0;
 let grayscaleEnabled = false;
 let downloadBusyTimer = null;
+let standardControlsTimer = null;
+let videoFitIndex = 0;
+const videoFitModes = [
+    { key: 'auto', label: 'AUTO', title: 'Auto fit' },
+    { key: '16:9', label: '16:9', title: '16:9 aspect ratio' },
+    { key: '4:3', label: '4:3', title: '4:3 aspect ratio' },
+    { key: '1:1', label: '1:1', title: '1:1 aspect ratio' },
+    { key: 'fill', label: 'FILL', title: 'Fill frame and crop edges' },
+];
 
 const videoJsOptions = {
     autoplay: false,
@@ -145,6 +154,38 @@ const syncControls = () => {
     }
 };
 
+const hideStandardControls = () => {
+    if (standardControlsTimer !== null) {
+        window.clearTimeout(standardControlsTimer);
+        standardControlsTimer = null;
+    }
+    stage?.classList.remove('video-standard-controls-active');
+    stage?.classList.remove('video-standard-controls-idle');
+};
+
+const showStandardControls = () => {
+    if (activeMode !== 'standard' || !dialog?.open || !stage) return;
+    if (standardControlsTimer !== null) window.clearTimeout(standardControlsTimer);
+    stage.classList.add('video-standard-controls-active');
+    stage.classList.remove('video-standard-controls-idle');
+    standardControlsTimer = window.setTimeout(() => {
+        standardControlsTimer = null;
+        stage?.classList.remove('video-standard-controls-active');
+        stage?.classList.add('video-standard-controls-idle');
+    }, 2800);
+};
+
+const setVideoFit = (index) => {
+    videoFitIndex = (index + videoFitModes.length) % videoFitModes.length;
+    const fit = videoFitModes[videoFitIndex];
+    stage?.setAttribute('data-video-fit', fit.key);
+    const button = dialog?.querySelector('[data-video-fit]');
+    const label = button?.querySelector('[data-video-fit-label]');
+    if (label) label.textContent = fit.label;
+    button?.setAttribute('aria-label', `Video fit: ${fit.title}. Change video fit`);
+    button?.setAttribute('title', `Video fit: ${fit.title}`);
+};
+
 const getPlaybackState = () => {
     const state = playbackState();
     return {
@@ -226,8 +267,13 @@ const createPlayerForMode = async (mode, state, transition) => {
     stage?.setAttribute('data-video-mode', mode);
     if (professionalHud) professionalHud.hidden = mode !== 'professional';
     if (professionalControls) professionalControls.hidden = mode !== 'professional';
+    hideStandardControls();
+    if (mode === 'standard') showStandardControls();
     const mediaEvents = ['timeupdate', 'play', 'pause', 'volumechange', 'ratechange', 'durationchange'];
-    mediaEvents.forEach((eventName) => video.addEventListener(eventName, syncControls));
+    mediaEvents.forEach((eventName) => video.addEventListener(eventName, () => {
+        syncControls();
+        if (eventName === 'play') showStandardControls();
+    }));
     video.addEventListener('error', showPlaybackFallback);
 
     const restore = () => restorePlaybackState(state, expectedSource);
@@ -249,7 +295,10 @@ const createPlayerForMode = async (mode, state, transition) => {
         player = videojs(video, options);
         player.on('error', showPlaybackFallback);
         player.one('loadedmetadata', restore);
-        mediaEvents.forEach((eventName) => player.on(eventName, syncControls));
+        mediaEvents.forEach((eventName) => player.on(eventName, () => {
+            syncControls();
+            if (eventName === 'play') showStandardControls();
+        }));
         player.src(sourceType ? { src: expectedSource, type: sourceType } : expectedSource);
         player.ready(syncControls);
     }
@@ -326,6 +375,7 @@ const refreshViewer = () => {
     fallback = dialog.querySelector('[data-video-viewer-fallback]');
     professionalHud = dialog.querySelector('[data-video-professional-hud]');
     professionalControls = dialog.querySelector('[data-video-professional-controls]');
+    setVideoFit(videoFitIndex);
 };
 
 export async function openVaultVideoViewer({
@@ -355,6 +405,8 @@ export async function openVaultVideoViewer({
     sourceType = mimeType || null;
     autoplayOnOpen = autoplay;
     grayscaleEnabled = false;
+    videoFitIndex = 0;
+    setVideoFit(videoFitIndex);
     if (title) title.textContent = name;
     if (download instanceof HTMLAnchorElement) {
         setDownloadBusy(false);
@@ -399,6 +451,7 @@ export async function openVaultVideoViewer({
 
 const closeViewer = () => {
     modeChange += 1;
+    hideStandardControls();
     disposePlayer();
     source = null;
     sourceType = null;
@@ -417,6 +470,10 @@ const closeViewer = () => {
 refreshViewer();
 
 if (dialog instanceof HTMLDialogElement) {
+    dialog.addEventListener('pointermove', showStandardControls);
+    dialog.addEventListener('pointerdown', showStandardControls);
+    dialog.addEventListener('keydown', showStandardControls);
+    dialog.addEventListener('mouseenter', showStandardControls);
     dialog.addEventListener('click', (event) => {
         if (event.target === dialog || event.target instanceof Element && event.target.closest('[data-close-video-viewer]')) {
             dialog.close();
@@ -446,7 +503,9 @@ if (dialog instanceof HTMLDialogElement) {
         const button = event.target instanceof Element ? event.target.closest('button') : null;
         if (!(button instanceof HTMLButtonElement)) return;
 
-        if (button.matches('[data-video-play]')) {
+        if (button.matches('[data-video-fit]')) {
+            setVideoFit(videoFitIndex + 1);
+        } else if (button.matches('[data-video-play]')) {
             if (isPaused()) requestPlayback();
             else if (player) player.pause();
             else videoElement.pause();
