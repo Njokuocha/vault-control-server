@@ -11,9 +11,9 @@
     "require": {
         "php": "^8.2",
         "laravel/framework": "^12.0",
+        "laravel/reverb": "^1.12",
         "laravel/tinker": "^2.10.1",
-        "livewire/livewire": "~3.8.11",
-        "pusher/pusher-php-server": "~7.2.8"
+        "livewire/livewire": "~3.8.11"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
@@ -48,7 +48,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74,#fca5a5\" \"php artisan serve\" \"php artisan queue:listen --queue=broadcasts,default --timeout=2100\" \"php artisan queue:listen --queue=video-processing --timeout=2100\" \"npm run dev\" --names='server,queue,video-queue,vite'"
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74,#fca5a5,#86efac\" \"php artisan serve\" \"php artisan reverb:start\" \"php artisan queue:listen --queue=broadcasts,default --timeout=2100\" \"php artisan queue:listen --queue=video-processing --timeout=2100\" \"npm run dev\" --names='server,reverb,queue,video-queue,vite'"
         ],
         "test": [
             "@php artisan config:clear --ansi",

@@ -5,6 +5,8 @@ use App\Mail\OutgoingAgencyMail;
 use App\Models\Admin;
 use App\Models\SentEmail;
 use App\Models\User;
+use App\Services\AdminEmailFormatter;
+use App\Services\AdminEmailTemplateCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -60,6 +62,115 @@ test('administrator can send formatted email with to cc bcc and private attachme
         ->not->toContain('recipient@example.test');
     Storage::disk('vault')->assertExists($email->attachments->first()->stored_path);
     Mail::assertSent(OutgoingAgencyMail::class, fn (OutgoingAgencyMail $message): bool => $message->email->id === $email->id);
+});
+
+test('email templates are rendered for sending without changing the editable draft', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Mail Administrator',
+        'email' => 'admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+
+    $component = Livewire::actingAs($admin, 'admin')
+        ->test(MailCenter::class)
+        ->set('toRecipients', 'recipient@example.test')
+        ->set('subject', 'A templated update')
+        ->set('bodyHtml', '<p>A <strong>formatted</strong> update.</p>')
+        ->set('templateKey', 'clean-white')
+        ->assertSee('Recommended: 1,200 characters')
+        ->assertSee('PREVIEW TEMPLATE')
+        ->assertSee('PREVIEW MY MESSAGE');
+
+    $component->call('previewSelectedTemplate')
+        ->assertSet('bodyHtml', '<p>A <strong>formatted</strong> update.</p>')
+    ->assertSee('formatted')
+    ->assertSee('TEMPLATE SAMPLE')
+    ->assertSee('This is sample text');
+
+    $component->call('closeTemplatePreview')
+    ->call('previewCurrentMessage')
+    ->assertSee('DRAFT PREVIEW')
+    ->assertSee('formatted');
+
+    $component->call('send')
+        ->assertHasNoErrors()
+        ->assertSee('Message sent');
+
+    $email = SentEmail::query()->firstOrFail();
+    expect($email->body_html)
+        ->toContain('<table')
+        ->toContain('background-color:#ffffff')
+        ->toContain('A <strong>formatted</strong> update.')
+        ->not->toContain('<script');
+});
+
+test('plain email remains available and an empty template cannot satisfy the message requirement', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Mail Administrator',
+        'email' => 'admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+
+    Livewire::actingAs($admin, 'admin')
+        ->test(MailCenter::class)
+        ->set('toRecipients', 'recipient@example.test')
+        ->set('subject', 'Plain message')
+        ->set('bodyHtml', '<p>Without a template.</p>')
+        ->call('send')
+        ->assertHasNoErrors();
+
+    expect(SentEmail::query()->firstOrFail()->body_html)->toBe('<p>Without a template.</p>');
+
+    Livewire::actingAs($admin, 'admin')
+        ->test(MailCenter::class)
+        ->set('toRecipients', 'recipient@example.test')
+        ->set('subject', 'Empty template')
+        ->set('templateKey', 'clean-white')
+        ->call('send')
+        ->assertHasErrors(['bodyHtml']);
+
+    expect(SentEmail::query()->count())->toBe(1);
+});
+
+test('template gallery lists ten designs and unlimited template metadata', function () {
+    $admin = Admin::query()->create([
+        'name' => 'Mail Administrator',
+        'email' => 'admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+    $templates = app(AdminEmailTemplateCatalog::class)->all();
+
+    expect($templates)->toHaveCount(10)
+        ->and($templates['open-letter']['recommended_characters'])->toBeNull();
+
+    $component = Livewire::actingAs($admin, 'admin')
+        ->test(MailCenter::class)
+        ->call('openTemplateGallery')
+        ->assertSee('Template gallery')
+        ->assertSee('Clean white')
+        ->assertSee('Open letter')
+        ->assertSee('UNLIMITED')
+        ->assertDontSee('MAIL OPERATIONS')
+        ->assertDontSee('DELIVERY STATUS');
+
+    foreach ($templates as $template) {
+        $component->assertSee($template['name']);
+    }
+
+    $component->call('chooseTemplate', 'midnight')
+        ->assertSet('templateKey', 'midnight')
+        ->assertSee('Recommended: 900 characters');
+});
+
+test('email layout styles stay scoped to outgoing email formatting', function () {
+    $html = '<table><tr><td style="color:#ffffff">Message</td></tr></table>';
+    $formatter = app(AdminEmailFormatter::class);
+
+    expect($formatter->sanitize($html))
+        ->toBe('Message')
+        ->and($formatter->sanitizeForEmail($html))
+        ->toContain('<table')
+        ->toContain('style="color:#ffffff"');
 });
 
 test('non-delivery mail transports fail closed and retain a failed transmission record', function () {

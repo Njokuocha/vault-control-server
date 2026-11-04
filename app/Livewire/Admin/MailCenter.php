@@ -6,6 +6,7 @@ use App\Exceptions\MailDeliveryException;
 use App\Models\Admin;
 use App\Models\SentEmail;
 use App\Services\AdminEmailFormatter;
+use App\Services\AdminEmailTemplateCatalog;
 use App\Services\AdminMailService;
 use App\Services\MailTransportPolicy;
 use Illuminate\Contracts\View\View;
@@ -37,6 +38,14 @@ class MailCenter extends Component
     public string $subject = '';
 
     public string $bodyHtml = '';
+
+    public string $templateKey = '';
+
+    public bool $templateGalleryOpen = false;
+
+    public bool $templatePreviewOpen = false;
+
+    public bool $templatePreviewDraft = false;
 
     /** @var array<int, TemporaryUploadedFile> */
     public array $uploads = [];
@@ -72,6 +81,68 @@ class MailCenter extends Component
         $this->resetPage();
     }
 
+    public function selectTemplate(string $key): void
+    {
+        $this->authorizeAdministrator();
+        abort_unless($key === '' || isset(app(AdminEmailTemplateCatalog::class)->all()[$key]), 404);
+        $this->templateKey = $key;
+        $this->templatePreviewOpen = false;
+        $this->templatePreviewDraft = false;
+        $this->dispatch('admin-mail-template-updated');
+    }
+
+    public function chooseTemplate(string $key): void
+    {
+        $this->selectTemplate($key);
+        $this->templateGalleryOpen = false;
+    }
+
+    public function clearTemplate(): void
+    {
+        $this->authorizeAdministrator();
+        $this->templateKey = '';
+        $this->templateGalleryOpen = false;
+        $this->templatePreviewOpen = false;
+        $this->templatePreviewDraft = false;
+    }
+
+    public function openTemplateGallery(): void
+    {
+        $this->authorizeAdministrator();
+        $this->templateGalleryOpen = true;
+    }
+
+    public function closeTemplateGallery(): void
+    {
+        $this->authorizeAdministrator();
+        $this->templateGalleryOpen = false;
+    }
+
+    public function previewSelectedTemplate(): void
+    {
+        $this->authorizeAdministrator();
+        abort_if($this->templateKey === '', 422, 'Choose an email template to preview.');
+        abort_unless(isset(app(AdminEmailTemplateCatalog::class)->all()[$this->templateKey]), 404);
+        $this->templatePreviewDraft = false;
+        $this->templatePreviewOpen = true;
+    }
+
+    public function previewCurrentMessage(): void
+    {
+        $this->authorizeAdministrator();
+        abort_if($this->templateKey === '', 422, 'Choose an email template to preview.');
+        abort_unless(isset(app(AdminEmailTemplateCatalog::class)->all()[$this->templateKey]), 404);
+        $this->templatePreviewDraft = true;
+        $this->templatePreviewOpen = true;
+    }
+
+    public function closeTemplatePreview(): void
+    {
+        $this->authorizeAdministrator();
+        $this->templatePreviewOpen = false;
+        $this->templatePreviewDraft = false;
+    }
+
     public function openEmail(int $emailId): void
     {
         $this->authorizeAdministrator();
@@ -94,6 +165,7 @@ class MailCenter extends Component
             ...$recipients,
             'subject' => $this->subject,
             'bodyHtml' => $this->bodyHtml,
+            'templateKey' => $this->templateKey,
             'uploads' => $this->uploads,
         ], [
             'to' => ['required', 'array', 'min:1', 'max:50'],
@@ -104,11 +176,20 @@ class MailCenter extends Component
             'bcc.*' => ['required', 'email:rfc', 'max:254'],
             'subject' => ['required', 'string', 'max:255', 'not_regex:/[\r\n]/'],
             'bodyHtml' => ['nullable', 'string', 'max:60000'],
+            'templateKey' => ['nullable', 'string', 'in:'.implode(',', array_keys(app(AdminEmailTemplateCatalog::class)->all()))],
             'uploads' => ['array', 'max:10'],
             'uploads.*' => ['file', 'max:25600'],
         ], ['subject.not_regex' => 'The subject cannot contain line breaks.'])->validate();
 
-        $safeBody = app(AdminEmailFormatter::class)->sanitize((string) ($validated['bodyHtml'] ?? ''));
+        $safeBody = app(AdminEmailFormatter::class)->sanitizeForEmail((string) ($validated['bodyHtml'] ?? ''));
+        if (trim(html_entity_decode(strip_tags($safeBody), ENT_QUOTES | ENT_HTML5, 'UTF-8')) === '' && $this->uploads === []) {
+            throw ValidationException::withMessages([
+                'bodyHtml' => 'Add a message or attach a file before sending.',
+            ]);
+        }
+        if (! empty($validated['templateKey'])) {
+            $safeBody = app(AdminEmailTemplateCatalog::class)->render($validated['templateKey'], $safeBody);
+        }
         $totalAttachmentBytes = array_sum(array_map(
             fn ($upload): int => (int) ($upload->getSize() ?? 0),
             $this->uploads,
@@ -118,12 +199,6 @@ class MailCenter extends Component
                 'uploads' => 'Email attachments may not exceed 25 MB combined.',
             ]);
         }
-        if (trim(html_entity_decode(strip_tags($safeBody), ENT_QUOTES | ENT_HTML5, 'UTF-8')) === '' && $this->uploads === []) {
-            throw ValidationException::withMessages([
-                'bodyHtml' => 'Add a message or attach a file before sending.',
-            ]);
-        }
-
         try {
             $email = $mail->compose(
                 $admin,
@@ -145,7 +220,7 @@ class MailCenter extends Component
         $this->selectedEmailId = $email->id;
         $this->activeView = 'sent';
         $this->deliveryNoticeId = $email->id;
-        $this->reset(['toRecipients', 'ccRecipients', 'bccRecipients', 'subject', 'bodyHtml', 'uploads']);
+        $this->reset(['toRecipients', 'ccRecipients', 'bccRecipients', 'subject', 'bodyHtml', 'uploads', 'templateKey', 'templatePreviewOpen', 'templatePreviewDraft']);
         $this->dispatch('admin-mail-editor-reset');
     }
 
@@ -292,7 +367,7 @@ class MailCenter extends Component
             'selectedEmail' => $selectedEmail,
             'selectedBodyHtml' => $selectedEmail === null
                 ? ''
-                : app(AdminEmailFormatter::class)->sanitize($selectedEmail->body_html),
+                : app(AdminEmailFormatter::class)->sanitizeForEmail($selectedEmail->body_html),
             'deleteTarget' => $this->deleteConfirmationId === null
                 ? null
                 : SentEmail::query()->find($this->deleteConfirmationId),
@@ -306,6 +381,14 @@ class MailCenter extends Component
                 ? null
                 : SentEmail::query()->find($this->deliveryNoticeId),
             'mailTransportCanDeliver' => app(MailTransportPolicy::class)->canDeliver(),
+            'emailTemplates' => app(AdminEmailTemplateCatalog::class)->all(),
+            'selectedTemplate' => $this->templateKey === '' || ! isset(app(AdminEmailTemplateCatalog::class)->all()[$this->templateKey])
+                ? null
+                : app(AdminEmailTemplateCatalog::class)->find($this->templateKey),
+            'selectedTemplatePreview' => $this->templatePreviewOpen && $this->templateKey !== ''
+                && isset(app(AdminEmailTemplateCatalog::class)->all()[$this->templateKey])
+                    ? app(AdminEmailTemplateCatalog::class)->preview($this->templateKey, $this->templatePreviewDraft ? $this->bodyHtml : '')
+                    : '',
         ])->extends('layouts.app', [
             'page_title' => 'Agency Mail Center — '.config('app.name'),
             'page_label' => 'MAIL CENTER',

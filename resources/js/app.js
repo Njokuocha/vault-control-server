@@ -1,4 +1,5 @@
 import './bootstrap';
+import './authentication-intro';
 import './alerts';
 import './upload-tracker';
 import './upload-transfer-uploader';
@@ -18,18 +19,23 @@ import { evaluateTriggerExpression } from './shell-math.mjs';
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
 
-const pusherKey = import.meta.env.VITE_PUSHER_APP_KEY;
-const pusherCluster = import.meta.env.VITE_PUSHER_APP_CLUSTER;
+const reverbKey = import.meta.env.VITE_REVERB_APP_KEY;
+const reverbHost = import.meta.env.VITE_REVERB_HOST;
+const reverbPort = Number(import.meta.env.VITE_REVERB_PORT || 8080);
+const reverbScheme = import.meta.env.VITE_REVERB_SCHEME || 'http';
 const applicationWorkspace = document.querySelector('meta[name="app-workspace"]')?.content;
 const broadcastConnection = document.querySelector('meta[name="broadcast-connection"]')?.content;
 
-if (broadcastConnection === 'pusher' && pusherKey && pusherCluster && applicationWorkspace) {
+if (broadcastConnection === 'reverb' && reverbKey && reverbHost && applicationWorkspace) {
     window.Pusher = Pusher;
     window.Echo = new Echo({
-        broadcaster: 'pusher',
-        key: pusherKey,
-        cluster: pusherCluster,
-        forceTLS: true,
+        broadcaster: 'reverb',
+        key: reverbKey,
+        wsHost: reverbHost,
+        wsPort: reverbPort,
+        wssPort: reverbPort,
+        forceTLS: reverbScheme === 'https',
+        enabledTransports: ['ws', 'wss'],
         authEndpoint: '/broadcasting/auth',
         auth: {
             headers: {
@@ -1978,7 +1984,13 @@ pageMediaClickHandler = (event) => {
             }
         });
         gallery?.classList.add('is-expanded');
-        expandButton.remove();
+        if (expandButton.matches('[data-video-viewer]')) {
+            expandButton.removeAttribute('data-expand-gallery');
+            expandButton.querySelector('.gallery-more-overlay')?.remove();
+            expandButton.setAttribute('aria-label', `Play ${expandButton.dataset.videoTitle ?? 'video'}`);
+        } else {
+            expandButton.remove();
+        }
         return;
     }
 

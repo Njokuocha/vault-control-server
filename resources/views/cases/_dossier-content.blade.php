@@ -29,7 +29,7 @@
         @forelse ($linkedReports as $linkedReport)
             <a class="case-linked-report-row" href="{{ route($cfmWorkspace ? 'cfm.reports.index' : 'admin.reports.index', ['report' => $linkedReport->uuid]) }}" wire:navigate>
                 <span class="case-linked-report-node" aria-hidden="true"></span>
-                <span><strong>{{ \Illuminate\Support\Str::limit($linkedReport->body, 140) }}</strong><small>{{ $linkedReport->created_at?->format('M d, Y · H:i') }} UTC · {{ $linkedReport->comments_count }} comments</small></span><i class="ri ri-arrow-right-up-line" aria-hidden="true"></i>
+                <span><strong>{{ \Illuminate\Support\Str::limit(app(\App\Support\ReportBodyFormatter::class)->plainText($linkedReport->body), 140) }}</strong><small>{{ $linkedReport->created_at?->format('M d, Y · H:i') }} UTC · {{ $linkedReport->comments_count }} comments</small></span><i class="ri ri-arrow-right-up-line" aria-hidden="true"></i>
             </a>
         @empty
             <p class="profile-gallery-empty">No reports are linked to this case file.</p>
@@ -85,16 +85,19 @@
                 @elseif ($category->images->isNotEmpty())
                     <div class="case-evidence-gallery" data-expandable-gallery>
                         @foreach ($category->images as $image)
-                            <div class="case-evidence-entry" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
+                            <div class="case-evidence-entry @if ($image->type === 'video' && $loop->index === 3 && $category->images->count() > 4) case-evidence-entry--video-overflow @endif" @if ($loop->index >= 4) hidden data-gallery-extra @endif>
                             @if ($image->type === 'video')
-                                <button class="evidence-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-title="{{ $image->original_name }}" data-video-mime-type="{{ $image->file?->mime_type }}" aria-label="Play {{ $image->original_name }}">
+                                <button class="evidence-gallery-tile video-gallery-tile" type="button" @if ($loop->index === 3 && $category->images->count() > 4) data-expand-gallery aria-label="Show {{ $category->images->count() - 4 }} more files" @endif data-video-viewer data-video-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-download-url="{{ route($routePrefix.'cases.images.download', ['caseFile' => $caseFile, 'image' => $image]) }}" data-video-title="{{ $image->original_name }}" data-video-mime-type="{{ $image->file?->mime_type }}" @if ($loop->index !== 3 || $category->images->count() <= 4) aria-label="Play {{ $image->original_name }}" @endif>
                                     @if ($image->poster_path || $image->file?->video_poster_path)
                                         <img src="{{ route($routePrefix.'cases.images.poster', ['caseFile' => $caseFile, 'image' => $image]) }}" alt="" loading="lazy" decoding="async" onerror="this.remove()">
                                     @else
                                         <video class="case-gallery-video-thumbnail" data-case-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
                                     @endif
-                                    <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
-                                    @if ($loop->index === 3 && $category->images->count() > 4)<span class="gallery-more-overlay gallery-more-overlay--video" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>@endif
+                                    @if ($loop->index === 3 && $category->images->count() > 4)
+                                        <span class="gallery-more-overlay" aria-hidden="true">+{{ $category->images->count() - 4 }}</span>
+                                    @else
+                                        <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
+                                    @endif
                                 </button>
                             @elseif (in_array($image->type, ['document', 'audio'], true))
                                 @php($extension = strtoupper(pathinfo($image->original_name, PATHINFO_EXTENSION)) ?: 'FILE')

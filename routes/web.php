@@ -186,6 +186,8 @@ foreach ($departments as $department => $departmentName) {
         }
         Route::get('/profile/photo', [StaffProfilePhotoController::class, 'department'])->name('profile.photo');
         Route::view('/profile', 'departments.profile')->name('profile');
+        Route::get('/reports/create', ReportWorkspace::class)->name('reports.create');
+        Route::get('/reports/{uuid}/edit', ReportWorkspace::class)->whereUuid('uuid')->name('reports.edit');
         Route::get('/reports', ReportWorkspace::class)->name('reports.index');
         Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
     });
@@ -353,6 +355,8 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::get('/staff', StaffManagement::class)->name('admin.staff.index');
     Route::get('/staff/analytics', StaffAnalyticsDashboard::class)->name('admin.staff.analytics');
     Route::get('/staff/non-active', InactiveStaffIndex::class)->name('admin.staff.inactive');
+    Route::get('/reports/create', ReportWorkspace::class)->name('admin.reports.create');
+    Route::get('/reports/{uuid}/edit', ReportWorkspace::class)->whereUuid('uuid')->name('admin.reports.edit');
     Route::get('/reports', ReportWorkspace::class)->name('admin.reports.index');
     Route::get('/reports/manage', ReportManagement::class)->name('admin.reports.manage');
     Route::get('/staff/{user}/{section}', StaffProfile::class)

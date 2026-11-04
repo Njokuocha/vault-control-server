@@ -243,6 +243,31 @@ test('an administrator can authenticate through the Livewire login form', functi
     $this->assertAuthenticatedAs($admin, 'admin');
 });
 
+test('administrator authentication intro is shown once and not after a refresh', function () {
+    config(['vault.admin.email' => 'admin@example.test']);
+    Admin::query()->create([
+        'name' => 'Vault Administrator',
+        'email' => 'admin@example.test',
+        'password' => 'a-secure-password',
+    ]);
+
+    $this->post(route('auth.attempt'), [
+        'email' => 'admin@example.test',
+        'password' => 'a-secure-password',
+    ])->assertRedirect(route('dashboard.index'));
+
+    $this->get(route('dashboard.index'))
+        ->assertOk()
+        ->assertSee('data-authentication-intro', false)
+        ->assertSee('>VAULT</span>', false)
+        ->assertSee('>INTELLIGENCE</span>', false)
+        ->assertSee('>AGENCY</span>', false);
+
+    $this->get(route('dashboard.index'))
+        ->assertOk()
+        ->assertDontSee('data-authentication-intro', false);
+});
+
 test('the Livewire login form reports invalid credentials without authenticating', function () {
     config(['vault.admin.email' => 'admin@example.test']);
     Admin::query()->create([

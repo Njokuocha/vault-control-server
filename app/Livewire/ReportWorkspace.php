@@ -3,7 +3,9 @@
 namespace App\Livewire;
 
 use App\Events\AgencyReportUpdated;
+use App\Jobs\BuildReportVideoThumbnailJob;
 use App\Jobs\DeleteImageThumbnailJob;
+use App\Jobs\DeleteReportVideoThumbnailJob;
 use App\Models\Admin;
 use App\Models\InvestigationCase;
 use App\Models\Person;
@@ -38,11 +40,9 @@ class ReportWorkspace extends Component
     #[Url(as: 'report', history: true)]
     public ?string $selectedReport = null;
 
+    public bool $editorMode = false;
+
     public string $activeSection = 'report';
-
-    public bool $composerOpen = false;
-
-    public bool $reportPreviewOpen = false;
 
     public ?string $editingUuid = null;
 
@@ -77,9 +77,22 @@ class ReportWorkspace extends Component
 
     public int $reportLimit = 30;
 
-    public function mount(ReportAccess $access): void
+    public function mount(ReportAccess $access, ?string $uuid = null): void
     {
         $actor = $this->authorizeWorkspace($access);
+        if (request()->routeIs('*.reports.create')) {
+            $this->editorMode = true;
+
+            return;
+        }
+        if (request()->routeIs('*.reports.edit')) {
+            abort_if($uuid === null, 404);
+            $this->editorMode = true;
+            $this->loadReportForEditing($uuid, $access);
+
+            return;
+        }
+
         $visibleReports = $access->visibleQuery($actor);
         $this->selectedReport ??= $visibleReports->latest('updated_at')->value('uuid');
         session(['report_system_last_seen_id' => (int) Report::query()->max('id')]);
@@ -109,41 +122,15 @@ class ReportWorkspace extends Component
         $this->activeSection = $section;
     }
 
-    public function openComposer(ReportAccess $access): void
-    {
-        $this->authorizeWorkspace($access);
-        $this->resetComposer();
-        $this->composerOpen = true;
-    }
-
-    public function closeComposer(ReportAccess $access): void
-    {
-        $this->authorizeWorkspace($access);
-        $this->composerOpen = false;
-        $this->reportPreviewOpen = false;
-        $this->resetComposer();
-    }
-
-    public function openReportPreview(ReportAccess $access): void
-    {
-        $this->authorizeWorkspace($access);
-        $this->reportPreviewOpen = true;
-    }
-
-    public function closeReportPreview(ReportAccess $access): void
-    {
-        $this->authorizeWorkspace($access);
-        $this->reportPreviewOpen = false;
-    }
-
-    public function editReport(string $uuid, ReportAccess $access): void
+    private function loadReportForEditing(string $uuid, ReportAccess $access): void
     {
         $actor = $this->authorizeWorkspace($access);
         $report = $this->cachedReportDetail($access, $actor, $uuid);
         abort_if($report === null, 404);
         abort_unless($access->canManage($report, $actor), 403);
 
-        $this->resetComposer();
+        $this->resetEditor();
+        $this->editorMode = true;
         $this->editingUuid = $report->uuid;
         $this->body = $report->body;
         if ($access->canLinkCases($actor)) {
@@ -152,7 +139,6 @@ class ReportWorkspace extends Component
         if ($access->canLinkPeople($actor)) {
             $this->personIds = $report->people->pluck('id')->map(fn ($id): string => (string) $id)->all();
         }
-        $this->composerOpen = true;
     }
 
     public function toggleCaseLink(int $id, ReportAccess $access): void
@@ -286,6 +272,11 @@ class ReportWorkspace extends Component
                     $mediaToRemove->where('media_type', 'image')->each(
                         fn (ReportMedia $media) => DeleteImageThumbnailJob::dispatch($media->path)->afterCommit(),
                     );
+                    $mediaToRemove->where('media_type', 'video')->filter(
+                        fn (ReportMedia $media): bool => $media->thumbnail_path !== null,
+                    )->each(
+                        fn (ReportMedia $media) => DeleteReportVideoThumbnailJob::dispatch($media->thumbnail_path)->afterCommit(),
+                    );
                     $report->media()->whereIn('id', $mediaToRemove->modelKeys())->delete();
                 }
 
@@ -327,9 +318,15 @@ class ReportWorkspace extends Component
 
         $this->selectedReport = $report->uuid;
         $this->activeSection = 'report';
-        $this->composerOpen = false;
-        $this->reportPreviewOpen = false;
-        $this->resetComposer();
+        if ($this->editorMode) {
+            $this->dispatch('report-editor-saved');
+        }
+        $this->resetEditor();
+        if ($this->editorMode) {
+            $this->redirect(route($this->reportIndexRoute($actor), ['report' => $report->uuid]), navigate: true);
+
+            return;
+        }
         $this->dispatch('alert', type: 'success', message: $existing === null ? 'Report published to the agency.' : 'Report updated.');
     }
 
@@ -405,10 +402,25 @@ class ReportWorkspace extends Component
         $this->expandedReplyIds[] = $comment->id;
     }
 
+    public function discardReport(ReportAccess $access): void
+    {
+        $actor = $this->authorizeWorkspace($access);
+        abort_unless($this->editorMode, 404);
+        if ($this->editingUuid !== null) {
+            $report = $access->visibleQuery($actor)->where('uuid', $this->editingUuid)->firstOrFail();
+            abort_unless($access->canManage($report, $actor), 403);
+        }
+
+        $this->resetEditor();
+        $this->redirect(route($this->reportIndexRoute($actor)), navigate: true);
+    }
+
     public function toggleMediaRemoval(int $mediaId, ReportAccess $access): void
     {
         $actor = $this->authorizeWorkspace($access);
-        $report = $this->selectedVisibleReport($access, $actor);
+        $report = $this->editingUuid === null
+            ? $this->selectedVisibleReport($access, $actor)
+            : $access->visibleQuery($actor)->where('uuid', $this->editingUuid)->firstOrFail();
         abort_unless($access->canManage($report, $actor), 403);
         $report->media()->findOrFail($mediaId);
 
@@ -452,6 +464,10 @@ class ReportWorkspace extends Component
     public function render(ReportAccess $access): View
     {
         $actor = $this->authorizeWorkspace($access);
+        if ($this->editorMode) {
+            return $this->renderEditor($access, $actor);
+        }
+
         $commentsEnabled = app(SettingService::class)->reportCommentsEnabled();
         if (! $commentsEnabled && $this->activeSection === 'comments') {
             $this->activeSection = 'report';
@@ -475,6 +491,7 @@ class ReportWorkspace extends Component
                         'reporter' => fn (MorphTo $relation) => $relation->morphWith([
                             User::class => ['departmentRecord'],
                         ]),
+                        'media' => fn ($relation) => $relation->limit(1),
                     ])
                     ->withCount('media');
                 if ($commentsEnabled) {
@@ -493,6 +510,12 @@ class ReportWorkspace extends Component
                 return $reports;
             },
         );
+        foreach ($reports as $feedReport) {
+            $feedMedia = $feedReport->media->first();
+            if ($feedMedia?->media_type === 'video' && $feedMedia->thumbnail_path === null) {
+                BuildReportVideoThumbnailJob::dispatch($feedMedia->id);
+            }
+        }
 
         if ($this->selectedReport === null && $reports->isNotEmpty()) {
             $this->selectedReport = $reports->first()->uuid;
@@ -565,7 +588,6 @@ class ReportWorkspace extends Component
             'hasMoreReports' => $totalReportCount > $this->reportLimit,
             'report' => $selected,
             'formattedReportBody' => $selected === null ? null : app(ReportBodyFormatter::class)->format($selected->body),
-            'formattedBodyPreview' => app(ReportBodyFormatter::class)->format($this->body),
             'mainComments' => $mainComments,
             'totalMainComments' => $totalMainComments,
             'hasMoreComments' => $totalMainComments > $this->commentLimit,
@@ -575,13 +597,49 @@ class ReportWorkspace extends Component
             'canEditReport' => $selected !== null && $access->canManage($selected, $actor),
             'canReply' => $selected !== null && $this->canReply($selected, $access, $actor),
             'reportCommentsEnabled' => $commentsEnabled,
-            'caseOptions' => $this->composerOpen ? $this->caseOptions($access, $actor) : collect(),
-            'personOptions' => $this->composerOpen ? $this->personOptions($access, $actor) : collect(),
             'department' => $currentDepartment,
         ])->extends($layout, [
             'page_title' => 'Report System — '.config('app.name'),
             'page_label' => 'REPORT SYSTEM',
         ])->section($isAdmin ? 'content' : 'department_content');
+    }
+
+    private function renderEditor(ReportAccess $access, Authenticatable $actor): View
+    {
+        $isAdmin = $access->isAdministrator($actor);
+        $report = $this->editingUuid === null
+            ? null
+            : $access->visibleQuery($actor)->where('uuid', $this->editingUuid)->with('media')->firstOrFail();
+        if ($report !== null) {
+            abort_unless($access->canManage($report, $actor), 403);
+        }
+
+        return view('livewire.report-editor', [
+            'report' => $report,
+            'draftKey' => 'report-editor-v1-'.hash(
+                'sha256',
+                $actor::class.':'.$actor->getAuthIdentifier().':'.($report?->uuid ?? 'new'),
+            ),
+            'isAdmin' => $isAdmin,
+            'canLinkCases' => $access->canLinkCases($actor),
+            'canLinkPeople' => $access->canLinkPeople($actor),
+            'caseOptions' => $this->caseOptions($access, $actor),
+            'personOptions' => $this->personOptions($access, $actor),
+        ])->extends($isAdmin ? 'layouts.app' : 'layouts.department', [
+            'page_title' => ($report === null ? 'Create Report' : 'Edit Report').' — '.config('app.name'),
+            'page_label' => 'REPORT EDITOR',
+        ])->section($isAdmin ? 'content' : 'department_content');
+    }
+
+    private function reportIndexRoute(Authenticatable $actor): string
+    {
+        if ($actor instanceof Admin) {
+            return 'admin.reports.index';
+        }
+
+        abort_unless($actor instanceof User && $actor->department !== null, 403);
+
+        return $actor->department.'.reports.index';
     }
 
     private function authorizeWorkspace(ReportAccess $access): Authenticatable
@@ -664,10 +722,10 @@ class ReportWorkspace extends Component
             'report-link:'.$actorKey.':'.hash('sha256', $search.':'.implode(',', $selectedIds)),
             now()->addSeconds(30),
             function () use ($search, $selectedIds): Collection {
-                $matches = $search === '' ? collect() : InvestigationCase::query()
-                    ->when($search !== '', function ($query) use ($search): void {
+                $matches = mb_strlen($search) < 2 ? collect() : InvestigationCase::query()
+                    ->when(mb_strlen($search) >= 2, function ($query) use ($search): void {
                         $term = '%'.$search.'%';
-                        $query->where(fn ($query) => $query->where('public_id', 'like', $term)->orWhere('title', 'like', $term));
+                        $query->where(fn ($query) => $query->where('public_id', 'like', $search.'%')->orWhere('title', 'like', $term));
                     })
                     ->latest('updated_at')
                     ->limit(20)
@@ -697,10 +755,10 @@ class ReportWorkspace extends Component
             'report-link:'.$actorKey.':'.hash('sha256', $search.':'.implode(',', $selectedIds)),
             now()->addSeconds(30),
             function () use ($search, $selectedIds): Collection {
-                $matches = $search === '' ? collect() : Person::query()
-                    ->when($search !== '', function ($query) use ($search): void {
+                $matches = mb_strlen($search) < 2 ? collect() : Person::query()
+                    ->when(mb_strlen($search) >= 2, function ($query) use ($search): void {
                         $term = '%'.$search.'%';
-                        $query->where(fn ($query) => $query->where('public_id', 'like', $term)->orWhere('name', 'like', $term));
+                        $query->where(fn ($query) => $query->where('public_id', 'like', $search.'%')->orWhere('name', 'like', $term));
                     })
                     ->latest('updated_at')
                     ->limit(20)
@@ -787,9 +845,8 @@ class ReportWorkspace extends Component
         }
     }
 
-    private function resetComposer(): void
+    private function resetEditor(): void
     {
-        $this->reportPreviewOpen = false;
         $this->reset([
             'editingUuid',
             'body',

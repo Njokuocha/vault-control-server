@@ -9,15 +9,31 @@ function syncEditor(editor) {
 
     state.value = editor.innerHTML;
     state.dispatchEvent(new Event('input', { bubbles: true }));
+    updateCharacterCounter(form);
+}
+
+function updateCharacterCounter(form) {
+    const counter = form?.querySelector('[data-mail-character-count]');
+    const editor = form?.querySelector('[data-admin-mail-editor]');
+    if (!counter || !editor) return;
+
+    const count = (editor.innerText || '').replace(/\r/g, '').length;
+    const recommended = counter.dataset.recommended;
+    const text = recommended === 'unlimited'
+        ? `${count.toLocaleString()} characters · unlimited`
+        : `${count.toLocaleString()} / ${Number(recommended).toLocaleString()} recommended`;
+    if (counter.textContent !== text) counter.textContent = text;
+    counter.classList.toggle('is-over-recommended', recommended !== 'unlimited' && count > Number(recommended));
 }
 
 function initializeEditors() {
     document.querySelectorAll('[data-admin-mail-editor]').forEach((editor) => {
-        if (editor.dataset.initialized === 'true') return;
-
-        const state = editor.closest('[data-admin-mail-composer]')?.querySelector('[data-admin-mail-editor-state]');
-        if (state?.value) editor.innerHTML = state.value;
-        editor.dataset.initialized = 'true';
+        if (editor.dataset.initialized !== 'true') {
+            const state = editor.closest('[data-admin-mail-composer]')?.querySelector('[data-admin-mail-editor-state]');
+            if (state?.value) editor.innerHTML = state.value;
+            editor.dataset.initialized = 'true';
+        }
+        updateCharacterCounter(editor.closest('[data-admin-mail-composer]'));
     });
 }
 
@@ -62,6 +78,8 @@ document.addEventListener('input', (event) => {
         syncEditor(event.target);
     }
 });
+
+document.addEventListener('admin-mail-template-updated', initializeEditors);
 
 document.addEventListener('admin-mail-editor-reset', () => {
     const editor = document.querySelector('[data-admin-mail-editor]');

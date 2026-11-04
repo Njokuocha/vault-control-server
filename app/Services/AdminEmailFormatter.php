@@ -12,6 +12,7 @@ class AdminEmailFormatter
     private const ALLOWED_ELEMENTS = [
         'a',
         'blockquote',
+        'b',
         'br',
         'div',
         'em',
@@ -28,6 +29,16 @@ class AdminEmailFormatter
         'ul',
     ];
 
+    private const EMAIL_LAYOUT_ELEMENTS = [
+        'hr',
+        'span',
+        'table',
+        'tbody',
+        'td',
+        'th',
+        'tr',
+    ];
+
     private const REMOVED_ELEMENTS = [
         'iframe',
         'math',
@@ -40,6 +51,19 @@ class AdminEmailFormatter
     ];
 
     public function sanitize(string $html): string
+    {
+        return $this->sanitizeHtml($html, self::ALLOWED_ELEMENTS, false);
+    }
+
+    public function sanitizeForEmail(string $html): string
+    {
+        return $this->sanitizeHtml($html, [...self::ALLOWED_ELEMENTS, ...self::EMAIL_LAYOUT_ELEMENTS], true);
+    }
+
+    /**
+     * @param  array<int, string>  $allowedElements
+     */
+    private function sanitizeHtml(string $html, array $allowedElements, bool $allowInlineStyles): string
     {
         if (! class_exists(DOMDocument::class)) {
             throw new RuntimeException('The HTML parser extension is required to format outgoing mail safely.');
@@ -59,7 +83,7 @@ class AdminEmailFormatter
                 throw new RuntimeException('The outgoing email body could not be parsed.');
             }
 
-            $this->sanitizeChildren($root);
+            $this->sanitizeChildren($root, $allowedElements, $allowInlineStyles);
 
             $output = '';
             foreach ($root->childNodes as $child) {
@@ -73,7 +97,10 @@ class AdminEmailFormatter
         }
     }
 
-    private function sanitizeChildren(DOMNode $parent): void
+    /**
+     * @param  array<int, string>  $allowedElements
+     */
+    private function sanitizeChildren(DOMNode $parent, array $allowedElements, bool $allowInlineStyles): void
     {
         foreach (iterator_to_array($parent->childNodes) as $child) {
             if (! $child instanceof DOMElement) {
@@ -91,8 +118,8 @@ class AdminEmailFormatter
                 continue;
             }
 
-            $this->sanitizeChildren($child);
-            if (! in_array($tag, self::ALLOWED_ELEMENTS, true)) {
+            $this->sanitizeChildren($child, $allowedElements, $allowInlineStyles);
+            if (! in_array($tag, $allowedElements, true)) {
                 while ($child->firstChild !== null) {
                     $parent->insertBefore($child->firstChild, $child);
                 }
@@ -101,17 +128,20 @@ class AdminEmailFormatter
                 continue;
             }
 
-            $this->sanitizeAttributes($child, $tag);
+            $this->sanitizeAttributes($child, $tag, $allowInlineStyles);
         }
     }
 
-    private function sanitizeAttributes(DOMElement $element, string $tag): void
+    private function sanitizeAttributes(DOMElement $element, string $tag, bool $allowInlineStyles): void
     {
         $href = $tag === 'a' && $element->hasAttribute('href')
             ? $this->safeLink($element->getAttribute('href'))
             : null;
         $title = $tag === 'a' && $element->hasAttribute('title')
             ? mb_substr($element->getAttribute('title'), 0, 255)
+            : null;
+        $style = $allowInlineStyles && $element->hasAttribute('style')
+            ? $this->safeStyle($element->getAttribute('style'))
             : null;
 
         while ($element->attributes->length > 0) {
@@ -125,6 +155,57 @@ class AdminEmailFormatter
         if ($title !== null) {
             $element->setAttribute('title', $title);
         }
+        if ($style !== null) {
+            $element->setAttribute('style', $style);
+        }
+    }
+
+    private function safeStyle(string $style): ?string
+    {
+        $allowedProperties = [
+            'background-color',
+            'border',
+            'border-collapse',
+            'border-left',
+            'border-radius',
+            'border-top',
+            'color',
+            'font-family',
+            'font-size',
+            'font-weight',
+            'height',
+            'line-height',
+            'margin',
+            'margin-bottom',
+            'margin-top',
+            'max-width',
+            'padding',
+            'padding-left',
+            'text-align',
+            'vertical-align',
+            'width',
+        ];
+        $safe = [];
+
+        foreach (explode(';', $style) as $declaration) {
+            if (! str_contains($declaration, ':')) {
+                continue;
+            }
+
+            [$property, $value] = array_map('trim', explode(':', $declaration, 2));
+            $property = strtolower($property);
+            if (
+                ! in_array($property, $allowedProperties, true)
+                || ! preg_match('/\A[#(),.%a-zA-Z0-9\s-]+\z/D', $value)
+                || preg_match('/url|expression|javascript|[<>\\\\]/i', $value)
+            ) {
+                continue;
+            }
+
+            $safe[] = $property.':'.$value;
+        }
+
+        return $safe === [] ? null : implode(';', $safe);
     }
 
     private function safeLink(string $url): ?string

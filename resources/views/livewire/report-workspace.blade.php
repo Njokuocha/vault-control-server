@@ -1,4 +1,7 @@
-<div class="content-inner report-system-page" data-report-selected-id="{{ $selectedReportId }}" x-data="{ composerOpen: @entangle('composerOpen'), reportPreviewOpen: @entangle('reportPreviewOpen') }" x-init="$watch('composerOpen', open => { if (!open) window.dispatchEvent(new Event('report-composer-closed')) })">
+<div class="content-inner report-system-page" data-report-selected-id="{{ $selectedReportId }}">
+    @if ($editorMode)
+        @include('livewire.report-editor')
+    @else
     <header class="report-system-heading">
         <div>
             <span class="section-kicker">AGENCY-WIDE INTELLIGENCE · INTERNAL REPORTING</span>
@@ -9,7 +12,7 @@
             @if ($isAdmin)
                 <a class="button-secondary" href="{{ route('admin.reports.manage') }}" wire:navigate>REPORT CONTROL</a>
             @endif
-            <button class="button-primary" type="button" x-on:click="composerOpen = true" wire:click="openComposer">＋ NEW REPORT</button>
+            <a class="button-primary" href="{{ route($isAdmin ? 'admin.reports.create' : $department.'.reports.create') }}" wire:navigate>＋ NEW REPORT</a>
         </div>
     </header>
 
@@ -29,7 +32,20 @@
                             @if ($reportCommentsEnabled && $feedReport->admin_commented)<b>ADMIN COMMENTED</b>@endif
                             @if ($feedReport->is_hidden)<em>RESTRICTED</em>@endif
                         </span>
-                        <strong>{{ \Illuminate\Support\Str::limit($feedReport->body, 115) }}</strong>
+                        <span class="report-feed-item__summary">
+                            <strong>{{ \Illuminate\Support\Str::limit(app(\App\Support\ReportBodyFormatter::class)->plainText($feedReport->body), 115) }}</strong>
+                            @if ($feedReport->media->isNotEmpty())
+                                @php($feedMedia = $feedReport->media->first())
+                                <span class="report-feed-item__thumbnail" aria-hidden="true">
+                                    @if ($feedMedia->media_type === 'image' || $feedMedia->thumbnail_path !== null)
+                                        <img src="{{ route('reports.media.thumbnail', [$feedReport, $feedMedia]) }}" alt="" loading="lazy" decoding="async">
+                                    @endif
+                                    @if ($feedMedia->media_type === 'video')
+                                        <i class="ri ri-play-fill"></i>
+                                    @endif
+                                </span>
+                            @endif
+                        </span>
                         <span class="report-feed-item__byline">{{ $reporter?->name ?? 'Former account' }}{{ $reportCommentsEnabled ? ' · '.$feedReport->comments_count.' comments' : '' }} · {{ $feedReport->media_count }} media</span>
                         @if ($reportCommentsEnabled && $feedReport->latestComment)
                             <span class="report-feed-item__latest"><i aria-hidden="true"></i><span><b>{{ $feedReport->latestComment->author?->name ?? 'Former account' }}:</b> {{ \Illuminate\Support\Str::limit($feedReport->latestComment->body, 78) }}</span></span>
@@ -71,7 +87,7 @@
                     </div>
                     <div class="report-detail-heading__actions">
                         @if ($canEditReport)
-                            <button class="button-secondary" type="button" x-on:click="composerOpen = true" wire:click="editReport('{{ $report->uuid }}')">EDIT REPORT</button>
+                            <a class="button-secondary" href="{{ route($isAdmin ? 'admin.reports.edit' : $department.'.reports.edit', ['uuid' => $report->uuid]) }}" wire:navigate>EDIT REPORT</a>
                         @endif
                         <span class="report-detail-status {{ $report->is_hidden ? 'is-restricted' : '' }}">{{ $report->is_hidden ? 'RESTRICTED' : 'INTERNAL' }}</span>
                     </div>
@@ -223,119 +239,12 @@
                     </section>
                     @endif
             @else
-                <div class="report-empty-state report-empty-state--detail"><span class="ri ri-radar-line" aria-hidden="true"></span><strong>AWAITING FIRST REPORT</strong><p>Publish a field report to begin the agency situation record.</p><button class="button-primary" type="button" x-on:click="composerOpen = true" wire:click="openComposer">＋ CREATE REPORT</button></div>
+                <div class="report-empty-state report-empty-state--detail"><span class="ri ri-radar-line" aria-hidden="true"></span><strong>AWAITING FIRST REPORT</strong><p>Publish a field report to begin the agency situation record.</p><a class="button-primary" href="{{ route($isAdmin ? 'admin.reports.create' : $department.'.reports.create') }}" wire:navigate>＋ CREATE REPORT</a></div>
             @endif
         </main>
     </div>
 
-        <div class="report-modal-backdrop" data-report-composer-backdrop role="presentation" x-show="composerOpen" x-cloak>
-            <section class="report-composer-modal" data-report-composer role="dialog" aria-modal="true" aria-labelledby="report-composer-title">
-                <header><div><span class="section-kicker">{{ $editingUuid ? 'UPDATE RECORD' : 'NEW SITUATION REPORT' }}</span><h2 id="report-composer-title">{{ $editingUuid ? 'Edit report' : 'Publish a report' }}</h2></div><button type="button" data-report-composer-close aria-label="Close report form" x-on:click="composerOpen = false" wire:click="closeComposer">×</button></header>
-                <form wire:submit="saveReport">
-                    <label class="report-form-label" for="report-body">REPORT NARRATIVE <span>NO TITLE REQUIRED</span></label>
-                    <div class="report-editor-tools" role="toolbar" aria-label="Report text formatting">
-                        <button type="button" data-report-format-command="bold" aria-label="Bold" title="Bold"><strong>B</strong></button>
-                        <button type="button" data-report-format-command="italic" aria-label="Italic" title="Italic"><em>I</em></button>
-                        <button type="button" data-report-format-command="underline" aria-label="Underline" title="Underline"><u>U</u></button>
-                        <button type="button" data-report-format-command="strikeThrough" aria-label="Strikethrough" title="Strikethrough"><s>S</s></button>
-                        <span aria-hidden="true"></span>
-                        <button type="button" data-report-format-command="insertUnorderedList" aria-label="Bulleted list" title="Bulleted list"><i class="ri ri-list-unordered"></i></button>
-                        <button type="button" data-report-format-command="insertOrderedList" aria-label="Numbered list" title="Numbered list"><i class="ri ri-list-ordered"></i></button>
-                        <button type="button" data-report-format-command="formatBlock" data-report-format-value="blockquote" aria-label="Quote" title="Quote"><i class="ri ri-double-quotes-l"></i></button>
-                        <button type="button" data-report-format-command="removeFormat" aria-label="Clear formatting" title="Clear formatting"><i class="ri ri-format-clear"></i></button>
-                        <button class="report-editor-preview-trigger" type="button" wire:click="openReportPreview" aria-label="Preview report"><i class="ri ri-eye-line" aria-hidden="true"></i> PREVIEW</button>
-                    </div>
-                    <div id="report-body" class="report-rich-editor" data-report-editor contenteditable="true" role="textbox" aria-multiline="true" aria-label="Report narrative" data-placeholder="Record the event, timing, location, source, and operational context…">{!! app(\App\Support\ReportBodyFormatter::class)->format($body) !!}</div>
-                    @error('body')<small class="report-form-error">{{ $message }}</small>@enderror
-
-                    @if ($report && $report->uuid === $editingUuid && $report->media->isNotEmpty())
-                        <div class="report-existing-media"><span class="report-form-label">CURRENT MEDIA · SELECT TO REMOVE</span><div>
-                            @foreach ($report->media as $media)
-                                <button type="button" data-report-media-toggle class="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'is-marked-remove' : '' }}" wire:click="toggleMediaRemoval({{ $media->id }})" aria-label="{{ in_array($media->id, array_map('intval', $removeMediaIds), true) ? 'Keep' : 'Remove' }} attachment {{ $loop->iteration }}">
-                                    @if ($media->media_type === 'image')<img src="{{ route('reports.media.thumbnail', [$report, $media]) }}" alt="Report attachment {{ $loop->iteration }}">
-                                    @else <video wire:key="report-edit-video-{{ $report->id }}-{{ $media->id }}" class="report-video-thumbnail" data-report-video-thumbnail data-thumbnail-url="{{ route('reports.media', [$report, $media]) }}" preload="none" muted playsinline hidden aria-hidden="true"></video><span class="report-video-mark" aria-hidden="true"><i class="ri ri-play-fill"></i></span>@endif
-                                </button>
-                            @endforeach
-                        </div></div>
-                    @endif
-
-                    <label class="report-form-label" for="report-uploads">IMAGE / VIDEO ATTACHMENTS <span>UP TO 12 · 50 MB EACH</span></label>
-                    <label class="report-file-picker" for="report-uploads">
-                        <i class="ri ri-upload-cloud-2-line" aria-hidden="true"></i>
-                        <span><strong>Choose images or videos</strong><small>Multiple files · Images and video up to 50 MB each</small></span>
-                        <b>SELECT FILES</b>
-                        <input id="report-uploads" type="file" wire:model="uploads" accept="image/jpeg,image/png,image/gif,image/webp,image/avif,video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska" multiple data-report-files>
-                    </label>
-                    <div class="report-upload-previews" data-report-previews wire:ignore aria-live="polite"></div>
-                    <div wire:loading wire:target="uploads" class="report-upload-progress">SECURELY PREPARING SELECTED MEDIA…</div>
-                    @error('uploads')<small class="report-form-error">{{ $message }}</small>@enderror
-                    @error('uploads.*')<small class="report-form-error">{{ $message }}</small>@enderror
-
-                    @if ($canLinkCases)
-                        <label class="report-form-label" for="report-case-search">LINK CASE FILES <span>AVAILABLE TO CFM / ADMIN</span></label>
-                        <input id="report-case-search" type="search" wire:model.live.debounce.300ms="caseSearch" placeholder="Search case reference or title">
-                        @php($selectedCaseIds = array_map('intval', $caseIds))
-                        <div class="report-link-selected" aria-label="Selected case files">
-                            @forelse ($caseOptions->whereIn('id', $selectedCaseIds) as $caseOption)
-                                <article class="report-link-card">
-                                    <span class="report-link-card__icon ri ri-folder-shield-2-line" aria-hidden="true"></span>
-                                    <span class="report-link-card__copy"><strong>{{ $caseOption->public_id }}</strong><small>{{ $caseOption->title }}</small></span>
-                                    <button type="button" wire:click="toggleCaseLink({{ $caseOption->id }})" wire:loading.attr="disabled" wire:target="toggleCaseLink" aria-label="Remove {{ $caseOption->public_id }} from this report"><i class="ri ri-close-line" aria-hidden="true"></i></button>
-                                </article>
-                            @empty
-                                <p class="report-link-empty">No case files selected yet.</p>
-                            @endforelse
-                        </div>
-                        <div class="report-link-results" aria-label="Matching case files">
-                            @forelse ($caseOptions->whereNotIn('id', $selectedCaseIds) as $caseOption)
-                                <button class="report-link-result" type="button" wire:click="toggleCaseLink({{ $caseOption->id }})" wire:loading.attr="disabled" wire:target="toggleCaseLink" aria-label="Link {{ $caseOption->public_id }}">
-                                    <i class="ri ri-add-line" aria-hidden="true"></i><span><strong>{{ $caseOption->public_id }}</strong><small>{{ $caseOption->title }}</small></span>
-                                </button>
-                            @empty
-                                <p class="report-link-empty">{{ trim($caseSearch) === '' ? 'Type a case reference or title to find records.' : 'No matching case files.' }}</p>
-                            @endforelse
-                        </div>
-                        @error('caseIds')<small class="report-form-error">{{ $message }}</small>@enderror
-                    @endif
-                    @if ($canLinkPeople)
-                        <label class="report-form-label" for="report-person-search">LINK PERSON RECORDS <span>AVAILABLE TO PM / ADMIN</span></label>
-                        <input id="report-person-search" type="search" wire:model.live.debounce.300ms="personSearch" placeholder="Search person reference or name">
-                        @php($selectedPersonIds = array_map('intval', $personIds))
-                        <div class="report-link-selected" aria-label="Selected person records">
-                            @forelse ($personOptions->whereIn('id', $selectedPersonIds) as $personOption)
-                                <article class="report-link-card">
-                                    <span class="report-link-card__icon ri ri-user-search-line" aria-hidden="true"></span>
-                                    <span class="report-link-card__copy"><strong>{{ $personOption->public_id }}</strong><small>{{ $personOption->name }}</small></span>
-                                    <button type="button" wire:click="togglePersonLink({{ $personOption->id }})" wire:loading.attr="disabled" wire:target="togglePersonLink" aria-label="Remove {{ $personOption->public_id }} from this report"><i class="ri ri-close-line" aria-hidden="true"></i></button>
-                                </article>
-                            @empty
-                                <p class="report-link-empty">No person records selected yet.</p>
-                            @endforelse
-                        </div>
-                        <div class="report-link-results" aria-label="Matching person records">
-                            @forelse ($personOptions->whereNotIn('id', $selectedPersonIds) as $personOption)
-                                <button class="report-link-result" type="button" wire:click="togglePersonLink({{ $personOption->id }})" wire:loading.attr="disabled" wire:target="togglePersonLink" aria-label="Link {{ $personOption->public_id }}">
-                                    <i class="ri ri-add-line" aria-hidden="true"></i><span><strong>{{ $personOption->public_id }}</strong><small>{{ $personOption->name }}</small></span>
-                                </button>
-                            @empty
-                                <p class="report-link-empty">{{ trim($personSearch) === '' ? 'Type a person reference or name to find records.' : 'No matching person records.' }}</p>
-                            @endforelse
-                        </div>
-                        @error('personIds')<small class="report-form-error">{{ $message }}</small>@enderror
-                    @endif
-                    @error('caseIds.*')<small class="report-form-error">{{ $message }}</small>@enderror
-                    @error('personIds.*')<small class="report-form-error">{{ $message }}</small>@enderror
-
-                    <footer><button class="button-primary" type="submit" wire:loading.attr="disabled" wire:target="saveReport,uploads"><span wire:loading.remove wire:target="saveReport,uploads"> {{ $editingUuid ? 'SAVE REPORT' : 'PUBLISH REPORT' }}</span><span wire:loading wire:target="uploads">PREPARING MEDIA…</span><span wire:loading wire:target="saveReport">PUBLISHING…</span></button></footer>
-                </form>
-            </section>
-        </div>
-        <div class="report-preview-backdrop" data-report-preview-backdrop role="presentation" x-show="reportPreviewOpen && composerOpen" x-cloak>
-            <section class="report-preview-modal" role="dialog" aria-modal="true" aria-labelledby="report-preview-title">
-                <header><div><span class="section-kicker">REPORT PREVIEW</span><h2 id="report-preview-title">Situation report</h2></div><button type="button" wire:click="closeReportPreview" aria-label="Close report preview">×</button></header>
-                <div class="report-preview-content">{{ $formattedBodyPreview }}</div>
-            </section>
-        </div>
+    @endif
     @if ($report && $report->media->isNotEmpty())
         <div data-report-gallery-data hidden>
             @foreach ($report->media as $media)

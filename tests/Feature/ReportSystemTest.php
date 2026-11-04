@@ -1,6 +1,7 @@
 <?php
 
 use App\Events\AgencyReportUpdated;
+use App\Jobs\BuildReportVideoThumbnailJob;
 use App\Livewire\Admin\ReportManagement;
 use App\Livewire\CaseDossier;
 use App\Livewire\ReportWorkspace;
@@ -17,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -78,6 +80,128 @@ test('active staff in each department and administrators can open the agency rep
         ->assertSee('data-vault-image-extension', false)
         ->assertSee('report-feed-item__spinner', false)
         ->assertSee(route('admin.reports.manage'), false);
+});
+
+test('report editor has create and edit routes and the feed shows plain text beside first media', function () {
+    Queue::fake();
+    Storage::fake(config('vault.upload_disk', 'vault'));
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $report = createTestReport($reporter, '<p>Feed <strong>bold</strong> observation</p>');
+    $path = "reports/{$report->id}/feed-video.mp4";
+    Storage::disk(config('vault.upload_disk', 'vault'))->put($path, 'video');
+    $thumbnailPath = 'renditions/report-video-posters/feed-video.jpg';
+    Storage::disk(config('vault.upload_disk', 'vault'))->put($thumbnailPath, 'poster');
+    $media = $report->media()->create([
+        'path' => $path,
+        'thumbnail_path' => $thumbnailPath,
+        'original_name' => 'feed-video.mp4',
+        'mime_type' => 'video/mp4',
+        'media_type' => 'video',
+        'size' => 5,
+        'sort_order' => 0,
+    ]);
+
+    $this->actingAs($reporter, 'web')
+        ->get(route('cfm.reports.create'))
+        ->assertOk()
+        ->assertSee('report-editor-page', false)
+        ->assertSee('data-report-editor', false)
+        ->assertDontSee('SITUATION FEED')
+        ->assertSee(route('cfm.reports.index'), false);
+
+    $this->get(route('cfm.reports.edit', ['uuid' => $report->uuid]))
+        ->assertOk()
+        ->assertSee('Feed <strong>bold</strong> observation', false)
+        ->assertSee('SAVE REPORT');
+
+    $this->get(route('cfm.reports.index'))
+        ->assertOk()
+        ->assertSee('<strong>Feed bold observation</strong>', false)
+        ->assertSee('report-feed-item__thumbnail', false)
+        ->assertSee(route('reports.media.thumbnail', ['report' => $report, 'media' => $media]), false)
+        ->assertSee('<i class="ri ri-play-fill"></i>', false)
+        ->assertDontSee('data-report-lazy-thumbnail', false)
+        ->assertDontSee('class="report-feed-item__summary"><strong>Feed <strong>bold</strong>', false);
+
+    $otherStaff = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $this->actingAs($otherStaff, 'web')
+        ->get(route('cfm.reports.edit', ['uuid' => $report->uuid]))
+        ->assertForbidden();
+});
+
+test('report video posters are stored privately and served through authorized thumbnails', function () {
+    Queue::fake();
+    Storage::fake(config('vault.upload_disk', 'vault'));
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $report = createTestReport($reporter);
+    $sourcePath = "reports/{$report->uuid}/report-video.mp4";
+    Storage::disk(config('vault.upload_disk', 'vault'))->put($sourcePath, 'video');
+    $media = $report->media()->create([
+        'path' => $sourcePath,
+        'original_name' => 'report-video.mp4',
+        'mime_type' => 'video/mp4',
+        'media_type' => 'video',
+        'size' => 5,
+    ]);
+    $thumbnailPath = 'renditions/report-video-posters/report-video.jpg';
+    Storage::disk(config('vault.upload_disk', 'vault'))->put($thumbnailPath, 'poster');
+    $media->forceFill(['thumbnail_path' => $thumbnailPath])->save();
+
+    Queue::assertPushed(
+        BuildReportVideoThumbnailJob::class,
+        fn (BuildReportVideoThumbnailJob $job): bool => $job->reportMediaId === $media->id
+            && $job->queue === 'video-processing',
+    );
+
+    $this->actingAs($reporter, 'web')
+        ->get(route('reports.media.thumbnail', ['report' => $report, 'media' => $media]))
+        ->assertOk()
+        ->assertHeader('Content-Type', 'image/jpeg')
+        ->assertStreamedContent('poster');
+
+    $this->get(route('reports.media.thumbnail', [
+        'report' => createTestReport($reporter),
+        'media' => $media,
+    ]))->assertNotFound();
+});
+
+test('situation feed queues thumbnails for existing report videos without posters', function () {
+    Queue::fake();
+    Storage::fake(config('vault.upload_disk', 'vault'));
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $report = createTestReport($reporter);
+    $sourcePath = "reports/{$report->uuid}/legacy-video.mp4";
+    Storage::disk(config('vault.upload_disk', 'vault'))->put($sourcePath, 'video');
+    $media = $report->media()->create([
+        'path' => $sourcePath,
+        'original_name' => 'legacy-video.mp4',
+        'mime_type' => 'video/mp4',
+        'media_type' => 'video',
+        'size' => 5,
+    ]);
+
+    Livewire::actingAs($reporter, 'web')
+        ->test(ReportWorkspace::class)
+        ->assertSee('ri-play-fill', false)
+        ->assertDontSee('data-report-lazy-thumbnail', false);
+
+    Queue::assertPushed(
+        BuildReportVideoThumbnailJob::class,
+        fn (BuildReportVideoThumbnailJob $job): bool => $job->reportMediaId === $media->id
+            && $job->queue === 'video-processing',
+    );
 });
 
 test('staff can publish reports with permitted case and person links and reciprocal record pages show them', function () {
@@ -160,9 +284,9 @@ test('report composer searches and lets administrators add or remove multiple ca
 
     Livewire::actingAs($admin, 'admin')
         ->test(ReportWorkspace::class)
-        ->call('openComposer')
-        ->assertSee('Type a case reference or title to find records.')
-        ->assertSee('Type a person reference or name to find records.')
+        ->set('editorMode', true)
+        ->assertSee('Type at least 2 characters to search case files.')
+        ->assertSee('Type at least 2 characters to search people.')
         ->set('caseSearch', 'CSE-SELECT-01')
         ->assertSee('First selectable case')
         ->call('toggleCaseLink', $firstCase->id)
@@ -387,6 +511,7 @@ test('hidden reports are restricted to administrators and their reporter', funct
 
 test('administrators may delete reports with comments and media but record links block deletion', function () {
     Event::fake([AgencyReportUpdated::class]);
+    Queue::fake();
     Storage::fake(config('vault.upload_disk', 'vault'));
     $admin = createReportSystemAdmin();
     $reporter = User::factory()->create([
@@ -460,11 +585,12 @@ test('report attachment preview host is ignored by Livewire DOM morphing', funct
 
     Livewire::actingAs($staff, 'web')
         ->test(ReportWorkspace::class)
-        ->call('openComposer')
+        ->set('editorMode', true)
         ->assertSee('data-report-previews wire:ignore', false);
 });
 
 test('report media previews include videos in detail and gallery without exposing media names', function () {
+    Queue::fake();
     Storage::fake(config('vault.upload_disk', 'vault'));
     $reporter = User::factory()->create([
         'department' => 'cfm',
@@ -505,7 +631,8 @@ test('report media previews include videos in detail and gallery without exposin
         ->assertDontSee('evidence-image-three-secret.jpg')
         ->assertDontSee('evidence-image-four-secret.jpg');
 
-    $workspace->call('editReport', $report->uuid)
+    $this->get(route('cfm.reports.edit', ['uuid' => $report->uuid]))
+        ->assertOk()
         ->assertSee('data-report-video-thumbnail', false)
         ->assertSee('wire:key="report-edit-video-'.$report->id.'-'.$video->id.'"', false)
         ->assertDontSee('evidence-video-secret.mp4')
@@ -516,6 +643,7 @@ test('report media previews include videos in detail and gallery without exposin
 });
 
 test('switching reports replaces video thumbnails with the selected report media', function () {
+    Queue::fake();
     Storage::fake(config('vault.upload_disk', 'vault'));
     $reporter = User::factory()->create([
         'department' => 'cfm',
@@ -547,7 +675,7 @@ test('switching reports replaces video thumbnails with the selected report media
         ->assertSee(route('reports.media', ['report' => $secondReport, 'media' => $videos[1]]), false)
         ->assertDontSee(route('reports.media', ['report' => $firstReport, 'media' => $videos[0]]), false);
 
-    $workspace->call('openComposer')
+    $workspace->set('editorMode', true)
         ->assertSee('data-report-editor contenteditable="true"', false)
         ->assertSee('PREPARING MEDIA…')
         ->assertSee('PUBLISHING…');
@@ -558,37 +686,97 @@ test('report editor provides rich formatting tools and a separate safe preview o
         'department' => 'cfm',
         'account_status' => 'active',
     ]);
-    $body = '<p>Formatted <strong>bold</strong>, <em>italic</em>, <u>underlined</u> and _#literal marker_#.</p><script>alert(1)</script>';
+    $body = '<h2>Situation title</h2><h3>Important caption</h3><p>Formatted <strong>bold</strong>, <b>browser bold</b>, <em>italic</em>, <u>underlined</u> and _#literal marker_#.</p><script>alert(1)</script>';
     $workspace = Livewire::actingAs($reporter, 'web')
         ->test(ReportWorkspace::class)
-        ->call('openComposer')
+        ->set('editorMode', true)
         ->assertSee('data-report-format-command="bold"', false)
         ->assertSee('data-report-format-command="italic"', false)
         ->assertSee('data-report-format-command="underline"', false)
         ->assertSee('data-report-format-command="insertUnorderedList"', false)
+        ->assertSee('data-report-font-size', false)
+        ->assertSee('Section title')
+        ->assertSee('Caption')
         ->assertSee('data-report-editor contenteditable="true"', false)
+        ->assertSee('data-report-preview-content', false)
+        ->assertSee('data-report-preview-backdrop hidden', false)
         ->assertDontSee('Formatting:', false)
         ->assertDontSee('report-format-preview', false)
         ->assertDontSee('x-on:click.self', false)
         ->set('body', $body)
-        ->call('openReportPreview')
-        ->assertSee('data-report-preview-backdrop', false)
-        ->assertSee('<strong>bold</strong>', false)
-        ->assertSee('_#literal marker_#')
-        ->assertDontSee('<script>alert(1)</script>', false)
         ->call('saveReport')
-        ->assertHasNoErrors()
-        ->assertSee('<strong>bold</strong>', false)
-        ->assertSee('_#literal marker_#')
-        ->assertDontSee('<script>alert(1)</script>', false);
+        ->assertHasNoErrors();
     $report = Report::query()->where('body', 'like', '%Formatted%')->firstOrFail();
+    expect($report->body)
+        ->toContain('<h2>Situation title</h2>')
+        ->toContain('<h3>Important caption</h3>')
+        ->toContain('<strong>bold</strong>')
+        ->toContain('<b>browser bold</b>')
+        ->toContain('_#literal marker_#')
+        ->not->toContain('<script>');
+    $workspace->assertRedirect(route('cfm.reports.index', ['report' => $report->uuid]));
 
-    $workspace->call('editReport', $report->uuid)
+    $this->get(route('cfm.reports.edit', ['uuid' => $report->uuid]))
+        ->assertOk()
         ->assertSee('<strong>bold</strong>', false)
+        ->assertSee('<h2>Situation title</h2>', false)
+        ->assertSee('<h3>Important caption</h3>', false)
         ->assertSee('_#literal marker_#')
         ->assertDontSee('<script>alert(1)</script>', false)
-        ->call('closeReportPreview')
-        ->assertSet('reportPreviewOpen', false);
+        ->assertSee('data-report-preview-open', false);
+});
+
+test('report editor exposes local draft controls and discard redirects without publishing', function () {
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+
+    $this->actingAs($reporter, 'web')
+        ->get(route('cfm.reports.create'))
+        ->assertOk()
+        ->assertSee('data-report-draft-key', false)
+        ->assertSee('data-report-dropzone', false)
+        ->assertSee('data-report-files', false)
+        ->assertSee('data-report-draft-status', false)
+        ->assertSee('data-report-discard', false);
+
+    Livewire::actingAs($reporter, 'web')
+        ->test(ReportWorkspace::class)
+        ->set('editorMode', true)
+        ->set('body', '<p>Unpublished draft.</p>')
+        ->call('discardReport')
+        ->assertRedirect(route('cfm.reports.index'));
+
+    expect(Report::query()->count())->toBe(0);
+});
+
+test('existing report attachments can be individually marked for removal while editing', function () {
+    Queue::fake();
+    Storage::fake(config('vault.upload_disk', 'vault'));
+    $reporter = User::factory()->create([
+        'department' => 'cfm',
+        'account_status' => 'active',
+    ]);
+    $report = createTestReport($reporter);
+    $path = "reports/{$report->uuid}/existing-image.jpg";
+    Storage::disk(config('vault.upload_disk', 'vault'))->put($path, 'image');
+    $media = $report->media()->create([
+        'path' => $path,
+        'original_name' => 'existing-image.jpg',
+        'mime_type' => 'image/jpeg',
+        'media_type' => 'image',
+        'size' => 5,
+    ]);
+
+    Livewire::actingAs($reporter, 'web')
+        ->test(ReportWorkspace::class)
+        ->set('editorMode', true)
+        ->set('editingUuid', $report->uuid)
+        ->call('toggleMediaRemoval', $media->id)
+        ->assertSet('removeMediaIds', [$media->id])
+        ->call('toggleMediaRemoval', $media->id)
+        ->assertSet('removeMediaIds', []);
 });
 
 test('report media remains private and supports byte-range playback', function () {

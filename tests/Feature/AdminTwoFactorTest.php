@@ -108,6 +108,12 @@ test('admin password sign-in requires an emailed code which survives a page refr
 
     $this->assertAuthenticatedAs($admin, 'admin');
     expect(session()->has('admin_otp_challenge'))->toBeFalse();
+    $this->get(route('dashboard.index'))
+        ->assertOk()
+        ->assertSee('data-authentication-intro', false);
+    $this->get(route('dashboard.index'))
+        ->assertOk()
+        ->assertDontSee('data-authentication-intro', false);
 });
 
 test('incorrect and expired verification codes cannot authenticate the administrator', function () {

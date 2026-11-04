@@ -32,7 +32,7 @@ class OutgoingAgencyMail extends Mailable
     {
         return new Content(
             view: 'emails.agency-message',
-            with: ['bodyHtml' => app(AdminEmailFormatter::class)->sanitize($this->email->body_html)],
+            with: ['bodyHtml' => app(AdminEmailFormatter::class)->sanitizeForEmail($this->email->body_html)],
         );
     }
 

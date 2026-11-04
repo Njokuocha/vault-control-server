@@ -19,7 +19,7 @@ class ReportMediaController extends Controller
 
     public function thumbnail(Report $report, ReportMedia $media, ReportAccess $access): Response
     {
-        abort_unless($media->media_type === 'image', 404);
+        abort_unless(in_array($media->media_type, ['image', 'video'], true), 404);
 
         return $this->stream($report, $media, $access, true);
     }
@@ -28,7 +28,7 @@ class ReportMediaController extends Controller
     {
         abort_unless($media->report_id === $report->id && $access->canView($report), 404);
         abort_unless(
-            in_array($media->media_type, $thumbnail ? ['image'] : ['image', 'video'], true)
+            in_array($media->media_type, ['image', 'video'], true)
                 && (
                     str_starts_with($media->path, 'reports/'.$report->id.'/')
                     || str_starts_with($media->path, 'reports/'.$report->uuid.'/')
@@ -38,8 +38,19 @@ class ReportMediaController extends Controller
 
         $path = $media->path;
         if ($thumbnail) {
-            $thumbnailPath = app(ImageThumbnailService::class)->thumbnailPath($path);
-            if (Storage::disk(config('vault.upload_disk', 'vault'))->exists($thumbnailPath)) {
+            if ($media->media_type === 'image') {
+                $thumbnailPath = app(ImageThumbnailService::class)->thumbnailPath($path);
+                if (Storage::disk(config('vault.upload_disk', 'vault'))->exists($thumbnailPath)) {
+                    $path = $thumbnailPath;
+                }
+            } else {
+                $thumbnailPath = $media->thumbnail_path;
+                abort_unless(
+                    is_string($thumbnailPath)
+                        && str_starts_with($thumbnailPath, 'renditions/report-video-posters/')
+                        && Storage::disk(config('vault.upload_disk', 'vault'))->exists($thumbnailPath),
+                    404,
+                );
                 $path = $thumbnailPath;
             }
         }

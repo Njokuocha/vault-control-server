@@ -19,6 +19,7 @@ let grayscaleEnabled = false;
 let downloadBusyTimer = null;
 let standardControlsTimer = null;
 let videoFitIndex = 0;
+const boundDialogs = new WeakSet();
 const videoFitModes = [
     { key: 'auto', label: 'AUTO', title: 'Auto fit' },
     { key: '16:9', label: '16:9', title: '16:9 aspect ratio' },
@@ -376,107 +377,30 @@ const refreshViewer = () => {
     professionalHud = dialog.querySelector('[data-video-professional-hud]');
     professionalControls = dialog.querySelector('[data-video-professional-controls]');
     setVideoFit(videoFitIndex);
+    bindViewerEvents(dialog);
 };
 
-export async function openVaultVideoViewer({
-    src,
-    source: requestedSource = src,
-    name = 'Video preview',
-    downloadUrl = requestedSource,
-    mimeType,
-    returnFocus: focusTarget = document.activeElement,
-    autoplay = false,
-} = {}) {
-    refreshViewer();
-    if (!(dialog instanceof HTMLDialogElement) || !(playerHost instanceof HTMLElement)) {
-        window.vaultAlert?.({ type: 'error', message: 'The shared video viewer is unavailable on this page.' });
-        return;
-    }
-    if (!requestedSource) {
-        window.vaultAlert?.({ type: 'error', message: 'The video preview is missing its authorized source URL.' });
-        return;
-    }
+const bindViewerEvents = (boundDialog) => {
+    if (boundDialogs.has(boundDialog)) return;
+    boundDialogs.add(boundDialog);
+    const isCurrentDialog = () => dialog === boundDialog;
 
-    modeChange += 1;
-    const transition = modeChange;
-    disposePlayer();
-    returnFocus = focusTarget instanceof HTMLElement ? focusTarget : null;
-    source = String(requestedSource);
-    sourceType = mimeType || null;
-    autoplayOnOpen = autoplay;
-    grayscaleEnabled = false;
-    videoFitIndex = 0;
-    setVideoFit(videoFitIndex);
-    if (title) title.textContent = name;
-    if (download instanceof HTMLAnchorElement) {
-        setDownloadBusy(false);
-        download.href = downloadUrl;
-        download.download = name;
-    }
-    if (fallback) fallback.hidden = true;
-    updateModeButtons(activeMode);
-    if (!dialog.open) dialog.showModal();
-    try {
-        await createPlayerForMode(activeMode, {
-            currentTime: 0,
-            paused: !autoplay,
-            volume: 1,
-            muted: false,
-            loop: false,
-            playbackRate: 1,
-            grayscale: false,
-        }, transition);
-    } catch (error) {
-        if (fallback) {
-            fallback.textContent = 'The selected player mode could not be loaded. Normal mode is available.';
-            fallback.hidden = false;
-        }
-        activeMode = 'normal';
-        updateModeButtons(activeMode);
-        await createPlayerForMode(activeMode, {
-            currentTime: 0,
-            paused: !autoplay,
-            volume: 1,
-            muted: false,
-            loop: false,
-            playbackRate: 1,
-            grayscale: false,
-        }, transition);
-        window.vaultAlert?.({
-            type: 'error',
-            message: error instanceof Error ? error.message : 'Could not load the selected video player mode.',
-        });
-    }
-};
-
-const closeViewer = () => {
-    modeChange += 1;
-    hideStandardControls();
-    disposePlayer();
-    source = null;
-    sourceType = null;
-    autoplayOnOpen = false;
-    grayscaleEnabled = false;
-    if (download instanceof HTMLAnchorElement) {
-        setDownloadBusy(false);
-        download.removeAttribute('href');
-    }
-    if (fallback) fallback.hidden = true;
-    const trigger = returnFocus;
-    returnFocus = null;
-    trigger?.focus();
-};
-
-refreshViewer();
-
-if (dialog instanceof HTMLDialogElement) {
-    dialog.addEventListener('pointermove', showStandardControls);
-    dialog.addEventListener('pointerdown', showStandardControls);
-    dialog.addEventListener('keydown', showStandardControls);
-    dialog.addEventListener('mouseenter', showStandardControls);
-    dialog.addEventListener('click', (event) => {
-        if (event.target === dialog || event.target instanceof Element && event.target.closest('[data-close-video-viewer]')) {
-            dialog.close();
+    boundDialog.addEventListener('pointermove', () => {
+        if (isCurrentDialog()) showStandardControls();
+    });
+    boundDialog.addEventListener('pointerdown', () => {
+        if (isCurrentDialog()) showStandardControls();
+    });
+    boundDialog.addEventListener('keydown', () => {
+        if (isCurrentDialog()) showStandardControls();
+    });
+    boundDialog.addEventListener('mouseenter', () => {
+        if (isCurrentDialog()) showStandardControls();
+    });
+    boundDialog.addEventListener('click', (event) => {
+        if (!isCurrentDialog()) return;
+        if (event.target === boundDialog || event.target instanceof Element && event.target.closest('[data-close-video-viewer]')) {
+            boundDialog.close();
             return;
         }
 
@@ -542,8 +466,10 @@ if (dialog instanceof HTMLDialogElement) {
         syncControls();
     });
 
-    dialog.addEventListener('input', (event) => {
-        if (!(event.target instanceof HTMLInputElement) || !video) return;
+    boundDialog.addEventListener('input', (event) => {
+        if (!isCurrentDialog()
+            || !(event.target instanceof HTMLInputElement)
+            || !video) return;
         if (event.target.matches('[data-video-seek]')) {
             const total = duration();
             if (total > 0) setCurrentTime((Number(event.target.value) / 1000) * total);
@@ -559,15 +485,116 @@ if (dialog instanceof HTMLDialogElement) {
         }
     });
 
-    dialog.addEventListener('change', (event) => {
-        if (!(event.target instanceof HTMLSelectElement) || !event.target.matches('[data-video-speed]') || !video) return;
+    boundDialog.addEventListener('change', (event) => {
+        if (!isCurrentDialog()
+            || !(event.target instanceof HTMLSelectElement)
+            || !event.target.matches('[data-video-speed]')
+            || !video) return;
         const rate = Number(event.target.value);
         if (player) player.playbackRate(rate);
         else video.playbackRate = rate;
     });
 
-    dialog.addEventListener('close', closeViewer);
-}
+    boundDialog.addEventListener('close', () => {
+        if (isCurrentDialog()) closeViewer();
+    });
+};
+
+export async function openVaultVideoViewer({
+    src,
+    source: requestedSource = src,
+    name = 'Video preview',
+    downloadUrl = requestedSource,
+    mimeType,
+    returnFocus: focusTarget = document.activeElement,
+    autoplay = false,
+} = {}) {
+    refreshViewer();
+    if (!(dialog instanceof HTMLDialogElement) || !(playerHost instanceof HTMLElement)) {
+        window.vaultAlert?.({ type: 'error', message: 'The shared video viewer is unavailable on this page.' });
+        return;
+    }
+    if (!requestedSource) {
+        window.vaultAlert?.({ type: 'error', message: 'The video preview is missing its authorized source URL.' });
+        return;
+    }
+
+    modeChange += 1;
+    const transition = modeChange;
+    disposePlayer();
+    returnFocus = focusTarget instanceof HTMLElement ? focusTarget : null;
+    source = String(requestedSource);
+    sourceType = mimeType || null;
+    autoplayOnOpen = autoplay;
+    grayscaleEnabled = false;
+    videoFitIndex = 0;
+    setVideoFit(videoFitIndex);
+    if (title) {
+        title.textContent = name;
+        title.title = name;
+        title.setAttribute('aria-label', name);
+    }
+    if (download instanceof HTMLAnchorElement) {
+        setDownloadBusy(false);
+        download.href = downloadUrl;
+        download.download = name;
+    }
+    if (fallback) fallback.hidden = true;
+    updateModeButtons(activeMode);
+    if (!dialog.open) dialog.showModal();
+    try {
+        await createPlayerForMode(activeMode, {
+            currentTime: 0,
+            paused: !autoplay,
+            volume: 1,
+            muted: false,
+            loop: false,
+            playbackRate: 1,
+            grayscale: false,
+        }, transition);
+    } catch (error) {
+        if (fallback) {
+            fallback.textContent = 'The selected player mode could not be loaded. Normal mode is available.';
+            fallback.hidden = false;
+        }
+        activeMode = 'normal';
+        updateModeButtons(activeMode);
+        await createPlayerForMode(activeMode, {
+            currentTime: 0,
+            paused: !autoplay,
+            volume: 1,
+            muted: false,
+            loop: false,
+            playbackRate: 1,
+            grayscale: false,
+        }, transition);
+        window.vaultAlert?.({
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Could not load the selected video player mode.',
+        });
+    }
+};
+
+const closeViewer = () => {
+    modeChange += 1;
+    hideStandardControls();
+    disposePlayer();
+    source = null;
+    sourceType = null;
+    autoplayOnOpen = false;
+    grayscaleEnabled = false;
+    if (download instanceof HTMLAnchorElement) {
+        setDownloadBusy(false);
+        download.removeAttribute('href');
+    }
+    if (fallback) fallback.hidden = true;
+    const trigger = returnFocus;
+    returnFocus = null;
+    trigger?.focus();
+};
+
+refreshViewer();
+document.addEventListener('livewire:navigated', refreshViewer);
 
 document.addEventListener('livewire:navigating', () => {
     if (dialog?.open) dialog.close();

@@ -14,12 +14,12 @@
         <meta name="upload-admin-id" content="{{ auth('admin')->id() }}">
         <title>@yield('page_title', $page_title ?? config('app.name'))</title>
         @livewireStyles
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body>
+        @if (session()->pull('authentication_intro_pending', false))
+            <x-authentication-intro />
+        @endif
         <div class="app-shell">
             <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
                 <a class="brand" href="{{ route('dashboard.index') }}" wire:navigate aria-label="{{ config('app.name') }} home">

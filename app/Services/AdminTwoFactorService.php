@@ -169,6 +169,7 @@ class AdminTwoFactorService
         }
 
         Auth::guard('admin')->login($admin, (bool) ($challenge['remember'] ?? false));
+        session()->put('authentication_intro_pending', true);
         session()->forget('admin_otp_challenge');
         RateLimiter::clear($attemptKey);
 

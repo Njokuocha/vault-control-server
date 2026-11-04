@@ -62,6 +62,7 @@ class DepartmentLoginService
         }
 
         Auth::guard('web')->login($user, $remember);
+        session()->put('authentication_intro_pending', true);
         RateLimiter::clear($key);
         $security->recordAttempt('web', null, $user, $ipAddress, $this->elapsedMilliseconds($startedAt), true, 'Department authentication succeeded.', request()->userAgent());
     }

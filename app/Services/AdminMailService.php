@@ -37,7 +37,7 @@ class AdminMailService
             'cc_recipients' => $cc,
             'bcc_recipients' => $bcc,
             'subject' => trim($subject),
-            'body_html' => app(AdminEmailFormatter::class)->sanitize($bodyHtml),
+            'body_html' => app(AdminEmailFormatter::class)->sanitizeForEmail($bodyHtml),
         ], $uploads);
     }
 
@@ -52,7 +52,7 @@ class AdminMailService
             'cc_recipients' => $source->cc_recipients ?? [],
             'bcc_recipients' => $source->bcc_recipients ?? [],
             'subject' => $source->subject,
-            'body_html' => app(AdminEmailFormatter::class)->sanitize($source->body_html),
+            'body_html' => app(AdminEmailFormatter::class)->sanitizeForEmail($source->body_html),
         ], [], $source);
     }
 
@@ -77,7 +77,7 @@ class AdminMailService
             'cc_recipients' => $cc,
             'bcc_recipients' => [],
             'subject' => $forwardSubject,
-            'body_html' => $header.app(AdminEmailFormatter::class)->sanitize($source->body_html),
+            'body_html' => $header.app(AdminEmailFormatter::class)->sanitizeForEmail($source->body_html),
         ], [], $source);
     }
 

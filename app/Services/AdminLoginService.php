@@ -71,6 +71,7 @@ class AdminLoginService
         }
 
         Auth::guard('admin')->login($admin, $remember);
+        session()->put('authentication_intro_pending', true);
         $security->recordAttempt('admin', $admin, null, $ipAddress, $this->elapsedMilliseconds($startedAt), true, 'Administrator authentication succeeded.', request()->userAgent());
 
         return false;

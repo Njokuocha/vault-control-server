@@ -26,6 +26,38 @@
 
                 <label class="mail-field mail-subject-field"><span>SUBJECT</span><input type="text" wire:model="subject" maxlength="255" placeholder="Enter a concise subject"><small>@error('subject'){{ $message }}@enderror</small></label>
 
+                <section class="mail-template-picker" aria-labelledby="mail-template-heading">
+                    <div class="mail-template-picker__heading">
+                        <div><span class="section-kicker">MESSAGE DESIGN</span><h3 id="mail-template-heading">Choose an email template</h3></div>
+                        <button class="mail-secondary-button" type="button" wire:click="openTemplateGallery"><i class="ri ri-layout-grid-line" aria-hidden="true"></i> BROWSE ALL 10</button>
+                    </div>
+                    <div class="mail-template-selection">
+                        <label class="mail-field" for="mail-template">
+                            <span>EMAIL STYLE</span>
+                            <select id="mail-template" wire:change="selectTemplate($event.target.value)" data-mail-template-select>
+                                <option value="" @selected($templateKey === '')>No template · normal email</option>
+                                @foreach ($emailTemplates as $key => $template)
+                                    <option value="{{ $key }}" @selected($templateKey === $key)>{{ $template['name'] }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                        @if ($selectedTemplate)
+                            <div class="mail-template-actions">
+                                <button class="mail-secondary-button" type="button" wire:click="previewSelectedTemplate"><i class="ri ri-eye-line" aria-hidden="true"></i> PREVIEW TEMPLATE</button>
+                                <button class="mail-secondary-button" type="button" wire:click="previewCurrentMessage"><i class="ri ri-file-text-line" aria-hidden="true"></i> PREVIEW MY MESSAGE</button>
+                                <button class="mail-template-clear" type="button" wire:click="clearTemplate">REMOVE TEMPLATE</button>
+                            </div>
+                        @endif
+                    </div>
+                    @if ($selectedTemplate)
+                        <div class="mail-template-summary">
+                            <span>{{ $selectedTemplate['style'] }}</span>
+                            <strong>{{ $selectedTemplate['recommended_characters'] === null ? 'Recommended length: unlimited' : 'Recommended: '.number_format($selectedTemplate['recommended_characters']).' characters' }}</strong>
+                            <small data-mail-character-count data-recommended="{{ $selectedTemplate['recommended_characters'] ?? 'unlimited' }}">0 / {{ $selectedTemplate['recommended_characters'] === null ? 'unlimited' : number_format($selectedTemplate['recommended_characters']).' recommended' }}</small>
+                        </div>
+                    @endif
+                </section>
+
                 <div class="mail-editor-field">
                     <div class="mail-editor-label"><span>MESSAGE</span><small>FORMATTED HTML · UNSAFE CONTENT IS REMOVED BEFORE SENDING</small></div>
                     <div class="mail-editor-toolbar" role="toolbar" aria-label="Message formatting">
@@ -58,10 +90,6 @@
                 <footer class="mail-compose-footer"><span><i class="ri ri-lock-2-line" aria-hidden="true"></i> TRANSMITTED THROUGH THE CONFIGURED SERVER</span><button class="mail-primary-button" type="submit" wire:loading.attr="disabled" wire:target="send,uploads"><i class="ri ri-send-plane-fill" aria-hidden="true"></i><span wire:loading.remove wire:target="send">SEND MESSAGE</span><span wire:loading wire:target="send">TRANSMITTING…</span></button></footer>
             </form>
 
-            <aside class="mail-compose-aside">
-                <div class="mail-sidecard"><span class="section-kicker">MAIL OPERATIONS</span><div><i class="ri ri-shield-check-line" aria-hidden="true"></i><p><strong>Private archive</strong><small>Sent-message records and attachments are restricted to administrator access.</small></p></div><div><i class="ri ri-eye-off-line" aria-hidden="true"></i><p><strong>Discreet recipients</strong><small>BCC addresses are stored for the operator but hidden from other recipients.</small></p></div><div><i class="ri ri-history-line" aria-hidden="true"></i><p><strong>Transmission record</strong><small>Each send and resend is recorded independently in the sent-mail register.</small></p></div></div>
-                <div class="mail-sidecard mail-sidecard--note"><span class="section-kicker">DELIVERY STATUS</span><p>A successful response confirms acceptance by the configured mail transport. Final inbox delivery depends on the recipient mail system.</p></div>
-            </aside>
         </div>
     @else
         <div class="mail-sent-layout">
@@ -102,11 +130,46 @@
                     @if ($selectedEmail->attachments->isNotEmpty())
                         <div class="mail-message-attachments"><span class="section-kicker">ATTACHMENTS · {{ $selectedEmail->attachments->count() }}</span><div>@foreach ($selectedEmail->attachments as $attachment)<a href="{{ route('admin.mail.attachments.download', $attachment) }}"><i class="ri ri-file-download-line" aria-hidden="true"></i><span>{{ $attachment->original_name }}<small>{{ number_format($attachment->size / 1048576, 1) }} MB</small></span></a>@endforeach</div></div>
                     @endif
+
                     <div class="mail-message-body">{!! $selectedBodyHtml !!}</div>
                 @else
                     <div class="mail-message-empty"><i class="ri ri-mail-check-line" aria-hidden="true"></i><span class="section-kicker">AGENCY CORRESPONDENCE</span><h2>Select a sent message</h2><p>Choose an entry from the register to review its recipients, body, and private attachments.</p></div>
                 @endif
             </article>
+        </div>
+    @endif
+
+    @if ($templateGalleryOpen)
+        <div class="mail-modal-backdrop" role="presentation" wire:click.self="closeTemplateGallery">
+            <section class="mail-template-gallery" role="dialog" aria-modal="true" aria-labelledby="mail-template-gallery-title">
+                <header>
+                    <div><span class="section-kicker">EMAIL DESIGN LIBRARY</span><h2 id="mail-template-gallery-title">Template gallery</h2><p>Choose any layout for a message to any recipient. Preview text is for design only.</p></div>
+                    <button class="mail-modal-close" type="button" wire:click="closeTemplateGallery" aria-label="Close template gallery">×</button>
+                </header>
+                <div class="mail-template-gallery__grid">
+                    @foreach ($emailTemplates as $key => $template)
+                        <article class="mail-template-card {{ $templateKey === $key ? 'is-selected' : '' }}">
+                            <div class="mail-template-card__preview" style="--template-surface: {{ $template['surface'] }}; --template-accent: {{ $template['accent'] }}; --template-text: {{ $template['text'] }}; --template-muted: {{ $template['muted'] }}; --template-border: {{ $template['border'] }}; --template-font: {{ $template['font'] }};">
+                                <span>CORRESPONDENCE</span><strong>A message for you</strong><i></i><b></b><small></small>
+                            </div>
+                            <div class="mail-template-card__details">
+                                <div><h3>{{ $template['name'] }}</h3><span>{{ $template['recommended_characters'] === null ? 'UNLIMITED' : number_format($template['recommended_characters']).' CHARS' }}</span></div>
+                                <p>{{ $template['description'] }}</p>
+                                <button class="mail-primary-button" type="button" wire:click="chooseTemplate('{{ $key }}')">{{ $templateKey === $key ? 'SELECTED' : 'USE THIS TEMPLATE' }}</button>
+                            </div>
+                        </article>
+                    @endforeach
+                </div>
+            </section>
+        </div>
+    @endif
+
+    @if ($templatePreviewOpen && $selectedTemplate)
+        <div class="mail-modal-backdrop" role="presentation" wire:click.self="closeTemplatePreview">
+            <section class="mail-template-preview-modal" role="dialog" aria-modal="true" aria-labelledby="mail-template-preview-title">
+                <header><div><span class="section-kicker">{{ $templatePreviewDraft ? 'DRAFT PREVIEW' : 'TEMPLATE SAMPLE' }} · {{ $selectedTemplate['name'] }}</span><h2 id="mail-template-preview-title">{{ $subject !== '' ? $subject : 'A message for you' }}</h2><p>Preview only · no message has been sent</p></div><button class="mail-modal-close" type="button" wire:click="closeTemplatePreview" aria-label="Close template preview">×</button></header>
+                <div class="mail-template-preview-content">{!! $selectedTemplatePreview !!}</div>
+            </section>
         </div>
     @endif
 

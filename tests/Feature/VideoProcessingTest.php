@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\VideoProcessingService;
+use App\Services\ReportVideoThumbnailService;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
@@ -48,6 +49,12 @@ test('installed ffmpeg tools probe and create private video previews', function 
             ->and($result['duration'])->toBe(2);
         Storage::disk('vault')->assertExists($result['playable_path']);
         Storage::disk('vault')->assertExists($result['poster_path']);
+
+        Storage::disk('vault')->put('reports/sample.mp4', file_get_contents($inputPath));
+        $reportThumbnailPath = app(ReportVideoThumbnailService::class)->generate('reports/sample.mp4');
+
+        expect($reportThumbnailPath)->toBeString();
+        Storage::disk('vault')->assertExists($reportThumbnailPath);
     } finally {
         if (is_file($inputPath)) {
             unlink($inputPath);

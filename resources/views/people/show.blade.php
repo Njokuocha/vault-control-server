@@ -69,7 +69,7 @@
                 @forelse ($linkedReports as $linkedReport)
                     <a class="case-linked-report-row" href="{{ route($profileManagement ? 'pm.reports.index' : 'admin.reports.index', ['report' => $linkedReport->uuid]) }}" wire:navigate>
                         <span class="case-linked-report-node" aria-hidden="true"></span>
-                        <span><strong>{{ \Illuminate\Support\Str::limit($linkedReport->body, 140) }}</strong><small>{{ $linkedReport->created_at?->format('M d, Y · H:i') }} UTC · {{ $linkedReport->comments_count }} comments</small></span><i class="ri ri-arrow-right-up-line" aria-hidden="true"></i>
+                        <span><strong>{{ \Illuminate\Support\Str::limit(app(\App\Support\ReportBodyFormatter::class)->plainText($linkedReport->body), 140) }}</strong><small>{{ $linkedReport->created_at?->format('M d, Y · H:i') }} UTC · {{ $linkedReport->comments_count }} comments</small></span><i class="ri ri-arrow-right-up-line" aria-hidden="true"></i>
                     </a>
                 @empty
                     <p class="profile-gallery-empty">No reports are linked to this person record.</p>

@@ -49,11 +49,15 @@ test('a staff account can only authenticate into its assigned department', funct
     $this->assertAuthenticatedAs($staff, 'web');
     $this->get('/cfm')
         ->assertOk()
+        ->assertSee('data-authentication-intro', false)
         ->assertSee('Case File Management')
         ->assertSee('data-video-viewer-dialog', false)
         ->assertSee('data-video-mode="professional"', false)
         ->assertSee('action="'.route('cfm.logout').'" x-data x-on:submit.prevent="window.vaultConfirm', false)
         ->assertSee('Sign out of your Case File Management session?', false);
+    $this->get('/cfm')
+        ->assertOk()
+        ->assertDontSee('data-authentication-intro', false);
     $this->get('/cfm/profile')->assertOk()->assertSee('case_operator')->assertSee('case.operator@example.test');
     $this->get('/pm')->assertForbidden();
     $this->get(route('admin.staff.index'))->assertForbidden();

@@ -803,7 +803,7 @@ test('case evidence galleries expand beyond four images and provide image downlo
     expect($download->headers->get('Content-Disposition'))->toBe('attachment; filename=image-1.png');
 });
 
-test('case evidence video overflow count remains visible beside the play indicator', function () {
+test('case evidence video overflow tile expands the gallery instead of opening the video', function () {
     $this->actingAs(User::factory()->create());
     $caseFile = InvestigationCase::query()->create([
         'public_id' => 'CSE-VIDEO-OVERFLOW',
@@ -819,10 +819,14 @@ test('case evidence video overflow count remains visible beside the play indicat
         ]);
     }
 
-    $this->get(route('cases.show', $caseFile))
+    $response = $this->get(route('cases.show', $caseFile))
         ->assertOk()
-        ->assertSee('class="video-play-overlay"', false)
-        ->assertSee('class="gallery-more-overlay gallery-more-overlay--video" data-expand-gallery>+1</span>', false);
+        ->assertSee('class="evidence-gallery-tile video-gallery-tile"', false)
+        ->assertSee('data-expand-gallery aria-label="Show 1 more files"', false)
+        ->assertSee('data-video-viewer data-video-url=', false)
+        ->assertSee('gallery-more-overlay', false)
+        ->assertSee('+1')
+        ->assertDontSee('video-play-overlay', false);
 });
 
 test('case evidence can be multi-assigned and category management preserves media', function () {

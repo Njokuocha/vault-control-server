@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Jobs\BuildImageThumbnailJob;
+use App\Jobs\BuildReportVideoThumbnailJob;
+use App\Jobs\DeleteReportVideoThumbnailJob;
 use App\Jobs\DeleteImageThumbnailJob;
 use App\Support\VersionedCache;
 use Illuminate\Database\Eloquent\Model;
@@ -13,6 +15,7 @@ class ReportMedia extends Model
     protected $fillable = [
         'report_id',
         'path',
+        'thumbnail_path',
         'original_name',
         'mime_type',
         'media_type',
@@ -30,6 +33,8 @@ class ReportMedia extends Model
         static::created(function (ReportMedia $media): void {
             if ($media->media_type === 'image') {
                 BuildImageThumbnailJob::dispatch($media->path)->afterCommit();
+            } elseif ($media->media_type === 'video') {
+                BuildReportVideoThumbnailJob::dispatch($media->id)->afterCommit();
             }
         });
         static::saved(function (ReportMedia $media): void {
@@ -43,6 +48,8 @@ class ReportMedia extends Model
             $cache->bumpAfterCommit('report-content-'.$media->report_id);
             if ($media->media_type === 'image') {
                 DeleteImageThumbnailJob::dispatch($media->path)->afterCommit();
+            } elseif ($media->media_type === 'video' && $media->thumbnail_path !== null) {
+                DeleteReportVideoThumbnailJob::dispatch($media->thumbnail_path)->afterCommit();
             }
         });
     }

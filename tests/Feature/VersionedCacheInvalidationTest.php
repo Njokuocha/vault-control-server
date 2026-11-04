@@ -46,7 +46,7 @@ test('case edits invalidate report link suggestions after commit', function () {
 
     $workspace = Livewire::actingAs($staff, 'web')
         ->test(ReportWorkspace::class)
-        ->call('openComposer')
+        ->set('editorMode', true)
         ->set('caseSearch', 'Cacheable')
         ->assertSee('Cacheable original case');
 
