@@ -97,7 +97,7 @@
                         </button>
                     </div>
                 @elseif ($galleryPreviewMedia->isNotEmpty())
-                    <div class="profile-gallery is-locked" data-profile-gallery>
+                    <div class="profile-gallery profile-gallery--preview is-locked" data-profile-gallery>
                         @foreach ($galleryPreviewMedia as $image)
                             @if ($image->type === 'video')
                                 <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-title="{{ $image->original_name }}" data-video-mime-type="{{ $image->file?->mime_type }}" data-video-pin-required aria-label="Locked video. Unlock viewables to preview.">

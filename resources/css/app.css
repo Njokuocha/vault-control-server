@@ -1768,6 +1768,7 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
 .profile-gallery-file-tile strong { max-width: 100%; overflow-wrap: anywhere; font-size: 11px; }
 .profile-gallery-file-tile small { color: var(--text-muted); font-size: 9px; }
 .profile-gallery { display: grid; width: min(100%, 290px); grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.profile-gallery-block > .profile-gallery--preview:not(.is-expanded) { width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .profile-gallery.is-expanded { width: 100%; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); }
 .profile-gallery a, .case-evidence-gallery a { position: relative; display: block; aspect-ratio: 1; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 5px; background: #070c12; }
 .profile-gallery img, .case-evidence-gallery img { width: 100%; height: 100%; object-fit: cover; transition: transform .25s; }
@@ -2075,6 +2076,7 @@ h1 span { color: #c4ccd6; font-family: var(--font-ui); font-size: .86em; font-we
 .profile-gallery-tile > video, .evidence-gallery-tile > video { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; background: #080e16; }
 .profile-gallery-tile > video[hidden], .evidence-gallery-tile > video[hidden], .case-evidence-thumb > video[hidden] { display: none; }
 .case-evidence-thumb > .case-evidence-video-poster { border: 0; border-radius: 5px; }
+.video-gallery-tile > .gallery-more-overlay--video { z-index: 2; inset: auto 6px 6px auto; display: grid; min-width: 38px; height: 25px; padding: 0 6px; border: 1px solid rgb(255 255 255 / 55%); border-radius: 4px; background: rgb(3 8 14 / 82%); font-size: 11px; backdrop-filter: blur(4px); }
 .video-gallery-tile.has-no-video-thumbnail { background: radial-gradient(circle at center, rgb(112 167 215 / 17%), rgb(7 13 21 / 96%) 70%); }
 
 .profile-gallery-category-panel { position: sticky; z-index: 2; top: 86px; align-self: start; max-height: calc(100dvh - 102px); overflow-y: auto; scrollbar-width: none; }

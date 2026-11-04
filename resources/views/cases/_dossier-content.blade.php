@@ -94,7 +94,7 @@
                                         <video class="case-gallery-video-thumbnail" data-case-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'cases.image', ['caseFile' => $caseFile, 'image' => $image]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
                                     @endif
                                     <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
-                                    @if ($loop->index === 3 && $category->images->count() > 4)<span class="gallery-more-overlay" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>@endif
+                                    @if ($loop->index === 3 && $category->images->count() > 4)<span class="gallery-more-overlay gallery-more-overlay--video" data-expand-gallery>+{{ $category->images->count() - 4 }}</span>@endif
                                 </button>
                             @elseif (in_array($image->type, ['document', 'audio'], true))
                                 @php($extension = strtoupper(pathinfo($image->original_name, PATHINFO_EXTENSION)) ?: 'FILE')

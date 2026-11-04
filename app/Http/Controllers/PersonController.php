@@ -225,7 +225,7 @@ class PersonController extends Controller
                 $galleryPreviewQuery->whereNull('gallery_category_id')->whereDoesntHave('galleryCategories');
                 $galleryPreviewCount = $uncategorizedCount;
             }
-            $galleryPreviewMedia = $galleryPreviewQuery->limit(4)->get();
+            $galleryPreviewMedia = $galleryPreviewQuery->limit(8)->get();
         }
         $avatarGroup = strtolower($person->avatar_group);
         $avatarPath = in_array($avatarGroup, ['male', 'female', 'group', 'unknown', 'suspect', 'verified'], true)

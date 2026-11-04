@@ -52,7 +52,7 @@ test('profile pages require a token and preserve it through Livewire gallery nav
     $staff = User::factory()->create(['department' => 'pm', 'account_status' => 'active']);
     $person = profileGalleryPerson('Gallery Preview Subject');
     $category = $person->galleryCategories()->create(['title' => 'Archive', 'sort_order' => 1]);
-    foreach (range(1, 7) as $index) {
+    foreach (range(1, 9) as $index) {
         profileGalleryImage($person, "photo-{$index}.jpg", $category->id);
     }
 
@@ -71,7 +71,7 @@ test('profile pages require a token and preserve it through Livewire gallery nav
         ->assertSee('Archive')
         ->assertSee('href="'.$galleryUrl.'" wire:navigate', false)
         ->assertSee('VIEW GALLERY', false);
-    expect(substr_count($response->getContent(), 'class="profile-gallery-tile'))->toBe(4)
+    expect(substr_count($response->getContent(), 'class="profile-gallery-tile'))->toBe(8)
         ->and(substr_count($response->getContent(), 'MANAGE MEDIA'))->toBe(1);
 });
 
