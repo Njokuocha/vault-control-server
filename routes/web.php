@@ -96,6 +96,7 @@ foreach ($departments as $department => $departmentName) {
             Route::get('/cases/create', [InvestigationCaseController::class, 'create'])->name('cases.create');
             Route::post('/cases', [InvestigationCaseController::class, 'store'])->name('cases.store');
             Route::get('/cases/{caseFile}', [InvestigationCaseController::class, 'show'])->name('cases.show');
+            Route::get('/cases/{caseFile}/reports', [InvestigationCaseController::class, 'linkedReports'])->name('cases.reports');
             Route::get('/cases/{caseFile}/gallery', [InvestigationCaseController::class, 'gallery'])->name('cases.gallery');
             Route::post('/cases/{caseFile}/categories', [InvestigationCaseController::class, 'createCategory'])->name('cases.categories.store');
             Route::put('/cases/{caseFile}/categories/{category}', [InvestigationCaseController::class, 'updateCategory'])->whereNumber('category')->name('cases.categories.update');
@@ -309,6 +310,8 @@ Route::middleware(['auth:web,admin', 'admin.workspace', 'security.presence'])->p
     Route::get('/cases/create', [InvestigationCaseController::class, 'create'])->name('cases.create');
     Route::post('/cases', [InvestigationCaseController::class, 'store'])->name('cases.store');
     Route::get('/cases/{caseFile}', [InvestigationCaseController::class, 'show'])->name('cases.show');
+    Route::get('/cases/{caseFile}/people', [InvestigationCaseController::class, 'linkedPeople'])->name('cases.people');
+    Route::get('/cases/{caseFile}/reports', [InvestigationCaseController::class, 'linkedReports'])->name('cases.reports');
     Route::get('/cases/{caseFile}/gallery', [InvestigationCaseController::class, 'gallery'])->name('cases.gallery');
     Route::post('/cases/{caseFile}/categories', [InvestigationCaseController::class, 'createCategory'])->name('cases.categories.store');
     Route::put('/cases/{caseFile}/categories/{category}', [InvestigationCaseController::class, 'updateCategory'])->whereNumber('category')->name('cases.categories.update');

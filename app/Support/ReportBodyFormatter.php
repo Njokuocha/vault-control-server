@@ -19,6 +19,6 @@ class ReportBodyFormatter
 
     public function sanitize(string $body): string
     {
-        return app(AdminEmailFormatter::class)->sanitize($body);
+        return app(AdminEmailFormatter::class)->sanitizeReportBody($body);
     }
 }

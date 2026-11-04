@@ -19,5 +19,5 @@ if (intro) {
     };
 
     document.addEventListener('keydown', handleKeydown);
-    window.setTimeout(dismissIntro, reducedMotion ? 400 : 3150);
+    window.setTimeout(dismissIntro, reducedMotion ? 400 : 5250);
 }

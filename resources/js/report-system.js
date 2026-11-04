@@ -5,7 +5,7 @@ const previewObjectUrls = new WeakMap();
 const activeObjectUrls = new Set();
 const reportPreviewAllowedTags = new Set([
     'A', 'B', 'BLOCKQUOTE', 'BR', 'DIV', 'EM', 'H1', 'H2', 'H3', 'I', 'LI',
-    'OL', 'P', 'S', 'STRONG', 'U', 'UL',
+    'OL', 'P', 'S', 'STRONG', 'TABLE', 'TBODY', 'TD', 'TH', 'TR', 'U', 'UL',
 ]);
 const reportPreviewRemovedTags = new Set(['IFRAME', 'MATH', 'NOSCRIPT', 'OBJECT', 'SCRIPT', 'STYLE', 'SVG', 'TEMPLATE']);
 const reportDraftDatabaseName = 'vault-report-drafts';
@@ -27,6 +27,7 @@ let reportDraftDatabasePromise = null;
 let activeReportDraftKey = null;
 const pendingReportAttachments = new Map();
 const reportDraftRestoreInProgress = new WeakSet();
+const discardingReportDrafts = new Set();
 const preservedCommentDrafts = new WeakMap();
 
 function reportDraftKey(root) {
@@ -162,7 +163,7 @@ function reportDraftSnapshot(root) {
 
 function saveReportDraft(root) {
     const draftKey = reportDraftKey(root);
-    if (root.dataset.reportDraftRestoring === 'true') return;
+    if (root.dataset.reportDraftRestoring === 'true' || discardingReportDrafts.has(draftKey)) return;
     const snapshot = reportDraftSnapshot(root);
     if (!draftKey || !snapshot) return;
 
@@ -628,7 +629,12 @@ function safeReportPreviewNode(node) {
         const title = node.getAttribute('title');
         if (title) safeElement.setAttribute('title', title.slice(0, 255));
     }
-    node.childNodes.forEach((child) => {
+    const children = node.tagName === 'TR'
+        ? Array.from(node.childNodes).filter((child) => (
+            child instanceof HTMLElement && ['TD', 'TH'].includes(child.tagName)
+        )).slice(0, 3)
+        : Array.from(node.childNodes);
+    children.forEach((child) => {
         const safeChild = safeReportPreviewNode(child);
         if (safeChild) safeElement.append(safeChild);
     });
@@ -661,6 +667,100 @@ function closeReportPreview(restoreFocus = true) {
     const trigger = reportPreviewTrigger;
     reportPreviewTrigger = null;
     if (restoreFocus) trigger?.focus();
+}
+
+function reportEditorCellAtSelection(editor) {
+    const selection = window.getSelection();
+    const node = selection?.rangeCount ? selection.getRangeAt(0).startContainer : null;
+    const element = node instanceof Element ? node : node?.parentElement;
+    const cell = element?.closest('td, th');
+
+    return cell instanceof HTMLTableCellElement && editor.contains(cell) ? cell : null;
+}
+
+function focusReportTableCell(cell, atEnd = false) {
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    range.collapse(!atEnd);
+    selection.removeAllRanges();
+    selection.addRange(range);
+}
+
+function appendReportTableRow(table, columnCount, afterRow = null) {
+    const body = table.tBodies[0] ?? table.createTBody();
+    const row = body.insertRow(afterRow ? afterRow.rowIndex + 1 : -1);
+    for (let column = 0; column < columnCount; column++) {
+        const cell = row.insertCell();
+        cell.append(document.createElement('br'));
+    }
+
+    return row;
+}
+
+function insertReportTable(control) {
+    const editor = reportEditorFromControl(control);
+    const columns = control.closest('[data-report-editor-form]')?.querySelector('[data-report-table-columns]');
+    if (!(editor instanceof HTMLElement) || !(columns instanceof HTMLSelectElement)) return;
+
+    const columnCount = Number(columns.value);
+    if (!Number.isInteger(columnCount) || columnCount < 1 || columnCount > 3) return;
+
+    restoreReportEditorSelection(editor);
+    const table = document.createElement('table');
+    const body = table.createTBody();
+    for (let rowIndex = 0; rowIndex < 2; rowIndex++) {
+        appendReportTableRow(table, columnCount);
+    }
+
+    const selection = window.getSelection();
+    if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(table);
+    } else {
+        editor.append(table);
+    }
+
+    const firstCell = table.rows[0]?.cells[0];
+    if (firstCell instanceof HTMLTableCellElement) focusReportTableCell(firstCell);
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function addReportTableRow(control) {
+    const editor = reportEditorFromControl(control);
+    if (!(editor instanceof HTMLElement)) return;
+
+    restoreReportEditorSelection(editor);
+    const cell = reportEditorCellAtSelection(editor);
+    const table = cell?.closest('table');
+    if (!(table instanceof HTMLTableElement)) return;
+
+    const currentRow = cell.closest('tr');
+    const columnCount = Math.min(3, Math.max(1, table.rows[0]?.cells.length ?? 1));
+    const row = appendReportTableRow(table, columnCount, currentRow);
+    const firstCell = row.cells[0];
+    if (firstCell instanceof HTMLTableCellElement) focusReportTableCell(firstCell);
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function removeReportTableRow(control) {
+    const editor = reportEditorFromControl(control);
+    if (!(editor instanceof HTMLElement)) return;
+
+    restoreReportEditorSelection(editor);
+    const cell = reportEditorCellAtSelection(editor);
+    const table = cell?.closest('table');
+    const row = cell?.closest('tr');
+    if (!(table instanceof HTMLTableElement) || !(row instanceof HTMLTableRowElement) || table.rows.length <= 1) return;
+
+    const nextCell = row.nextElementSibling?.querySelector('td, th')
+        ?? row.previousElementSibling?.querySelector('td, th');
+    row.remove();
+    if (nextCell instanceof HTMLTableCellElement) focusReportTableCell(nextCell);
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function openReportMedia(source, trigger) {
@@ -830,15 +930,40 @@ document.addEventListener('drop', (event) => {
 
 document.addEventListener('mousedown', (event) => {
     if (!(event.target instanceof Element)) return;
-    const control = event.target.closest('[data-report-format-command], [data-report-preview-open]');
+    const control = event.target.closest(
+        '[data-report-format-command], [data-report-preview-open], [data-report-table-columns], [data-report-table-insert], [data-report-table-add-row], [data-report-table-remove-row]',
+    );
     if (!(control instanceof HTMLElement)) return;
     saveReportEditorSelection(control);
-    if (control.matches('[data-report-format-command]')) event.preventDefault();
+    if (control.matches('[data-report-format-command], [data-report-table-insert], [data-report-table-add-row], [data-report-table-remove-row]')) {
+        event.preventDefault();
+    }
 });
 
 document.addEventListener('click', async (event) => {
     if (!(event.target instanceof Element)) return;
     if (event.target.closest('[data-report-font-size]')) return;
+
+    const insertTableButton = event.target.closest('[data-report-table-insert]');
+    if (insertTableButton instanceof HTMLButtonElement) {
+        event.preventDefault();
+        insertReportTable(insertTableButton);
+        return;
+    }
+
+    const addTableRowButton = event.target.closest('[data-report-table-add-row]');
+    if (addTableRowButton instanceof HTMLButtonElement) {
+        event.preventDefault();
+        addReportTableRow(addTableRowButton);
+        return;
+    }
+
+    const removeTableRowButton = event.target.closest('[data-report-table-remove-row]');
+    if (removeTableRowButton instanceof HTMLButtonElement) {
+        event.preventDefault();
+        removeReportTableRow(removeTableRowButton);
+        return;
+    }
 
     const formatButton = event.target.closest('[data-report-format-command]');
     if (formatButton instanceof HTMLButtonElement) {
@@ -886,13 +1011,27 @@ document.addEventListener('click', async (event) => {
 
         discardButton.disabled = true;
         discardButton.textContent = 'DISCARDING…';
+        discardingReportDrafts.add(draftKey);
+        const editor = root.querySelector('[data-report-editor]');
+        if (editor instanceof HTMLElement) editor.replaceChildren();
+        component.set('body', '', false);
+        component.set('caseIds', [], false);
+        component.set('personIds', [], false);
+        component.set('removeMediaIds', [], false);
+        component.set('uploads', [], false);
+        const fileInput = root.querySelector('[data-report-files]');
+        if (fileInput instanceof HTMLInputElement) {
+            fileInput.value = '';
+            renderReportUploadPreviews(fileInput, []);
+        }
         try {
             await removeReportDraftAttachments(draftKey);
             localStorage.removeItem(draftKey);
             pendingReportAttachments.delete(draftKey);
-            revokePreviewUrls(root.querySelector('[data-report-files]'));
+            revokePreviewUrls(fileInput);
             await component.call('discardReport');
         } catch (error) {
+            discardingReportDrafts.delete(draftKey);
             console.error('Unable to discard the saved report draft.', error);
             reportDraftStatus(root, 'The draft could not be cleared from this browser. Please try again.', true);
             discardButton.disabled = false;
@@ -988,6 +1127,33 @@ document.addEventListener('click', async (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab' || !(event.target instanceof HTMLElement) || !event.target.matches('[data-report-editor]')) return;
+
+    const editor = event.target;
+    const cell = reportEditorCellAtSelection(editor);
+    const table = cell?.closest('table');
+    if (!(table instanceof HTMLTableElement)) return;
+
+    const cells = Array.from(table.rows).flatMap((row) => Array.from(row.cells));
+    const currentIndex = cells.indexOf(cell);
+    const nextIndex = currentIndex + (event.shiftKey ? -1 : 1);
+    if (nextIndex >= 0 && nextIndex < cells.length) {
+        event.preventDefault();
+        focusReportTableCell(cells[nextIndex], event.shiftKey);
+
+        return;
+    }
+
+    if (!event.shiftKey) {
+        event.preventDefault();
+        const row = appendReportTableRow(table, Math.min(3, Math.max(1, table.rows[0]?.cells.length ?? 1)));
+        const firstCell = row.cells[0];
+        if (firstCell instanceof HTMLTableCellElement) focusReportTableCell(firstCell);
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+});
+
+document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     if (document.querySelector('[data-vault-image-viewer][open], [data-video-viewer-dialog][open]')) return;
 
@@ -1051,6 +1217,7 @@ document.addEventListener('livewire:init', () => {
 
 document.addEventListener('livewire:navigated', syncReportRealtimeSubscription);
 document.addEventListener('livewire:navigated', () => initializeReportVideoThumbnails());
+document.addEventListener('livewire:navigated', () => discardingReportDrafts.clear());
 document.addEventListener('livewire:navigated', () => initializeReportDraft());
 
 if (document.readyState === 'loading') {
@@ -1063,19 +1230,36 @@ if (document.readyState === 'loading') {
     initializeReportDraft();
 }
 
-window.addEventListener('report-editor-saved', () => {
-    const draftKey = activeReportDraftKey;
-    if (!draftKey) return;
+window.addEventListener('report-editor-saved', (event) => {
+    const draftKey = event.detail?.draftKey;
+    if (typeof draftKey !== 'string' || draftKey === '') return;
 
-    void removeReportDraftAttachments(draftKey)
-        .then(() => {
-            localStorage.removeItem(draftKey);
-            pendingReportAttachments.delete(draftKey);
-            activeReportDraftKey = null;
-        })
-        .catch((error) => {
-            console.error('Unable to clear the published report draft from browser storage.', error);
-        });
+    discardingReportDrafts.add(draftKey);
+    const root = Array.from(document.querySelectorAll('[data-report-draft-key]'))
+        .find((candidate) => reportDraftKey(candidate) === draftKey);
+    if (root instanceof HTMLElement) {
+        const editor = root.querySelector('[data-report-editor]');
+        if (editor instanceof HTMLElement) editor.replaceChildren();
+
+        const fileInput = root.querySelector('[data-report-files]');
+        if (fileInput instanceof HTMLInputElement) {
+            fileInput.value = '';
+            renderReportUploadPreviews(fileInput, []);
+            revokePreviewUrls(fileInput);
+        }
+    }
+
+    try {
+        localStorage.removeItem(draftKey);
+    } catch (error) {
+        console.error('Unable to clear the published report draft from local storage.', error);
+    }
+    pendingReportAttachments.delete(draftKey);
+    if (activeReportDraftKey === draftKey) activeReportDraftKey = null;
+
+    void removeReportDraftAttachments(draftKey).catch((error) => {
+        console.error('Unable to clear the published report attachments from browser storage.', error);
+    });
 });
 
 window.addEventListener('report-comment-submitted', () => {

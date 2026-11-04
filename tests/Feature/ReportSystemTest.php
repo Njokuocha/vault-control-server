@@ -13,6 +13,7 @@ use App\Models\Report;
 use App\Models\ReportComment;
 use App\Models\ReportMedia;
 use App\Models\User;
+use App\Services\PersonMediaAccess;
 use App\Services\SettingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Broadcast;
@@ -235,6 +236,8 @@ test('staff can publish reports with permitted case and person links and recipro
         ->get(route('cfm.cases.show', $caseFile))
         ->assertOk()
         ->assertSee('Linked reports')
+        ->assertSee('class="case-linked-report-grid"', false)
+        ->assertSee('class="case-linked-report-card"', false)
         ->assertSee('A witnessed event with immediate operational relevance.')
         ->assertSee(route('cfm.reports.index', ['report' => $report->uuid]), false);
 
@@ -357,12 +360,94 @@ test('person and case dossiers paginate linked reports while retaining report vi
         ->test(CaseDossier::class, ['caseFile' => $caseFile])
         ->assertSee('Linked reports <span>11</span>', false)
         ->assertSee('Visible linked report 11.')
+        ->assertDontSee('Visible linked report 1.')
+        ->assertSee(route('cases.reports', $caseFile), false)
         ->assertDontSee('Hidden linked report.');
+});
 
-    $caseDossier->call('setPage', 2, 'linkedReportsPage')
-        ->assertSee('Visible linked report 1.')
-        ->assertDontSee('Visible linked report 11.')
-        ->assertDontSee('Hidden linked report.');
+test('case relationship directories cap dossier previews and search complete linked records', function () {
+    Queue::fake();
+    $admin = createReportSystemAdmin();
+    $caseFile = InvestigationCase::query()->create([
+        'public_id' => 'CSE-CONNECTIONS-01',
+        'title' => 'Relationship directory case',
+    ]);
+
+    $portraitPath = 'people/main/linked-subject.jpg';
+    Storage::disk('vault')->put($portraitPath, 'portrait');
+    $portraitPerson = Person::query()->create([
+        'public_id' => 'USR-LINKED-PORTRAIT',
+        'name' => 'Linked Subject 00',
+        'main_image_path' => $portraitPath,
+    ]);
+    $caseFile->people()->attach($portraitPerson);
+    for ($index = 1; $index <= 21; $index++) {
+        $person = Person::query()->create([
+            'public_id' => sprintf('USR-LINKED%02d', $index),
+            'name' => sprintf('Linked Subject %02d', $index),
+        ]);
+        $caseFile->people()->attach($person);
+    }
+
+    $this->actingAs($admin, 'admin');
+    $request = request();
+    $request->setUserResolver(fn () => $admin);
+    $portraitToken = app(PersonMediaAccess::class)->issue($request, $portraitPerson)['token'];
+    expect(app(PersonMediaAccess::class)->activeToken($request, $portraitPerson->getKey(), $admin))
+        ->toBe($portraitToken);
+
+    $latestReport = null;
+    for ($index = 1; $index <= 9; $index++) {
+        $report = createTestReport($admin, sprintf('Relationship evidence report %02d.', $index));
+        $report->cases()->attach($caseFile->id);
+        $report->forceFill(['updated_at' => now()->addSeconds($index)])->saveQuietly();
+        if ($index === 9) {
+            $latestReport = $report;
+            $report->media()->create([
+                'path' => 'reports/relationship-video.mp4',
+                'thumbnail_path' => 'renditions/report-video-posters/relationship-video.jpg',
+                'original_name' => 'relationship-video.mp4',
+                'mime_type' => 'video/mp4',
+                'media_type' => 'video',
+                'size' => 100,
+                'sort_order' => 0,
+            ]);
+        }
+    }
+
+    $this->get(route('cases.show', $caseFile))
+        ->assertOk()
+        ->assertSee('Linked people <span>22</span>', false)
+        ->assertSee('Linked Subject 01')
+        ->assertDontSee('Linked Subject 20')
+        ->assertDontSee('Linked Subject 21')
+        ->assertSee(route('cases.people', $caseFile), false)
+        ->assertSee(route('people.images.thumbnail', [
+            'person' => $portraitPerson,
+            'image' => 'main',
+            'auth' => $portraitToken,
+        ]), false)
+        ->assertSee('Linked reports <span>9</span>', false)
+        ->assertSee('Relationship evidence report 09.')
+        ->assertDontSee('Relationship evidence report 01.')
+        ->assertSee(route('cases.reports', $caseFile), false)
+        ->assertSee(route('reports.media.thumbnail', [$latestReport, $latestReport->media()->first()]), false);
+
+    $this->get(route('people.images.thumbnail', [
+        'person' => $portraitPerson,
+        'image' => 'main',
+        'auth' => $portraitToken,
+    ]))->assertOk();
+
+    $this->get(route('cases.people', ['caseFile' => $caseFile, 'q' => 'Linked Subject 21']))
+        ->assertOk()
+        ->assertSee('Linked Subject 21')
+        ->assertDontSee('Linked Subject 20');
+
+    $this->get(route('cases.reports', ['caseFile' => $caseFile, 'q' => 'evidence report 09']))
+        ->assertOk()
+        ->assertSee('Relationship evidence report 09.')
+        ->assertDontSee('Relationship evidence report 08.');
 });
 
 test('staff can comment but only the report owner or an administrator can reply', function () {
@@ -686,7 +771,7 @@ test('report editor provides rich formatting tools and a separate safe preview o
         'department' => 'cfm',
         'account_status' => 'active',
     ]);
-    $body = '<h2>Situation title</h2><h3>Important caption</h3><p>Formatted <strong>bold</strong>, <b>browser bold</b>, <em>italic</em>, <u>underlined</u> and _#literal marker_#.</p><script>alert(1)</script>';
+    $body = '<h2>Situation title</h2><h3>Important caption</h3><p>Formatted <strong>bold</strong>, <b>browser bold</b>, <em>italic</em>, <u>underlined</u> and _#literal marker_#.</p><table><tbody><tr><td>Cell one</td><td>Cell two</td><td>Cell three</td><td>Cell four</td></tr></tbody></table><script>alert(1)</script>';
     $workspace = Livewire::actingAs($reporter, 'web')
         ->test(ReportWorkspace::class)
         ->set('editorMode', true)
@@ -695,6 +780,10 @@ test('report editor provides rich formatting tools and a separate safe preview o
         ->assertSee('data-report-format-command="underline"', false)
         ->assertSee('data-report-format-command="insertUnorderedList"', false)
         ->assertSee('data-report-font-size', false)
+        ->assertSee('data-report-table-columns', false)
+        ->assertSee('data-report-table-insert', false)
+        ->assertSee('data-report-table-add-row', false)
+        ->assertSee('data-report-table-remove-row', false)
         ->assertSee('Section title')
         ->assertSee('Caption')
         ->assertSee('data-report-editor contenteditable="true"', false)
@@ -705,6 +794,11 @@ test('report editor provides rich formatting tools and a separate safe preview o
         ->assertDontSee('x-on:click.self', false)
         ->set('body', $body)
         ->call('saveReport')
+        ->assertDispatched('report-editor-saved', draftKey: 'report-editor-v1-'.hash(
+            'sha256',
+            User::class.':'.$reporter->getAuthIdentifier().':new',
+        ))
+        ->assertSet('body', '')
         ->assertHasNoErrors();
     $report = Report::query()->where('body', 'like', '%Formatted%')->firstOrFail();
     expect($report->body)
@@ -712,6 +806,8 @@ test('report editor provides rich formatting tools and a separate safe preview o
         ->toContain('<h3>Important caption</h3>')
         ->toContain('<strong>bold</strong>')
         ->toContain('<b>browser bold</b>')
+        ->toContain('<table><tbody><tr><td>Cell one</td><td>Cell two</td><td>Cell three</td></tr></tbody></table>')
+        ->not->toContain('Cell four')
         ->toContain('_#literal marker_#')
         ->not->toContain('<script>');
     $workspace->assertRedirect(route('cfm.reports.index', ['report' => $report->uuid]));
@@ -721,6 +817,7 @@ test('report editor provides rich formatting tools and a separate safe preview o
         ->assertSee('<strong>bold</strong>', false)
         ->assertSee('<h2>Situation title</h2>', false)
         ->assertSee('<h3>Important caption</h3>', false)
+        ->assertSee('<table><tbody><tr><td>Cell one</td><td>Cell two</td><td>Cell three</td></tr></tbody></table>', false)
         ->assertSee('_#literal marker_#')
         ->assertDontSee('<script>alert(1)</script>', false)
         ->assertSee('data-report-preview-open', false);

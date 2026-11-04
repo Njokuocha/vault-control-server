@@ -7,12 +7,15 @@ use App\Models\CaseCategory;
 use App\Models\CaseImage;
 use App\Models\File;
 use App\Models\InvestigationCase;
+use App\Models\Person;
 use App\Models\UploadTransfer;
 use App\Models\User;
 use App\Models\VideoUpload;
 use App\Services\ActivityLogger;
 use App\Services\GalleryCategoryAccess;
 use App\Services\ImageThumbnailService;
+use App\Services\PersonMediaAccess;
+use App\Services\ReportAccess;
 use App\Services\PublicRecordId;
 use App\Services\RecordUploadAttachmentService;
 use App\Services\SettingService;
@@ -122,10 +125,6 @@ class InvestigationCaseController extends Controller
             'categories.assignedImages.categories',
             'creator',
         ];
-        if (! $isCaseManager) {
-            $relations[] = 'people';
-        }
-
         $caseFile = app(VersionedCache::class)->remember(
             'cases',
             'record:'.($isCaseManager ? 'cfm:' : '').$caseFile->getKey(),
@@ -148,6 +147,69 @@ class InvestigationCaseController extends Controller
         return view('cases.show', [
             'caseFile' => $caseFile,
             'galleryMediaCount' => $caseFile->categories->sum(fn ($category) => $category->images->count()),
+        ]);
+    }
+
+    public function linkedPeople(
+        Request $request,
+        InvestigationCase $caseFile,
+        PersonMediaAccess $personMediaAccess,
+    ): View {
+        abort_unless(! $request->routeIs('cfm.*'), 404);
+        $validated = $request->validate(['q' => ['nullable', 'string', 'max:100']]);
+        $search = trim($validated['q'] ?? '');
+        $people = $caseFile->people()
+            ->with('mainImageFile')
+            ->when($search !== '', fn ($query) => $query->where(function ($query) use ($search): void {
+                $query->where('people.public_id', 'like', "%{$search}%")
+                    ->orWhere('people.name', 'like', "%{$search}%");
+            }))
+            ->orderBy('people.name')
+            ->orderBy('people.id')
+            ->paginate(20)
+            ->withQueryString();
+        $actor = auth('admin')->user() ?? auth('web')->user();
+        $personMediaTokens = $people->getCollection()->mapWithKeys(
+            fn (Person $person): array => [
+                $person->getKey() => $person->main_image_path || $person->main_image_file_id
+                    ? $personMediaAccess->activeToken($request, $person->getKey(), $actor)
+                    : null,
+            ],
+        );
+
+        return view('cases.linked-people', [
+            'caseFile' => $caseFile,
+            'people' => $people,
+            'personMediaTokens' => $personMediaTokens,
+            'search' => $search,
+        ]);
+    }
+
+    public function linkedReports(
+        Request $request,
+        InvestigationCase $caseFile,
+        ReportAccess $reportAccess,
+    ): View {
+        $validated = $request->validate(['q' => ['nullable', 'string', 'max:100']]);
+        $search = trim($validated['q'] ?? '');
+        $query = $reportAccess->visibleQuery()
+            ->join('report_case_file', 'reports.id', '=', 'report_case_file.report_id')
+            ->where('report_case_file.case_file_id', $caseFile->id)
+            ->when($search !== '', fn ($query) => $query->where('reports.body', 'like', "%{$search}%"))
+            ->select('reports.*');
+        $reports = $query
+            ->withCount('comments')
+            ->with(['media' => fn ($query) => $query->orderBy('sort_order')->orderBy('id')->limit(1)])
+            ->latest('updated_at')
+            ->orderByDesc('reports.id')
+            ->paginate(8)
+            ->withQueryString();
+
+        return view('cases.linked-reports', [
+            'caseFile' => $caseFile,
+            'reports' => $reports,
+            'search' => $search,
+            'reportIndexRoute' => $request->routeIs('cfm.*') ? 'cfm.reports.index' : 'admin.reports.index',
         ]);
     }
 

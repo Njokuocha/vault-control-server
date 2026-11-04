@@ -3,7 +3,9 @@
 namespace App\Livewire;
 
 use App\Models\InvestigationCase;
+use App\Models\Person;
 use App\Services\GalleryCategoryAccess;
+use App\Services\PersonMediaAccess;
 use App\Services\ReportAccess;
 use App\Support\VersionedCache;
 use Illuminate\Contracts\View\View;
@@ -32,7 +34,11 @@ class CaseDossier extends Component
         }
     }
 
-    public function render(ReportAccess $reportAccess, GalleryCategoryAccess $galleryAccess): View
+    public function render(
+        ReportAccess $reportAccess,
+        GalleryCategoryAccess $galleryAccess,
+        PersonMediaAccess $personMediaAccess,
+    ): View
     {
         $isCaseManager = auth('web')->user()?->department === 'cfm';
         $relations = [
@@ -42,10 +48,6 @@ class CaseDossier extends Component
             'categories.assignedImages.categories',
             'creator',
         ];
-        if (! $isCaseManager) {
-            $relations[] = 'people';
-        }
-
         $caseFile = app(VersionedCache::class)->remember(
             'cases',
             'record:'.($isCaseManager ? 'cfm:' : '').$this->caseFile->getKey(),
@@ -73,18 +75,47 @@ class CaseDossier extends Component
             $category->setAttribute('access_restricted', false);
         }
 
-        $linkedReports = $reportAccess->visibleQuery()
+        $linkedReportQuery = $reportAccess->visibleQuery()
             ->join('report_case_file', 'reports.id', '=', 'report_case_file.report_id')
             ->where('report_case_file.case_file_id', $caseFile->id)
-            ->select('reports.*')
+            ->select('reports.*');
+        $linkedReportCount = (clone $linkedReportQuery)->count('reports.id');
+        $linkedReports = $linkedReportQuery
             ->withCount('comments')
+            ->with(['media' => fn ($query) => $query->orderBy('sort_order')->orderBy('id')->limit(1)])
             ->latest('updated_at')
             ->orderByDesc('reports.id')
-            ->paginate(10, ['reports.*'], 'linkedReportsPage');
+            ->limit(8)
+            ->get();
+
+        $linkedPeople = collect();
+        $linkedPeopleCount = 0;
+        $personMediaTokens = collect();
+        if (! $isCaseManager) {
+            $actor = auth('admin')->user() ?? auth('web')->user();
+            $linkedPeopleCount = $caseFile->people()->count();
+            $linkedPeople = $caseFile->people()
+                ->with('mainImageFile')
+                ->orderBy('people.name')
+                ->orderBy('people.id')
+                ->limit(20)
+                ->get();
+            $personMediaTokens = $linkedPeople->mapWithKeys(
+                fn (Person $person): array => [
+                    $person->getKey() => $person->main_image_path || $person->main_image_file_id
+                        ? $personMediaAccess->activeToken(request(), $person->getKey(), $actor)
+                        : null,
+                ],
+            );
+        }
 
         return view('livewire.case-dossier', [
             'caseFile' => $caseFile,
             'linkedReports' => $linkedReports,
+            'linkedReportCount' => $linkedReportCount,
+            'linkedPeople' => $linkedPeople,
+            'linkedPeopleCount' => $linkedPeopleCount,
+            'personMediaTokens' => $personMediaTokens,
             'canManageGalleryAccess' => $galleryAccess->isAdministrator(request()),
         ]);
     }

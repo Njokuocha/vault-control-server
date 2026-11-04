@@ -51,9 +51,9 @@ class PersonMediaAccess
         throw new \RuntimeException('Unable to issue a unique profile media access token.');
     }
 
-    public function activeToken(Request $request, int $personId): ?string
+    public function activeToken(Request $request, int $personId, ?Authenticatable $actor = null): ?string
     {
-        $actor = $request->user();
+        $actor ??= $request->user();
         if ($actor === null) {
             return null;
         }
@@ -61,7 +61,7 @@ class PersonMediaAccess
         $cacheKey = $this->activeTokenCacheKey($actor, $personId);
         $token = Cache::get($cacheKey);
 
-        if (! is_string($token) || ! $this->allows($request, $personId, $token)) {
+        if (! is_string($token) || ! $this->allows($request, $personId, $token, $actor)) {
             Cache::forget($cacheKey);
 
             return null;
@@ -70,10 +70,15 @@ class PersonMediaAccess
         return $token;
     }
 
-    public function allows(Request $request, int $personId, ?string $token = null): bool
+    public function allows(
+        Request $request,
+        int $personId,
+        ?string $token = null,
+        ?Authenticatable $actor = null,
+    ): bool
     {
         $token ??= $request->query('auth');
-        $actor = $request->user();
+        $actor ??= $request->user();
 
         if (
             ! is_string($token)

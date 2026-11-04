@@ -319,7 +319,7 @@ class ReportWorkspace extends Component
         $this->selectedReport = $report->uuid;
         $this->activeSection = 'report';
         if ($this->editorMode) {
-            $this->dispatch('report-editor-saved');
+            $this->dispatch('report-editor-saved', draftKey: $this->reportDraftKey($actor, $this->editingUuid));
         }
         $this->resetEditor();
         if ($this->editorMode) {
@@ -616,10 +616,7 @@ class ReportWorkspace extends Component
 
         return view('livewire.report-editor', [
             'report' => $report,
-            'draftKey' => 'report-editor-v1-'.hash(
-                'sha256',
-                $actor::class.':'.$actor->getAuthIdentifier().':'.($report?->uuid ?? 'new'),
-            ),
+            'draftKey' => $this->reportDraftKey($actor, $report?->uuid),
             'isAdmin' => $isAdmin,
             'canLinkCases' => $access->canLinkCases($actor),
             'canLinkPeople' => $access->canLinkPeople($actor),
@@ -629,6 +626,14 @@ class ReportWorkspace extends Component
             'page_title' => ($report === null ? 'Create Report' : 'Edit Report').' — '.config('app.name'),
             'page_label' => 'REPORT EDITOR',
         ])->section($isAdmin ? 'content' : 'department_content');
+    }
+
+    private function reportDraftKey(Authenticatable $actor, ?string $reportUuid): string
+    {
+        return 'report-editor-v1-'.hash(
+            'sha256',
+            $actor::class.':'.$actor->getAuthIdentifier().':'.($reportUuid ?? 'new'),
+        );
     }
 
     private function reportIndexRoute(Authenticatable $actor): string

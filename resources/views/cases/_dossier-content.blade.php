@@ -25,26 +25,42 @@
         <div class="case-comment-text"><span>COMMENTS / CONTINUITY NOTES</span><p>{{ $caseFile->comment }}</p></div>
     </section>
     <section class="case-linked-reports">
-        <div class="profile-section-heading"><div><span class="section-kicker">CONNECTED INTELLIGENCE</span><h2>Linked reports <span>{{ $linkedReports->total() }}</span></h2></div><a class="text-action" href="{{ route($cfmWorkspace ? 'cfm.reports.index' : 'admin.reports.index') }}" wire:navigate>REPORT SYSTEM ↗</a></div>
-        @forelse ($linkedReports as $linkedReport)
-            <a class="case-linked-report-row" href="{{ route($cfmWorkspace ? 'cfm.reports.index' : 'admin.reports.index', ['report' => $linkedReport->uuid]) }}" wire:navigate>
-                <span class="case-linked-report-node" aria-hidden="true"></span>
-                <span><strong>{{ \Illuminate\Support\Str::limit(app(\App\Support\ReportBodyFormatter::class)->plainText($linkedReport->body), 140) }}</strong><small>{{ $linkedReport->created_at?->format('M d, Y · H:i') }} UTC · {{ $linkedReport->comments_count }} comments</small></span><i class="ri ri-arrow-right-up-line" aria-hidden="true"></i>
-            </a>
-        @empty
-            <p class="profile-gallery-empty">No reports are linked to this case file.</p>
-        @endforelse
-        @if ($linkedReports->hasPages())
-            {{ $linkedReports->links() }}
-        @endif
+        <div class="profile-section-heading">
+            <div><span class="section-kicker">CONNECTED INTELLIGENCE</span><h2>Linked reports <span>{{ $linkedReportCount }}</span></h2></div>
+            <div class="case-linked-section-actions">
+                <a class="text-action" href="{{ route($cfmWorkspace ? 'cfm.cases.reports' : 'cases.reports', $caseFile) }}" wire:navigate>VIEW ALL ↗</a>
+                <a class="text-action" href="{{ route($cfmWorkspace ? 'cfm.reports.index' : 'admin.reports.index') }}" wire:navigate>REPORT SYSTEM ↗</a>
+            </div>
+        </div>
+        <div class="case-linked-report-grid">
+            @forelse ($linkedReports as $linkedReport)
+                @include('cases._linked-report-card', [
+                    'report' => $linkedReport,
+                    'reportIndexRoute' => $cfmWorkspace ? 'cfm.reports.index' : 'admin.reports.index',
+                ])
+            @empty
+                <p class="profile-gallery-empty">No reports are linked to this case file.</p>
+            @endforelse
+        </div>
     </section>
     @unless ($cfmWorkspace)
     <section class="case-linked-people">
-        <div class="profile-section-heading"><div><span class="section-kicker">CONNECTED RECORDS</span><h2>Linked people <span>{{ $caseFile->people->count() }}</span></h2></div><a href="{{ route('people.index') }}" wire:navigate class="text-action">PERSON INDEX ↗</a></div>
-        @if ($caseFile->people->isNotEmpty())
-            <div class="linked-person-list">
-                @foreach ($caseFile->people as $person)
-                    <a href="{{ route('people.show', $person) }}" wire:navigate class="linked-case-row"><span class="case-link-mark">USR</span><span><strong>{{ $person->public_id }}</strong><small>{{ $person->name }} · {{ $person->flag }}</small></span><span class="case-classification-chip">{{ $person->gender }}</span><span aria-hidden="true">↗</span></a>
+        <div class="profile-section-heading">
+            <div><span class="section-kicker">CONNECTED RECORDS</span><h2>Linked people <span>{{ $linkedPeopleCount }}</span></h2></div>
+            <div class="case-linked-section-actions">
+                @if ($linkedPeopleCount > 20)
+                    <a href="{{ route('cases.people', $caseFile) }}" wire:navigate class="text-action">VIEW ALL ↗</a>
+                @endif
+                <a href="{{ route('people.index') }}" wire:navigate class="text-action">PERSON INDEX ↗</a>
+            </div>
+        </div>
+        @if ($linkedPeople->isNotEmpty())
+            <div class="case-linked-people-grid">
+                @foreach ($linkedPeople as $person)
+                    @include('cases._linked-person-card', [
+                        'person' => $person,
+                        'personMediaToken' => $personMediaTokens->get($person->getKey()),
+                    ])
                 @endforeach
             </div>
         @else

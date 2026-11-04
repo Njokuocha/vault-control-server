@@ -22,6 +22,18 @@
                         <button type="button" data-report-format-command="insertUnorderedList" aria-label="Bulleted list" title="Bulleted list"><i class="ri ri-list-unordered"></i></button>
                         <button type="button" data-report-format-command="insertOrderedList" aria-label="Numbered list" title="Numbered list"><i class="ri ri-list-ordered"></i></button>
                         <button type="button" data-report-format-command="formatBlock" data-report-format-value="blockquote" aria-label="Quote" title="Quote"><i class="ri ri-double-quotes-l"></i></button>
+                        <span aria-hidden="true"></span>
+                        <label class="report-editor-table-columns">
+                            <span class="sr-only">Table columns</span>
+                            <select data-report-table-columns aria-label="Table columns">
+                                <option value="1">1 column</option>
+                                <option value="2">2 columns</option>
+                                <option value="3" selected>3 columns</option>
+                            </select>
+                        </label>
+                        <button type="button" data-report-table-insert aria-label="Insert table with two rows" title="Insert table"><i class="ri ri-table-line" aria-hidden="true"></i> TABLE</button>
+                        <button type="button" data-report-table-add-row aria-label="Add row to selected table" title="Add row to selected table"><i class="ri ri-insert-row-bottom" aria-hidden="true"></i> ROW</button>
+                        <button type="button" data-report-table-remove-row aria-label="Remove selected table row" title="Remove selected table row"><i class="ri ri-delete-row" aria-hidden="true"></i> REMOVE</button>
                         <label class="report-editor-size-control">
                             <span class="sr-only">Limited text size</span>
                             <select data-report-font-size aria-label="Report text size">

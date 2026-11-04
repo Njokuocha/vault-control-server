@@ -39,6 +39,14 @@ class AdminEmailFormatter
         'tr',
     ];
 
+    private const REPORT_TABLE_ELEMENTS = [
+        'table',
+        'tbody',
+        'td',
+        'th',
+        'tr',
+    ];
+
     private const REMOVED_ELEMENTS = [
         'iframe',
         'math',
@@ -55,6 +63,11 @@ class AdminEmailFormatter
         return $this->sanitizeHtml($html, self::ALLOWED_ELEMENTS, false);
     }
 
+    public function sanitizeReportBody(string $html): string
+    {
+        return $this->sanitizeHtml($html, [...self::ALLOWED_ELEMENTS, ...self::REPORT_TABLE_ELEMENTS], false, true);
+    }
+
     public function sanitizeForEmail(string $html): string
     {
         return $this->sanitizeHtml($html, [...self::ALLOWED_ELEMENTS, ...self::EMAIL_LAYOUT_ELEMENTS], true);
@@ -63,8 +76,12 @@ class AdminEmailFormatter
     /**
      * @param  array<int, string>  $allowedElements
      */
-    private function sanitizeHtml(string $html, array $allowedElements, bool $allowInlineStyles): string
-    {
+    private function sanitizeHtml(
+        string $html,
+        array $allowedElements,
+        bool $allowInlineStyles,
+        bool $limitTableColumns = false,
+    ): string {
         if (! class_exists(DOMDocument::class)) {
             throw new RuntimeException('The HTML parser extension is required to format outgoing mail safely.');
         }
@@ -83,7 +100,7 @@ class AdminEmailFormatter
                 throw new RuntimeException('The outgoing email body could not be parsed.');
             }
 
-            $this->sanitizeChildren($root, $allowedElements, $allowInlineStyles);
+            $this->sanitizeChildren($root, $allowedElements, $allowInlineStyles, $limitTableColumns);
 
             $output = '';
             foreach ($root->childNodes as $child) {
@@ -100,8 +117,12 @@ class AdminEmailFormatter
     /**
      * @param  array<int, string>  $allowedElements
      */
-    private function sanitizeChildren(DOMNode $parent, array $allowedElements, bool $allowInlineStyles): void
-    {
+    private function sanitizeChildren(
+        DOMNode $parent,
+        array $allowedElements,
+        bool $allowInlineStyles,
+        bool $limitTableColumns,
+    ): void {
         foreach (iterator_to_array($parent->childNodes) as $child) {
             if (! $child instanceof DOMElement) {
                 if (! $child instanceof \DOMText) {
@@ -118,7 +139,7 @@ class AdminEmailFormatter
                 continue;
             }
 
-            $this->sanitizeChildren($child, $allowedElements, $allowInlineStyles);
+            $this->sanitizeChildren($child, $allowedElements, $allowInlineStyles, $limitTableColumns);
             if (! in_array($tag, $allowedElements, true)) {
                 while ($child->firstChild !== null) {
                     $parent->insertBefore($child->firstChild, $child);
@@ -126,6 +147,18 @@ class AdminEmailFormatter
                 $parent->removeChild($child);
 
                 continue;
+            }
+
+            if ($limitTableColumns && $tag === 'tr') {
+                $cellCount = 0;
+                foreach (iterator_to_array($child->childNodes) as $cell) {
+                    if (! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), ['td', 'th'], true)) {
+                        continue;
+                    }
+                    if (++$cellCount > 3) {
+                        $child->removeChild($cell);
+                    }
+                }
             }
 
             $this->sanitizeAttributes($child, $tag, $allowInlineStyles);
