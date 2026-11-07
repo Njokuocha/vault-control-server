@@ -1,0 +1,188 @@
+@extends($profileManagement ? 'layouts.department' : 'layouts.app')
+
+@section('page_title', $person->name . ' — ' . config('app.name'))
+@unless($profileManagement)
+    @section('page_label', 'PERSON PROFILE')
+@endunless
+
+@section($profileManagement ? 'department_content' : 'content')
+    <section class="page-heading">
+        <div><div class="eyebrow"><span class="eyebrow-line"></span> SUBJECT DOSSIER <span class="eyebrow-index">{{ $person->public_id }}</span></div><h1>{{ $person->name }} <span>profile</span></h1><p class="page-description">Private subject record · last updated {{ $person->updated_at->format('M j, Y H:i') }}</p></div>
+        <div class="profile-heading-actions"><button class="button-secondary" type="button" data-open-image-pin>{{ $mediaAuthorized ? 'VIEWABLES UNLOCKED' : 'UNLOCK VIEWABLES' }}</button><a class="button-secondary" href="{{ route($routePrefix.'.index') }}" wire:navigate>ALL PROFILES</a><a class="button-primary" href="{{ route($routePrefix.'.edit', ['person' => $person, 'auth' => $authToken]) }}" wire:navigate>EDIT PROFILE</a></div>
+    </section>
+    <section class="person-profile-hero" data-person-profile-page data-media-authorized="{{ $mediaAuthorized ? 'true' : 'false' }}" data-media-auth-expires-at="{{ $mediaAuthExpiresAt }}">
+        <div class="profile-visual-panel">
+            <div class="profile-visual-top"><span>IDENTITY VISUAL</span><span>{{ $person->public_id }}</span></div>
+            <div class="profile-avatar-stage">
+                @if ($avatarModelUrl)
+                    <model-viewer src="{{ $avatarModelUrl }}" alt="Rotating {{ strtolower($person->avatar_group) }} avatar" auto-rotate auto-rotate-delay="0" rotation-per-second="16deg" interaction-prompt="none" disable-tap shadow-intensity="0.6" exposure="0.9" data-profile-model></model-viewer>
+                @else
+                    <div class="profile-unknown-avatar" data-profile-model aria-label="{{ $person->avatar_group }} avatar model unavailable"><span>?</span><small>{{ strtoupper($person->avatar_group) }} MODEL NOT CONFIGURED</small></div>
+                @endif
+                <div class="profile-main-image" data-profile-main-image hidden>
+                    @if (! $mediaAuthorized)
+                        <div class="profile-no-image">UNLOCK VIEWABLES TO VIEW THE MAIN IMAGE</div>
+                    @elseif ($person->main_image_path)
+                        <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => 'main', 'auth' => $authToken]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => 'main', 'auth' => $authToken]) }}" data-image-extension="{{ $person->mainImageFile?->extension ?? pathinfo($person->main_image_path ?? '', PATHINFO_EXTENSION) }}" data-image-mime-type="{{ $person->mainImageFile?->mime_type }}" alt="{{ $person->name }} main image" loading="lazy" data-image-viewer>
+                    @else
+                        <div class="profile-no-image">NO IMAGE FOR THE CURRENT USER</div>
+                    @endif
+                </div>
+            </div>
+            @if ($imagePinConfigured)
+                <button class="profile-visual-toggle" type="button" data-profile-visual-toggle data-has-main-image="{{ $mediaAuthorized && $person->main_image_path ? 'true' : 'false' }}" disabled>VIEW MAIN IMAGE <span>↗</span></button>
+            @else
+                @if ($profileManagement)
+                    <div class="profile-visual-toggle profile-visual-setup">IMAGE ACCESS REQUIRES AN ADMINISTRATOR PIN</div>
+                @else
+                    <a class="profile-visual-toggle profile-visual-setup" href="{{ route('settings.index') }}" wire:navigate>CONFIGURE IMAGE PIN IN SETTINGS <span>↗</span></a>
+                @endif
+            @endif
+            <div class="profile-model-caption"><span class="status-dot"></span> ROTATION PREVIEW <i>·</i> {{ strtoupper($person->avatar_group) }} MODEL</div>
+        </div>
+        <div class="profile-identity-panel">
+            <div class="profile-identity-top"><span class="record-id">{{ $person->public_id }}</span><span class="person-status-badge status-{{ strtolower($person->flag) }}">{{ strtoupper($person->flag) }}</span></div>
+            <h2>{{ $person->name }}</h2>
+            <p class="profile-name-line">{{ $person->first_name }} {{ $person->last_name }} {{ $person->surname }}</p>
+            <div class="profile-quick-facts">
+                <div><span>AGE</span><strong>{{ $person->age }}</strong></div>
+                <div><span>GENDER</span><strong>{{ $person->gender }}</strong></div>
+                <div><span>CITIZENSHIP</span><strong>{{ $person->citizenship }}</strong></div>
+                <div><span>STATE / REGION</span><strong>{{ $person->state }}</strong></div>
+            </div>
+            @unless($profileManagement)
+            <div class="linked-cases-block">
+                <div class="profile-section-heading"><div><span class="section-kicker">ASSOCIATED RECORDS</span><h3>Linked case files</h3></div><button type="button" class="button-secondary" data-open-case-link>＋ LINK CASE</button></div>
+                @if ($person->cases->isNotEmpty())
+                    <div class="linked-case-list">
+                        @foreach ($person->cases as $case)
+                            <a class="linked-case-row" href="{{ route('cases.show', $case) }}" wire:navigate><span class="case-link-mark">CSE</span><span><strong>{{ $case->public_id }}</strong><small>{{ $case->title }}</small></span><span class="case-classification-chip">{{ $case->classification }}</span><span aria-hidden="true">↗</span></a>
+                        @endforeach
+                    </div>
+                @else
+                    <div class="linked-case-empty">No case files linked to this profile.</div>
+                @endif
+            </div>
+            @endunless
+            <div class="case-linked-reports person-linked-reports">
+                <div class="profile-section-heading"><div><span class="section-kicker">CONNECTED INTELLIGENCE</span><h3>Linked reports <span>{{ $linkedReports->total() }}</span></h3></div><a class="text-action" href="{{ route($profileManagement ? 'pm.reports.index' : 'admin.reports.index') }}" wire:navigate>REPORT SYSTEM ↗</a></div>
+                @forelse ($linkedReports as $linkedReport)
+                    <a class="case-linked-report-row" href="{{ route($profileManagement ? 'pm.reports.index' : 'admin.reports.index', ['report' => $linkedReport->uuid]) }}" wire:navigate>
+                        <span class="case-linked-report-node" aria-hidden="true"></span>
+                        <span><strong>{{ \Illuminate\Support\Str::limit(app(\App\Support\ReportBodyFormatter::class)->plainText($linkedReport->body), 140) }}</strong><small>{{ $linkedReport->created_at?->format('M d, Y · H:i') }} UTC · {{ $linkedReport->comments_count }} comments</small></span><i class="ri ri-arrow-right-up-line" aria-hidden="true"></i>
+                    </a>
+                @empty
+                    <p class="profile-gallery-empty">No reports are linked to this person record.</p>
+                @endforelse
+                @if ($linkedReports->hasPages())
+                    {{ $linkedReports->links() }}
+                @endif
+            </div>
+            <div class="profile-gallery-block">
+                <div class="profile-section-heading"><div><span class="section-kicker">PRIVATE MEDIA RECORD</span><h3>Gallery <span>{{ $galleryTotalCount }}</span></h3></div><a href="{{ route($routePrefix.'.edit', ['person' => $person, 'auth' => $authToken]) }}" wire:navigate class="text-action">MANAGE MEDIA</a></div>
+                <div class="profile-gallery-category-heading">
+                    <strong>{{ $mediaAuthorized ? ($galleryPreviewCategory?->title ?? 'Uncategorized media') : 'Protected media' }} @if($mediaAuthorized && $canManageGalleryAccess && $galleryPreviewCategory?->is_locked)<i class="ri ri-lock-line gallery-category-lock-indicator" title="Restricted category" aria-label="Restricted category"></i>@endif</strong>
+                    <a class="text-action" href="{{ route($routePrefix.'.gallery', ['person' => $person, 'auth' => $authToken]) }}" wire:navigate>VIEW GALLERY ↗</a>
+                </div>
+                @if (! $mediaAuthorized)
+                    <div class="profile-gallery is-restricted" aria-label="Protected gallery preview">
+                        <button class="profile-gallery-tile profile-gallery-tile--restricted" type="button" data-open-image-pin aria-label="Unlock protected gallery media">
+                            <i class="ri ri-lock-line gallery-restricted-card__icon" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                @elseif ($galleryPreviewRestricted)
+                    <div class="profile-gallery is-restricted" aria-label="Restricted gallery preview">
+                        <button class="profile-gallery-tile profile-gallery-tile--restricted" type="button" data-gallery-restricted aria-label="Restricted file">
+                            <i class="ri ri-lock-line gallery-restricted-card__icon" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                @elseif ($galleryPreviewMedia->isNotEmpty())
+                    <div class="profile-gallery profile-gallery--preview is-locked" data-profile-gallery>
+                        @foreach ($galleryPreviewMedia as $image)
+                            @if ($image->type === 'video')
+                                <button class="profile-gallery-tile video-gallery-tile" type="button" data-video-viewer data-video-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-video-title="{{ $image->original_name }}" data-video-mime-type="{{ $image->file?->mime_type }}" data-video-pin-required aria-label="Locked video. Unlock viewables to preview.">
+                                    <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
+                                    @if ($image->poster_path || $image->file?->video_poster_path)
+                                        <img data-protected-image data-image-url="{{ route($routePrefix.'.images.poster', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" alt="" loading="lazy" hidden>
+                                    @else
+                                        <video class="profile-gallery-video-thumbnail" data-protected-video-thumbnail data-thumbnail-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" muted playsinline preload="none" hidden aria-hidden="true"></video>
+                                    @endif
+                                    <span class="video-play-overlay" aria-hidden="true"><i class="ri ri-play-fill"></i></span>
+                                </button>
+                            @else
+                                <button class="profile-gallery-tile" type="button" data-image-viewer data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-download-url="{{ route($routePrefix.'.images.download', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-image-title="{{ $image->original_name }}" data-image-extension="{{ $image->file?->extension ?? pathinfo($image->original_name ?? '', PATHINFO_EXTENSION) }}" data-image-mime-type="{{ $image->file?->mime_type }}" aria-label="Locked image. Unlock viewables to preview.">
+                                    <span class="image-lock-placeholder" data-image-lock-placeholder>?</span>
+                                    <img data-protected-image data-image-url="{{ route($routePrefix.'.image', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" data-thumbnail-url="{{ route($routePrefix.'.images.thumbnail', ['person' => $person, 'image' => $image->id, 'auth' => $authToken]) }}" alt="{{ $image->original_name }}" loading="lazy" hidden>
+                                </button>
+                            @endif
+                        @endforeach
+                    </div>
+                @else
+                    <div class="profile-gallery-empty">No media in this preview category yet.</div>
+                @endif
+                @if ($galleryPreviewCount > $galleryPreviewMedia->count())
+                    <p class="profile-gallery-count-note">Showing {{ $galleryPreviewMedia->count() }} of {{ $galleryPreviewCount }} items in this category.</p>
+                @endif
+            </div>
+        </div>
+    </section>
+    <dialog class="gallery-management-dialog gallery-restricted-dialog" data-gallery-restricted-dialog aria-labelledby="gallery-restricted-title">
+        <form method="dialog" class="gallery-picker-close"><button value="close" aria-label="Close restriction notice">×</button></form>
+        <div class="gallery-restricted-dialog-content">
+            <i class="ri ri-lock-line" aria-hidden="true"></i>
+            <span class="section-kicker">CATEGORY ACCESS</span>
+            <h2 id="gallery-restricted-title">File restricted</h2>
+            <p>This file has been restricted and cannot be accessed.</p>
+            <form method="dialog"><button class="button-secondary" value="close">UNDERSTOOD</button></form>
+        </div>
+    </dialog>
+    <section class="profile-details-grid">
+        <article class="profile-details-card">
+            <div class="profile-section-heading"><div><span class="section-kicker">BIOGRAPHICAL DATA</span><h3>Identity details</h3></div></div>
+            <dl class="profile-details-list">
+                @foreach (['Date of birth' => 'date_of_birth', 'Marital status' => 'marital_status', 'Spouse' => 'spouse', 'Blood group' => 'blood_group', 'Genotype' => 'genotype', 'Height' => 'height', 'Occupation' => 'occupation', 'Aliases' => 'aliases', 'Last known location' => 'last_known_location', 'Identifying marks' => 'identifying_marks'] as $label => $field)
+                    <div><dt>{{ $label }}</dt><dd>{{ $person->{$field} }}</dd></div>
+                @endforeach
+            </dl>
+        </article>
+        <article class="profile-statement-card">
+            <div class="profile-section-heading"><div><span class="section-kicker">FIELD NOTES</span><h3>Comment / statement</h3></div></div>
+            <div class="statement-paper">{{ $person->statement }}</div>
+            <div class="statement-footnote">UNVERIFIED INFORMATION SHOULD BE ATTRIBUTED TO ITS SOURCE.</div>
+        </article>
+    </section>
+    <dialog class="image-pin-dialog" data-image-pin-dialog data-unlock-url="{{ route($routePrefix.'.images.unlock', $person) }}" data-pin-configured="{{ $imagePinConfigured ? 'true' : 'false' }}">
+        <form method="dialog" class="image-pin-close-form"><button value="close" aria-label="Close PIN window">×</button></form>
+        <div class="image-pin-content">
+            <span class="pin-security-emblem" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 19 6v5.5c0 4.4-2.8 7.4-7 9.5-4.2-2.1-7-5.1-7-9.5V6z"/><rect x="9" y="10" width="6" height="5" rx="1"/><path d="M10.5 10V8.5a1.5 1.5 0 0 1 3 0V10"/></svg></span>
+            <span class="section-kicker">RESTRICTED IMAGE ACCESS</span>
+            <h2>Unlock viewables</h2>
+            <p>Enter the four-digit image PIN to view this profile's main image and private gallery.</p>
+            @if ($imagePinConfigured)
+                <form method="post" action="{{ route($routePrefix.'.images.unlock', $person) }}" data-image-pin-form>
+                    @csrf
+                    <div class="pin-digit-row" data-pin-digit-row>
+                        @for ($digit = 0; $digit < 4; $digit++)
+                            <input type="password" inputmode="numeric" pattern="[0-9]" maxlength="1" autocomplete="{{ $digit === 0 ? 'one-time-code' : 'off' }}" aria-label="PIN digit {{ $digit + 1 }}" data-pin-digit>
+                        @endfor
+                    </div>
+                    <p class="pin-error" data-pin-error role="alert" aria-live="polite"></p>
+                    <button type="submit" class="button-primary pin-submit" data-submit-image-pin>AUTHENTICATE PIN</button>
+                </form>
+            @else
+                <div class="pin-setup-required">An administrator must configure the image PIN in Settings before images can be viewed.</div>
+                @unless($profileManagement)
+                    <a class="button-primary pin-submit" href="{{ route('settings.index') }}">OPEN SECURITY SETTINGS</a>
+                @endunless
+            @endif
+        </div>
+    </dialog>
+    @unless($profileManagement)
+    <dialog class="case-link-dialog" data-case-link-dialog>
+        <form method="dialog" class="case-link-dialog-header"><div><span class="section-kicker">RELATIONSHIP INDEX</span><h2>Link a case file</h2></div><button value="close" aria-label="Close case file search">×</button></form>
+        <label class="records-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.2 4.2"/></svg><input type="search" placeholder="Search case number or title" data-case-link-search></label>
+        <div class="case-link-results" data-case-link-results data-search-url="{{ route('people.cases.search', $person) }}" data-attach-url="{{ route('people.cases.attach', $person) }}">Search for a case file to link.</div>
+    </dialog>
+    @endunless
+    <footer class="page-footer"><span>{{ strtoupper(config('app.name')) }} · SUBJECT DOSSIER</span><span>PRIVATE BY DESIGN <i>·</i> ACCESS CONTROLLED</span></footer>
+@endsection

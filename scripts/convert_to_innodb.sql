@@ -1,0 +1,4 @@
+ALTER TABLE sessions ENGINE=InnoDB;
+ALTER TABLE cache ENGINE=InnoDB;
+ALTER TABLE cache_locks ENGINE=InnoDB;
+ALTER TABLE jobs ENGINE=InnoDB;

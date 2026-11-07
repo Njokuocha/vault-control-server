@@ -1,0 +1,119 @@
+# Vault Control desktop controller
+
+This Wails application is the local Windows control panel for the packaged Laravel
+server. It does not start services on launch. Use **START ALL** to start MariaDB,
+FrankenPHP, Reverb, both configured queue workers, and the scheduler. Closing the
+window hides it to the system tray; **Exit** in the tray menu stops managed
+processes before quitting.
+
+The controller resolves all paths relative to `VaultControl.exe`. The packaged
+layout is expected to contain:
+
+```text
+VaultControl.exe
+bin/
+  frankenphp.exe
+  php.ini
+  php/php.exe
+  php/php.ini
+  mariadb/bin/mysqld.exe
+  mariadb/bin/mysql.exe
+  mariadb/bin/mysqldump.exe
+  mariadb/my.ini
+  webview2/msedgewebview2.exe
+app/
+  Caddyfile
+  artisan
+  storage/logs/laravel.log
+data/
+  .env.production
+  .env.production.example
+  mysql_data/
+  backups/
+  logs/
+```
+
+Database viewing is read-only and runs through local MariaDB client processes
+using `data/.env.production`. The database host must be loopback (`127.0.0.1` or
+`localhost`); the desktop controller exposes no database HTTP endpoint.
+Displayed table results are limited to 100 rows.
+
+The fixed-version WebView2 runtime is stored under `bin/webview2` and is
+selected by the controller when present. Unlike the Evergreen runtime, Microsoft
+does not automatically update a fixed-version runtime; refresh it with a
+security update when rebuilding the package. This adds over 250 MB to the
+runtime package.
+
+Build the standalone runtime directory from the repository root's checked-out
+Laravel files with:
+
+```powershell
+cd .\desktop
+.\package-runtime.ps1
+```
+
+The package script downloads pinned Windows runtimes, builds the frontend with
+the public Reverb key, builds VaultControl with `wails build`, and stages Laravel
+code without copying the repository `.env` or its storage data. Both packaging
+and setup scripts default to `build\package`; refreshing an existing package
+preserves its `data` directory. It leaves a
+`data\.env.production.example` and an interactive one-time setup script. After
+packaging, run:
+
+```powershell
+cd .\desktop\build\package
+.\setup-package.ps1
+```
+
+Before refreshing an existing package, the script prompts you to exit any
+running VaultControl tray process. Pass `-Force` to stop it automatically by
+process ID before replacing the executable.
+
+The setup generates a unique application key and database password, initializes
+a fresh local database, runs migrations, and prompts for the initial admin
+email/password. The DB listens only on loopback; the repository's `.env`, live
+Herd database, and storage data are not copied into the package. The setup script
+does not run when the desktop application launches.
+
+To rerun setup against an existing package, pass `-Force`; it preserves the
+existing application key and database credentials and reuses the existing
+production environment settings. It also skips fresh MariaDB system-table
+initialization when the existing system tables are present.
+
+For an integration smoke test, use a disposable package only; the test starts
+queue workers and therefore must not run against production data:
+
+```powershell
+$env:VAULTCONTROL_PACKAGE_INTEGRATION = (Resolve-Path .\build\package).Path
+go test -run '^TestPackaged' -v
+Remove-Item Env:\VAULTCONTROL_PACKAGE_INTEGRATION
+```
+
+The test starts and stops the package services, queries the local database, and
+checks the web health endpoint. It requires ports 3307, 8000, 8080, and 2019 to
+be available for a full-stack run. If 8080 is occupied, it verifies that Start
+All refuses to start and tests the other services separately (which still
+requires ports 3307, 8000, and 2019 to be available).
+
+The development controller can read the working tree's Laravel log and query
+its configured Herd database. Its Start All action still needs the packaged
+runtime layout; it does not substitute development services for the production
+commands.
+
+Build the Windows application from this directory with:
+
+```powershell
+wails build
+```
+
+Run the development interface from this directory with:
+
+```powershell
+$env:WAILS_DEV_ALLOWED_HOSTS = "wails.localhost"
+wails dev
+```
+
+In a source checkout, the controller locates the Laravel project above
+`desktop/`, reads its application log, and queries its configured database
+through `php.exe` on `PATH`. Packaged builds use the separate `app/` directory,
+bundled PHP and MariaDB tools, and `data/.env.production`.

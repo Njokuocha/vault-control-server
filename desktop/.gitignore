@@ -1,0 +1,10 @@
+build/bin
+node_modules
+frontend/dist
+/build/package/
+/build/phase4-package-check/
+/build/_phase4-downloads/
+/build/_phase4-extracted/
+/build/_phase4-mariadb-smoke/
+/build/_phase4-relative-maria/
+/build/_package-stage-*

@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", "IBM Plex Sans", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 1030px;
+  min-height: 100vh;
+  margin: 0;
+  color: #e5edf5;
+  background:
+    radial-gradient(ellipse at 50% -20%, rgb(47 91 127 / 28%), transparent 48rem),
+    linear-gradient(145deg, #0b1420 0%, #080e16 60%, #0c1520 100%);
+}
+
+button,
+select {
+  font: inherit;
+}

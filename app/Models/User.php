@@ -1,0 +1,107 @@
+<?php
+
+namespace App\Models;
+
+// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Support\VersionedCache;
+use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+
+class User extends Authenticatable
+{
+    /** @use HasFactory<UserFactory> */
+    use HasFactory, Notifiable;
+
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var list<string>
+     */
+    protected $fillable = [
+        'name',
+        'email',
+        'username',
+        'department',
+        'account_status',
+        'profile_photo_path',
+        'password',
+    ];
+
+    /**
+     * The attributes that should be hidden for serialization.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
+
+    /**
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'email_verified_at' => 'datetime',
+            'frozen_until' => 'datetime',
+            'password' => 'hashed',
+        ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (User $user): void {
+            if ($user->isDirty('department') || $user->department_id === null) {
+                $user->department_id = $user->department === null
+                    ? null
+                    : Department::query()->where('code', $user->department)->value('id');
+            }
+        });
+        static::saved(function (User $user): void {
+            $cache = app(VersionedCache::class);
+            if ($user->wasChanged(['name', 'email', 'department', 'department_id', 'profile_photo_path'])) {
+                $cache->bumpAfterCommit('reports');
+            }
+            if ($user->wasChanged(['name', 'department', 'department_id', 'profile_photo_path'])) {
+                $cache->bumpAfterCommit('report-related');
+            }
+        });
+        static::deleted(function (): void {
+            $cache = app(VersionedCache::class);
+            $cache->bumpAfterCommit('reports');
+            $cache->bumpAfterCommit('report-related');
+        });
+    }
+
+    public function uploadTransfers(): HasMany
+    {
+        return $this->hasMany(UploadTransfer::class);
+    }
+
+    public function staffGalleryImages(): HasMany
+    {
+        return $this->hasMany(StaffGalleryImage::class);
+    }
+
+    public function staffGalleryCategories(): HasMany
+    {
+        return $this->hasMany(StaffGalleryCategory::class)->orderBy('sort_order')->orderBy('id');
+    }
+
+    public function departmentRecord(): BelongsTo
+    {
+        return $this->belongsTo(Department::class, 'department_id');
+    }
+
+    public function createdCases(): HasMany
+    {
+        return $this->hasMany(InvestigationCase::class, 'created_by_user_id');
+    }
+}

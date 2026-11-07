@@ -1,0 +1,251 @@
+[CmdletBinding()]
+param(
+    [Alias('PackageDirectory')]
+    [string]$PackageDir = $(
+        if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'data\.env.production.example')) {
+            $PSScriptRoot
+        }
+        else {
+            Join-Path $PSScriptRoot 'build\package'
+        }
+    ),
+    [switch]$Force
+)
+
+$ErrorActionPreference = 'Stop'
+$package = [System.IO.Path]::GetFullPath($PackageDir)
+$environmentFile = Join-Path $package 'data\.env.production'
+$environmentExample = Join-Path $package 'data\.env.production.example'
+$mariaBin = Join-Path $package 'bin\mariadb\bin'
+$mariaConfig = Join-Path $package 'bin\mariadb\my.ini'
+$databaseDirectory = Join-Path $package 'data\mysql_data'
+$logDirectory = Join-Path $package 'data\logs'
+$appDirectory = Join-Path $package 'app'
+$php = Join-Path $package 'bin\php\php.exe'
+
+foreach ($required in @(
+    $environmentExample,
+    (Join-Path $mariaBin 'mariadb-install-db.exe'),
+    (Join-Path $mariaBin 'mysqld.exe'),
+    (Join-Path $mariaBin 'mysql.exe'),
+    $mariaConfig,
+    $php,
+    (Join-Path $appDirectory 'artisan')
+)) {
+    if (-not (Test-Path -LiteralPath $required)) {
+        throw "Required package file is missing: $required"
+    }
+}
+$reusingExistingEnvironment = $Force -and (Test-Path -LiteralPath $environmentFile)
+if ((Test-Path -LiteralPath $environmentFile) -and -not $Force) {
+    throw "Refusing to overwrite existing production settings: $environmentFile"
+}
+
+$adminEmail = (Read-Host 'Initial administrator email').Trim().ToLowerInvariant()
+if ($adminEmail -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') {
+    throw 'Enter a valid administrator email address.'
+}
+$adminPassword = Read-Host 'Initial administrator password (at least 12 characters)' -AsSecureString
+$password = [System.Net.NetworkCredential]::new('', $adminPassword).Password
+if ($password.Length -lt 12) {
+    throw 'The administrator password must contain at least 12 characters.'
+}
+
+$databaseName = 'vault_control'
+$text = [System.IO.File]::ReadAllText($(if ($reusingExistingEnvironment) { $environmentFile } else { $environmentExample }))
+$databaseSetting = [regex]::Match($text, '(?m)^DB_DATABASE=(?<name>[A-Za-z0-9_]+)\s*$')
+if (-not $databaseSetting.Success) {
+    throw 'DB_DATABASE is missing or invalid in the packaged environment example.'
+}
+$databaseName = $databaseSetting.Groups['name'].Value
+
+if ($reusingExistingEnvironment) {
+    $databasePasswordSetting = [regex]::Match($text, '(?m)^DB_PASSWORD=(?<value>\S+)\s*$')
+    $reverbSecretSetting = [regex]::Match($text, '(?m)^REVERB_APP_SECRET=(?<value>\S+)\s*$')
+    $applicationKeySetting = [regex]::Match($text, '(?m)^APP_KEY=(?<value>\S+)\s*$')
+    if (-not $databasePasswordSetting.Success -or -not $reverbSecretSetting.Success -or -not $applicationKeySetting.Success) {
+        throw 'Cannot safely reuse production settings: APP_KEY, DB_PASSWORD, and REVERB_APP_SECRET must be set.'
+    }
+
+    $databasePassword = $databasePasswordSetting.Groups['value'].Value
+    $reverbSecret = $reverbSecretSetting.Groups['value'].Value
+}
+else {
+    $randomBytes = New-Object byte[] 32
+    $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $random.GetBytes($randomBytes)
+        $databasePassword = [System.BitConverter]::ToString($randomBytes).Replace('-', '').ToLowerInvariant()
+        $random.GetBytes($randomBytes)
+        $reverbSecret = [System.BitConverter]::ToString($randomBytes).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $random.Dispose()
+    }
+    [Array]::Clear($randomBytes, 0, $randomBytes.Length)
+}
+
+$text = [regex]::Replace($text, '(?m)^DB_USERNAME=.*$', 'DB_USERNAME=vault_control')
+$text = [regex]::Replace($text, '(?m)^DB_PASSWORD=.*$', "DB_PASSWORD=$databasePassword")
+$text = [regex]::Replace($text, '(?m)^ADMIN_EMAIL=.*$', "ADMIN_EMAIL=$adminEmail")
+$text = [regex]::Replace($text, '(?m)^REVERB_APP_SECRET=.*$', "REVERB_APP_SECRET=$reverbSecret")
+[System.IO.File]::WriteAllText(
+    $environmentFile,
+    $text,
+    [System.Text.UTF8Encoding]::new($false)
+)
+
+New-Item -ItemType Directory -Force -Path $databaseDirectory, $logDirectory | Out-Null
+$packageConfigPath = $package.Replace('\', '/')
+$mariaConfigContent = @"
+[mysqld]
+port=3307
+basedir=$packageConfigPath/bin/mariadb
+datadir=$packageConfigPath/data/mysql_data
+bind-address=127.0.0.1
+max_connections=250
+innodb_buffer_pool_size=512M
+innodb_log_file_size=128M
+innodb_flush_log_at_trx_commit=2
+innodb_lock_wait_timeout=50
+skip-name-resolve
+character-set-server=utf8mb4
+collation-server=utf8mb4_unicode_ci
+"@
+Set-Content -LiteralPath $mariaConfig -Value $mariaConfigContent -Encoding ascii
+$account = "$env:USERDOMAIN\$env:USERNAME"
+& icacls.exe $environmentFile /inheritance:r /grant:r "$($account):(M)" 'SYSTEM:(F)' | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw 'Could not restrict access to the production environment file.'
+}
+
+$installer = Join-Path $mariaBin 'mariadb-install-db.exe'
+if ($reusingExistingEnvironment) {
+    if (-not (Test-Path -LiteralPath (Join-Path $databaseDirectory 'mysql') -PathType Container)) {
+        throw "Cannot safely rerun setup: the existing MariaDB system tables were not found in $databaseDirectory."
+    }
+}
+else {
+    & $installer "--datadir=$databaseDirectory" '--port=3307' "--config=$mariaConfig" '--silent'
+    if ($LASTEXITCODE -ne 0) {
+        throw "MariaDB system-table initialization failed with exit code $LASTEXITCODE."
+    }
+}
+
+$serverLog = Join-Path $logDirectory 'setup-mariadb.log'
+$server = Start-Process `
+    -FilePath (Join-Path $mariaBin 'mysqld.exe') `
+    -ArgumentList @("--defaults-file=$mariaConfig") `
+    -WorkingDirectory $package `
+    -PassThru `
+    -RedirectStandardOutput (Join-Path $logDirectory 'setup-mariadb.stdout.log') `
+    -RedirectStandardError $serverLog
+$mysql = Join-Path $mariaBin 'mysql.exe'
+$serverStopped = $false
+
+function Invoke-LocalMariaDBSQL {
+    param([string]$Statement)
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $mysql
+    $startInfo.Arguments = '--no-defaults --host=127.0.0.1 --port=3307 --user=root --batch --skip-column-names'
+    $startInfo.WorkingDirectory = $package
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $client = [System.Diagnostics.Process]::new()
+    $client.StartInfo = $startInfo
+    if (-not $client.Start()) {
+        throw 'Could not start the local MariaDB client.'
+    }
+    $client.StandardInput.WriteLine($Statement)
+    $client.StandardInput.Close()
+    $output = $client.StandardOutput.ReadToEnd()
+    $errors = $client.StandardError.ReadToEnd()
+    $client.WaitForExit()
+    if ($client.ExitCode -ne 0) {
+        throw "Local MariaDB command failed: $($errors.Trim()) $($output.Trim())"
+    }
+}
+
+try {
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    $ready = $false
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if (-not (Get-Process -Id $server.Id -ErrorAction SilentlyContinue)) {
+            throw "MariaDB exited during setup; inspect $serverLog."
+        }
+        $client = [System.Net.Sockets.TcpClient]::new()
+        try {
+            $connect = $client.BeginConnect('127.0.0.1', 3307, $null, $null)
+            if ($connect.AsyncWaitHandle.WaitOne(250) -and $client.Connected) {
+                $ready = $true
+                break
+            }
+        }
+        finally {
+            $client.Dispose()
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    if (-not $ready) {
+        throw "MariaDB did not become ready; inspect $serverLog."
+    }
+
+    $sql = "CREATE DATABASE IF NOT EXISTS ``$databaseName`` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; " +
+        "CREATE USER IF NOT EXISTS 'vault_control'@'127.0.0.1' IDENTIFIED BY '$databasePassword'; " +
+        "CREATE USER IF NOT EXISTS 'vault_control'@'localhost' IDENTIFIED BY '$databasePassword'; " +
+        "GRANT ALL PRIVILEGES ON ``$databaseName``.* TO 'vault_control'@'127.0.0.1'; " +
+        "GRANT ALL PRIVILEGES ON ``$databaseName``.* TO 'vault_control'@'localhost';"
+    Invoke-LocalMariaDBSQL -Statement $sql
+
+    $env:PHPRC = Join-Path $package 'bin\php'
+    $env:ADMIN_PASSWORD = $password
+    Push-Location $appDirectory
+    try {
+        if (-not $reusingExistingEnvironment) {
+            & $php artisan key:generate --force
+            if ($LASTEXITCODE -ne 0) {
+                throw 'Could not generate the application encryption key.'
+            }
+        }
+        & $php artisan migrate --force
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Laravel database migrations failed.'
+        }
+        & $php artisan db:seed --force
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Initial administrator and settings setup failed.'
+        }
+    }
+    finally {
+        Pop-Location
+        Remove-Item Env:\ADMIN_PASSWORD -ErrorAction SilentlyContinue
+        Remove-Item Env:\PHPRC -ErrorAction SilentlyContinue
+        $password = $null
+        $adminPassword = $null
+    }
+
+    Invoke-LocalMariaDBSQL -Statement 'SHUTDOWN'
+    Wait-Process -Id $server.Id -Timeout 15
+    $serverStopped = $true
+    Write-Output 'Package setup completed. You can now launch VaultControl.exe and choose START ALL.'
+}
+finally {
+    Remove-Item Env:\ADMIN_PASSWORD -ErrorAction SilentlyContinue
+    Remove-Item Env:\PHPRC -ErrorAction SilentlyContinue
+    if (-not $serverStopped -and (Get-Process -Id $server.Id -ErrorAction SilentlyContinue)) {
+        try {
+            Invoke-LocalMariaDBSQL -Statement 'SHUTDOWN'
+        }
+        catch {
+            Write-Warning "Could not gracefully stop setup MariaDB: $($_.Exception.Message)"
+        }
+        Wait-Process -Id $server.Id -Timeout 15 -ErrorAction SilentlyContinue
+        if (Get-Process -Id $server.Id -ErrorAction SilentlyContinue) {
+            Stop-Process -Id $server.Id
+        }
+    }
+}
