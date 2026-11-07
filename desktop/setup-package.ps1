@@ -9,7 +9,8 @@ param(
             Join-Path $PSScriptRoot 'build\package'
         }
     ),
-    [switch]$Force
+    [switch]$Force,
+    [switch]$Wizard
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,14 +42,89 @@ if ((Test-Path -LiteralPath $environmentFile) -and -not $Force) {
     throw "Refusing to overwrite existing production settings: $environmentFile"
 }
 
-$adminEmail = (Read-Host 'Initial administrator email').Trim().ToLowerInvariant()
-if ($adminEmail -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') {
-    throw 'Enter a valid administrator email address.'
+if ($Wizard) {
+    Add-Type -AssemblyName System.Drawing
+    Add-Type -AssemblyName System.Windows.Forms
+
+    $form = [System.Windows.Forms.Form]::new()
+    $form.Text = 'VaultControl First-Run Setup'
+    $form.ClientSize = [System.Drawing.Size]::new(480, 330)
+    $form.StartPosition = 'CenterScreen'
+    $form.FormBorderStyle = 'FixedDialog'
+    $form.MaximizeBox = $false
+    $form.MinimizeBox = $false
+
+    $fields = @(
+        @{ Label = 'Administrator email'; Name = 'Email'; Password = $false },
+        @{ Label = 'Administrator password'; Name = 'AdminPassword'; Password = $true },
+        @{ Label = 'Confirm administrator password'; Name = 'AdminPasswordConfirm'; Password = $true },
+        @{ Label = 'Database password'; Name = 'DatabasePassword'; Password = $true },
+        @{ Label = 'Confirm database password'; Name = 'DatabasePasswordConfirm'; Password = $true }
+    )
+    $inputs = @{}
+    for ($index = 0; $index -lt $fields.Count; $index++) {
+        $label = [System.Windows.Forms.Label]::new()
+        $label.Text = $fields[$index].Label
+        $label.Location = [System.Drawing.Point]::new(18, 18 + ($index * 48))
+        $label.Size = [System.Drawing.Size]::new(210, 22)
+        $form.Controls.Add($label)
+
+        $input = [System.Windows.Forms.TextBox]::new()
+        $input.Name = $fields[$index].Name
+        $input.Location = [System.Drawing.Point]::new(235, 16 + ($index * 48))
+        $input.Size = [System.Drawing.Size]::new(225, 24)
+        $input.UseSystemPasswordChar = $fields[$index].Password
+        $form.Controls.Add($input)
+        $inputs[$fields[$index].Name] = $input
+    }
+
+    $okButton = [System.Windows.Forms.Button]::new()
+    $okButton.Text = 'Set up'
+    $okButton.Location = [System.Drawing.Point]::new(270, 270)
+    $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $form.Controls.Add($okButton)
+    $cancelButton = [System.Windows.Forms.Button]::new()
+    $cancelButton.Text = 'Cancel'
+    $cancelButton.Location = [System.Drawing.Point]::new(370, 270)
+    $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $form.Controls.Add($cancelButton)
+    $form.AcceptButton = $okButton
+    $form.CancelButton = $cancelButton
+
+    if ($form.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+        exit 2
+    }
+    $adminEmail = $inputs.Email.Text.Trim().ToLowerInvariant()
+    $password = $inputs.AdminPassword.Text
+    $adminPasswordConfirm = $inputs.AdminPasswordConfirm.Text
+    $databasePassword = $inputs.DatabasePassword.Text
+    $databasePasswordConfirm = $inputs.DatabasePasswordConfirm.Text
+    $form.Dispose()
+
+    if ($adminEmail -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') {
+        [System.Windows.Forms.MessageBox]::Show('Enter a valid administrator email address.', 'VaultControl Setup') | Out-Null
+        exit 2
+    }
+    if ($password.Length -lt 12 -or $password -cne $adminPasswordConfirm) {
+        [System.Windows.Forms.MessageBox]::Show('Administrator passwords must match and contain at least 12 characters.', 'VaultControl Setup') | Out-Null
+        exit 2
+    }
+    if ($databasePassword -cne $databasePasswordConfirm) {
+        [System.Windows.Forms.MessageBox]::Show('Database passwords must match.', 'VaultControl Setup') | Out-Null
+        exit 2
+    }
+    $adminPassword = $null
 }
-$adminPassword = Read-Host 'Initial administrator password (at least 12 characters)' -AsSecureString
-$password = [System.Net.NetworkCredential]::new('', $adminPassword).Password
-if ($password.Length -lt 12) {
-    throw 'The administrator password must contain at least 12 characters.'
+else {
+    $adminEmail = (Read-Host 'Initial administrator email').Trim().ToLowerInvariant()
+    if ($adminEmail -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') {
+        throw 'Enter a valid administrator email address.'
+    }
+    $adminPassword = Read-Host 'Initial administrator password (at least 12 characters)' -AsSecureString
+    $password = [System.Net.NetworkCredential]::new('', $adminPassword).Password
+    if ($password.Length -lt 12) {
+        throw 'The administrator password must contain at least 12 characters.'
+    }
 }
 
 $databaseName = 'vault_control'
@@ -63,19 +139,18 @@ if ($reusingExistingEnvironment) {
     $databasePasswordSetting = [regex]::Match($text, '(?m)^DB_PASSWORD=(?<value>\S+)\s*$')
     $reverbSecretSetting = [regex]::Match($text, '(?m)^REVERB_APP_SECRET=(?<value>\S+)\s*$')
     $applicationKeySetting = [regex]::Match($text, '(?m)^APP_KEY=(?<value>\S+)\s*$')
-    if (-not $databasePasswordSetting.Success -or -not $reverbSecretSetting.Success -or -not $applicationKeySetting.Success) {
-        throw 'Cannot safely reuse production settings: APP_KEY, DB_PASSWORD, and REVERB_APP_SECRET must be set.'
+    if (-not $databasePasswordSetting.Success -or -not $reverbSecretSetting.Success) {
+        throw 'Cannot safely reuse production settings: DB_PASSWORD and REVERB_APP_SECRET must be set.'
     }
 
     $databasePassword = $databasePasswordSetting.Groups['value'].Value
     $reverbSecret = $reverbSecretSetting.Groups['value'].Value
+    $hasApplicationKey = $applicationKeySetting.Success
 }
-else {
+elseif (-not $Wizard) {
     $randomBytes = New-Object byte[] 32
     $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
     try {
-        $random.GetBytes($randomBytes)
-        $databasePassword = [System.BitConverter]::ToString($randomBytes).Replace('-', '').ToLowerInvariant()
         $random.GetBytes($randomBytes)
         $reverbSecret = [System.BitConverter]::ToString($randomBytes).Replace('-', '').ToLowerInvariant()
     }
@@ -83,6 +158,32 @@ else {
         $random.Dispose()
     }
     [Array]::Clear($randomBytes, 0, $randomBytes.Length)
+    $databasePassword = Read-Host 'Database password (at least 12 characters)' -AsSecureString | ForEach-Object {
+        [System.Net.NetworkCredential]::new('', $_).Password
+    }
+    $hasApplicationKey = $false
+}
+else {
+    $randomBytes = New-Object byte[] 32
+    $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $random.GetBytes($randomBytes)
+        $reverbSecret = [System.BitConverter]::ToString($randomBytes).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $random.Dispose()
+    }
+    [Array]::Clear($randomBytes, 0, $randomBytes.Length)
+    $hasApplicationKey = $false
+}
+
+if ($databasePassword -notmatch '^[A-Za-z0-9]{12,64}$') {
+    $message = 'Use a database password containing 12 to 64 letters and numbers.'
+    if ($Wizard) {
+        [System.Windows.Forms.MessageBox]::Show($message, 'VaultControl Setup') | Out-Null
+        exit 2
+    }
+    throw $message
 }
 
 $text = [regex]::Replace($text, '(?m)^DB_USERNAME=.*$', 'DB_USERNAME=vault_control')
@@ -135,7 +236,7 @@ else {
 $serverLog = Join-Path $logDirectory 'setup-mariadb.log'
 $server = Start-Process `
     -FilePath (Join-Path $mariaBin 'mysqld.exe') `
-    -ArgumentList @("--defaults-file=$mariaConfig") `
+    -ArgumentList @("""--defaults-file=$mariaConfig""") `
     -WorkingDirectory $package `
     -PassThru `
     -RedirectStandardOutput (Join-Path $logDirectory 'setup-mariadb.stdout.log') `
@@ -205,7 +306,7 @@ try {
     $env:ADMIN_PASSWORD = $password
     Push-Location $appDirectory
     try {
-        if (-not $reusingExistingEnvironment) {
+        if (-not $hasApplicationKey) {
             & $php artisan key:generate --force
             if ($LASTEXITCODE -ne 0) {
                 throw 'Could not generate the application encryption key.'

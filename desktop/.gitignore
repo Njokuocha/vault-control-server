@@ -8,3 +8,6 @@ frontend/dist
 /build/_phase4-mariadb-smoke/
 /build/_phase4-relative-maria/
 /build/_package-stage-*
+/build/_installer-stage/
+/build/VaultControl-Setup.exe
+/build/install-smoke/

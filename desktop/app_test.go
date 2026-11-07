@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -308,4 +309,52 @@ func TestPackagedStackIntegration(t *testing.T) {
 			t.Errorf("%s remains running after StopStack", name)
 		}
 	}
+}
+
+func TestPackagedSchedulerIntegration(t *testing.T) {
+	root := os.Getenv("VAULTCONTROL_PACKAGE_INTEGRATION")
+	if root == "" {
+		t.Skip("set VAULTCONTROL_PACKAGE_INTEGRATION to an initialized test package directory")
+	}
+
+	app := &App{
+		baseDir:    root,
+		laravelDir: filepath.Join(root, "app"),
+		processes:  make(map[string]*managedProcess),
+		startedAt:  time.Now(),
+	}
+	if err := app.startService("mariadb"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		app.stopScheduler()
+		if result := app.StopStack(); result != "All services stopped." {
+			t.Errorf("StopStack() = %q", result)
+		}
+	}()
+	if err := app.waitForDatabase(30 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	logPath := filepath.Join(root, "data", "logs", "scheduler.log")
+	if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	app.startScheduler()
+
+	deadline := time.Now().Add(125 * time.Second)
+	for time.Now().Before(deadline) {
+		log, err := os.ReadFile(logPath)
+		if err == nil && bytes.Contains(log, []byte("staff:expire-freezes")) {
+			t.Logf("Scheduler ran an every-minute job; output logged to %s", logPath)
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("scheduler did not create its log file: %v", err)
+	}
+	t.Fatalf("scheduler did not log the every-minute staff:expire-freezes job; log contents: %s", log)
 }

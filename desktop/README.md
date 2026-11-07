@@ -69,9 +69,9 @@ Before refreshing an existing package, the script prompts you to exit any
 running VaultControl tray process. Pass `-Force` to stop it automatically by
 process ID before replacing the executable.
 
-The setup generates a unique application key and database password, initializes
-a fresh local database, runs migrations, and prompts for the initial admin
-email/password. The DB listens only on loopback; the repository's `.env`, live
+The setup generates a unique application key and Reverb secret, prompts for an
+administrator email/password and database password, initializes a fresh local
+database, and runs migrations. The DB listens only on loopback; the repository's `.env`, live
 Herd database, and storage data are not copied into the package. The setup script
 does not run when the desktop application launches.
 
@@ -79,6 +79,28 @@ To rerun setup against an existing package, pass `-Force`; it preserves the
 existing application key and database credentials and reuses the existing
 production environment settings. It also skips fresh MariaDB system-table
 initialization when the existing system tables are present.
+
+Build the single-file Windows installer after building the runtime package:
+
+```powershell
+.\build-installer.ps1
+```
+
+This requires NSIS. The installer targets `C:\Program Files\VaultControl`,
+embeds runtime and application files but never embeds `data\.env.production` or
+`data\mysql_data`, and starts a first-run wizard to collect the administrator
+and database passwords. Reinstalling updates application files while preserving
+the existing `data` directory; uninstalling also leaves data in place.
+
+The scheduler is an opt-in integration test against a disposable configured
+package. It starts only that package's MariaDB and waits for an every-minute
+Laravel job to appear in `data\logs\scheduler.log`:
+
+```powershell
+$env:VAULTCONTROL_PACKAGE_INTEGRATION = (Resolve-Path .\build\phase4-package-check).Path
+go test -run '^TestPackagedSchedulerIntegration$' -v
+Remove-Item Env:\VAULTCONTROL_PACKAGE_INTEGRATION
+```
 
 For an integration smoke test, use a disposable package only; the test starts
 queue workers and therefore must not run against production data:
