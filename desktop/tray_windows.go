@@ -18,6 +18,7 @@ const (
 	wmCommand       = 0x0111
 	wmAppTray       = 0x8001
 	wmContextMenu   = 0x007B
+	wmAppActivate   = 0x8002
 	wmLeftButtonUp  = 0x0202
 	wmLeftButtonDbl = 0x0203
 	wmRightButtonUp = 0x0205
@@ -109,6 +110,7 @@ func startSystemTray(onAction func(string)) func() {
 	stop := make(chan struct{})
 	ready := make(chan struct{})
 	done := make(chan struct{})
+	var stopOnce sync.Once
 	trayActionCallbackMu.Lock()
 	trayActionCallback = onAction
 	trayActionCallbackMu.Unlock()
@@ -116,15 +118,8 @@ func startSystemTray(onAction func(string)) func() {
 	go runSystemTray(stop, ready, done)
 
 	return func() {
-		select {
-		case <-stop:
-		default:
-			close(stop)
-		}
+		stopOnce.Do(func() { close(stop) })
 		<-ready
-		if hwnd := trayWindowHandle.Load(); hwnd != 0 {
-			_, _, _ = postMessageW.Call(hwnd, wmClose, 0, 0)
-		}
 		<-done
 		trayActionCallbackMu.Lock()
 		trayActionCallback = nil
@@ -244,6 +239,10 @@ func showTrayMenu(hwnd syscall.Handle) {
 		uintptr(hwnd),
 		0,
 	)
+	dispatchTrayCommand(command)
+}
+
+func dispatchTrayCommand(command uintptr) {
 	switch command {
 	case 1:
 		dispatchTrayAction("open")
@@ -266,7 +265,11 @@ func handleTrayWindowMessage(hwnd uintptr, message uint32, wParam, lParam uintpt
 			showTrayMenu(syscall.Handle(hwnd))
 		}
 		return 0
+	case wmAppActivate:
+		dispatchTrayAction("open")
+		return 0
 	case wmCommand:
+		dispatchTrayCommand(wParam)
 		return 0
 	case wmClose:
 		data := notifyIconData{

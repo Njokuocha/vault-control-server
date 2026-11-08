@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -15,6 +16,19 @@ import (
 var assets embed.FS
 
 func main() {
+	primary, releaseInstance, err := acquireSingleInstance()
+	if err != nil {
+		log.Printf("Acquire single-instance lock: %v", err)
+		return
+	}
+	if !primary {
+		if err := focusExistingInstance(); err != nil {
+			log.Printf("Focus existing VaultControl instance: %v", err)
+		}
+		return
+	}
+	defer releaseInstance()
+
 	app := NewApp()
 	webviewPath := ""
 	if executable, err := os.Executable(); err == nil {
@@ -24,7 +38,7 @@ func main() {
 		}
 	}
 
-	err := wails.Run(&options.App{
+	err = wails.Run(&options.App{
 		Title:     "VaultControl",
 		Width:     1180,
 		Height:    840,

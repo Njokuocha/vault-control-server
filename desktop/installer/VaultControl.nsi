@@ -97,11 +97,19 @@ env_example_exists:
     !insertmacro GrantWritableDataDirectory "$INSTDIR\data\logs"
     !insertmacro GrantWritableDataDirectory "$INSTDIR\data\mysql_data"
 
-    IfFileExists "$INSTDIR\data\.env.production" setup_complete
+    IfFileExists "$INSTDIR\data\.env.production" repair_existing_database
     IfSilent setup_complete
     ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "$INSTDIR\setup-package.ps1" -Wizard -Force -PackageDir "$INSTDIR"' $0
     ${If} $0 != 0
         MessageBox MB_ICONEXCLAMATION "First-run setup was cancelled or failed. The application is installed, but must be configured by running setup-package.ps1 before starting services."
+    ${EndIf}
+    Goto setup_complete
+
+repair_existing_database:
+    ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "$INSTDIR\setup-package.ps1" -RepairDatabaseCredentials -PackageDir "$INSTDIR"' $0
+    ${If} $0 != 0
+        MessageBox MB_ICONSTOP "Could not reconcile the existing MariaDB account with data\.env.production. Database files were not reinitialized. Inspect data\logs\setup-mariadb.log and run setup-package.ps1 -Force after resolving the error."
+        Abort
     ${EndIf}
 setup_complete:
 

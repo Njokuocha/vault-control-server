@@ -10,19 +10,33 @@ param(
         }
     ),
     [switch]$Force,
-    [switch]$Wizard
+    [switch]$Wizard,
+    [switch]$RepairDatabaseCredentials
 )
 
 $ErrorActionPreference = 'Stop'
+if ($RepairDatabaseCredentials -and $Wizard) {
+    throw 'Database credential repair cannot be combined with the setup wizard.'
+}
 $package = [System.IO.Path]::GetFullPath($PackageDir)
 $environmentFile = Join-Path $package 'data\.env.production'
 $environmentExample = Join-Path $package 'data\.env.production.example'
 $mariaBin = Join-Path $package 'bin\mariadb\bin'
 $mariaConfig = Join-Path $package 'bin\mariadb\my.ini'
 $databaseDirectory = Join-Path $package 'data\mysql_data'
+$systemTablesDirectory = Join-Path $databaseDirectory 'mysql'
 $logDirectory = Join-Path $package 'data\logs'
 $appDirectory = Join-Path $package 'app'
 $php = Join-Path $package 'bin\php\php.exe'
+$reusingExistingEnvironment = Test-Path -LiteralPath $environmentFile
+$databaseAlreadyInitialized = Test-Path -LiteralPath $systemTablesDirectory -PathType Container
+$databaseHasFiles = $false
+if (Test-Path -LiteralPath $databaseDirectory -PathType Container) {
+    $databaseHasFiles = $null -ne (Get-ChildItem -LiteralPath $databaseDirectory -Force | Select-Object -First 1)
+}
+if ($databaseHasFiles -and -not $databaseAlreadyInitialized) {
+    throw "Existing MariaDB data was found in $databaseDirectory, but its system tables are missing. Refusing to initialize or overwrite existing database files."
+}
 
 foreach ($required in @(
     $environmentExample,
@@ -37,18 +51,27 @@ foreach ($required in @(
         throw "Required package file is missing: $required"
     }
 }
-$reusingExistingEnvironment = $Force -and (Test-Path -LiteralPath $environmentFile)
-if ((Test-Path -LiteralPath $environmentFile) -and -not $Force) {
+if ($RepairDatabaseCredentials -and -not $reusingExistingEnvironment) {
+    throw "Cannot repair database credentials without $environmentFile."
+}
+if ($RepairDatabaseCredentials -and -not $databaseAlreadyInitialized) {
+    throw "Cannot repair database credentials because initialized MariaDB system tables were not found in $databaseDirectory. Existing files were not changed."
+}
+if ($reusingExistingEnvironment -and -not $Force -and -not $RepairDatabaseCredentials) {
     throw "Refusing to overwrite existing production settings: $environmentFile"
 }
 
-if ($Wizard) {
+if ($RepairDatabaseCredentials) {
+    $adminEmail = ''
+    $adminPassword = $null
+    $password = $null
+}
+elseif ($Wizard) {
     Add-Type -AssemblyName System.Drawing
     Add-Type -AssemblyName System.Windows.Forms
 
     $form = [System.Windows.Forms.Form]::new()
     $form.Text = 'VaultControl First-Run Setup'
-    $form.ClientSize = [System.Drawing.Size]::new(480, 330)
     $form.StartPosition = 'CenterScreen'
     $form.FormBorderStyle = 'FixedDialog'
     $form.MaximizeBox = $false
@@ -57,10 +80,15 @@ if ($Wizard) {
     $fields = @(
         @{ Label = 'Administrator email'; Name = 'Email'; Password = $false },
         @{ Label = 'Administrator password'; Name = 'AdminPassword'; Password = $true },
-        @{ Label = 'Confirm administrator password'; Name = 'AdminPasswordConfirm'; Password = $true },
-        @{ Label = 'Database password'; Name = 'DatabasePassword'; Password = $true },
-        @{ Label = 'Confirm database password'; Name = 'DatabasePasswordConfirm'; Password = $true }
+        @{ Label = 'Confirm administrator password'; Name = 'AdminPasswordConfirm'; Password = $true }
     )
+    if (-not $reusingExistingEnvironment) {
+        $fields += @(
+            @{ Label = 'Database password'; Name = 'DatabasePassword'; Password = $true },
+            @{ Label = 'Confirm database password'; Name = 'DatabasePasswordConfirm'; Password = $true }
+        )
+    }
+    $form.ClientSize = [System.Drawing.Size]::new(480, 90 + ($fields.Count * 48))
     $inputs = @{}
     for ($index = 0; $index -lt $fields.Count; $index++) {
         $label = [System.Windows.Forms.Label]::new()
@@ -80,12 +108,12 @@ if ($Wizard) {
 
     $okButton = [System.Windows.Forms.Button]::new()
     $okButton.Text = 'Set up'
-    $okButton.Location = [System.Drawing.Point]::new(270, 270)
+    $okButton.Location = [System.Drawing.Point]::new(270, $form.ClientSize.Height - 60)
     $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
     $form.Controls.Add($okButton)
     $cancelButton = [System.Windows.Forms.Button]::new()
     $cancelButton.Text = 'Cancel'
-    $cancelButton.Location = [System.Drawing.Point]::new(370, 270)
+    $cancelButton.Location = [System.Drawing.Point]::new(370, $form.ClientSize.Height - 60)
     $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
     $form.Controls.Add($cancelButton)
     $form.AcceptButton = $okButton
@@ -97,8 +125,14 @@ if ($Wizard) {
     $adminEmail = $inputs.Email.Text.Trim().ToLowerInvariant()
     $password = $inputs.AdminPassword.Text
     $adminPasswordConfirm = $inputs.AdminPasswordConfirm.Text
-    $databasePassword = $inputs.DatabasePassword.Text
-    $databasePasswordConfirm = $inputs.DatabasePasswordConfirm.Text
+    if ($inputs.ContainsKey('DatabasePassword')) {
+        $databasePassword = $inputs.DatabasePassword.Text
+        $databasePasswordConfirm = $inputs.DatabasePasswordConfirm.Text
+    }
+    else {
+        $databasePassword = $null
+        $databasePasswordConfirm = $null
+    }
     $form.Dispose()
 
     if ($adminEmail -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') {
@@ -134,6 +168,13 @@ if (-not $databaseSetting.Success) {
     throw 'DB_DATABASE is missing or invalid in the packaged environment example.'
 }
 $databaseName = $databaseSetting.Groups['name'].Value
+
+if ($RepairDatabaseCredentials) {
+    $usernameSetting = [regex]::Match($text, '(?m)^DB_USERNAME=(?<value>\S+)\s*$')
+    if (-not $usernameSetting.Success -or $usernameSetting.Groups['value'].Value -cne 'vault_control') {
+        throw 'Cannot reconcile database credentials: DB_USERNAME must be vault_control.'
+    }
+}
 
 if ($reusingExistingEnvironment) {
     $databasePasswordSetting = [regex]::Match($text, '(?m)^DB_PASSWORD=(?<value>\S+)\s*$')
@@ -186,15 +227,17 @@ if ($databasePassword -notmatch '^[A-Za-z0-9]{12,64}$') {
     throw $message
 }
 
-$text = [regex]::Replace($text, '(?m)^DB_USERNAME=.*$', 'DB_USERNAME=vault_control')
-$text = [regex]::Replace($text, '(?m)^DB_PASSWORD=.*$', "DB_PASSWORD=$databasePassword")
-$text = [regex]::Replace($text, '(?m)^ADMIN_EMAIL=.*$', "ADMIN_EMAIL=$adminEmail")
-$text = [regex]::Replace($text, '(?m)^REVERB_APP_SECRET=.*$', "REVERB_APP_SECRET=$reverbSecret")
-[System.IO.File]::WriteAllText(
-    $environmentFile,
-    $text,
-    [System.Text.UTF8Encoding]::new($false)
-)
+if (-not $RepairDatabaseCredentials) {
+    $text = [regex]::Replace($text, '(?m)^DB_USERNAME=.*$', 'DB_USERNAME=vault_control')
+    $text = [regex]::Replace($text, '(?m)^DB_PASSWORD=.*$', "DB_PASSWORD=$databasePassword")
+    $text = [regex]::Replace($text, '(?m)^ADMIN_EMAIL=.*$', "ADMIN_EMAIL=$adminEmail")
+    $text = [regex]::Replace($text, '(?m)^REVERB_APP_SECRET=.*$', "REVERB_APP_SECRET=$reverbSecret")
+    [System.IO.File]::WriteAllText(
+        $environmentFile,
+        $text,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+}
 
 New-Item -ItemType Directory -Force -Path $databaseDirectory, $logDirectory | Out-Null
 $packageConfigPath = $package.Replace('\', '/')
@@ -221,12 +264,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $installer = Join-Path $mariaBin 'mariadb-install-db.exe'
-if ($reusingExistingEnvironment) {
-    if (-not (Test-Path -LiteralPath (Join-Path $databaseDirectory 'mysql') -PathType Container)) {
-        throw "Cannot safely rerun setup: the existing MariaDB system tables were not found in $databaseDirectory."
-    }
-}
-else {
+if (-not $databaseAlreadyInitialized) {
     & $installer "--datadir=$databaseDirectory" '--port=3307' "--config=$mariaConfig" '--silent'
     if ($LASTEXITCODE -ne 0) {
         throw "MariaDB system-table initialization failed with exit code $LASTEXITCODE."
@@ -295,12 +333,24 @@ try {
         throw "MariaDB did not become ready; inspect $serverLog."
     }
 
-    $sql = "CREATE DATABASE IF NOT EXISTS ``$databaseName`` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; " +
-        "CREATE USER IF NOT EXISTS 'vault_control'@'127.0.0.1' IDENTIFIED BY '$databasePassword'; " +
+    $sql = "CREATE USER IF NOT EXISTS 'vault_control'@'127.0.0.1' IDENTIFIED BY '$databasePassword'; " +
         "CREATE USER IF NOT EXISTS 'vault_control'@'localhost' IDENTIFIED BY '$databasePassword'; " +
+        "ALTER USER 'vault_control'@'127.0.0.1' IDENTIFIED BY '$databasePassword'; " +
+        "ALTER USER 'vault_control'@'localhost' IDENTIFIED BY '$databasePassword'; " +
         "GRANT ALL PRIVILEGES ON ``$databaseName``.* TO 'vault_control'@'127.0.0.1'; " +
         "GRANT ALL PRIVILEGES ON ``$databaseName``.* TO 'vault_control'@'localhost';"
+    if (-not $RepairDatabaseCredentials) {
+        $sql = "CREATE DATABASE IF NOT EXISTS ``$databaseName`` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; " + $sql
+    }
     Invoke-LocalMariaDBSQL -Statement $sql
+
+    if ($RepairDatabaseCredentials) {
+        Invoke-LocalMariaDBSQL -Statement 'SHUTDOWN'
+        Wait-Process -Id $server.Id -Timeout 15
+        $serverStopped = $true
+        Write-Output 'Existing MariaDB account password reconciled with data/.env.production. Database files were preserved.'
+        exit 0
+    }
 
     $env:PHPRC = Join-Path $package 'bin\php'
     $env:ADMIN_PASSWORD = $password

@@ -77,8 +77,29 @@ does not run when the desktop application launches.
 
 To rerun setup against an existing package, pass `-Force`; it preserves the
 existing application key and database credentials and reuses the existing
-production environment settings. It also skips fresh MariaDB system-table
-initialization when the existing system tables are present.
+production environment settings. The wizard does not ask for a replacement
+database password in that case, and setup reconciles the MariaDB account with
+the saved password without reinitializing existing system tables. If the
+environment file is missing but initialized MariaDB data exists, setup asks
+for a replacement password and applies it to the existing account; non-empty
+data without system tables is left untouched and reported as an error.
+
+Silent installer refreshes reconcile the existing MariaDB account with the
+saved environment password without changing the environment file or
+application database contents.
+
+Start All checks database authentication before starting the other services. An
+authentication error reports `DB password mismatch after reinstall` and
+recommends rerunning setup with `-Force`; it does not delete database files.
+
+To verify database credentials without starting web or queue services, point the
+integration test at an initialized package (with its services stopped):
+
+```powershell
+$env:VAULTCONTROL_PACKAGE_INTEGRATION = (Resolve-Path .\build\package).Path
+go test -run '^TestPackagedDatabaseAuthenticationIntegration$' -v
+Remove-Item Env:\VAULTCONTROL_PACKAGE_INTEGRATION
+```
 
 Build the single-file Windows installer after building the runtime package:
 

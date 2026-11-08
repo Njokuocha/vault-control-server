@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -94,10 +95,41 @@ func TestDatabaseSettingsRequireLoopbackHost(t *testing.T) {
 	}
 }
 
+func TestDatabaseAuthenticationErrorsIdentifyReinstallPasswordMismatch(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "MariaDB 1045", err: errors.New("run read-only database query: ERROR 1045 (28000): Access denied for user"), want: true},
+		{name: "access denied text", err: errors.New("access denied for user 'vault_control'@'127.0.0.1'"), want: true},
+		{name: "connection refused", err: errors.New("dial tcp: connect: connection refused"), want: false},
+		{name: "nil", err: nil, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isDatabaseAuthenticationError(test.err); got != test.want {
+				t.Fatalf("isDatabaseAuthenticationError(%v) = %t, want %t", test.err, got, test.want)
+			}
+		})
+	}
+}
+
 func TestGetTableRowsRejectsNonIdentifierBeforeDatabaseAccess(t *testing.T) {
 	app := &App{baseDir: t.TempDir()}
 	if _, err := app.GetTableRows("users; DROP TABLE users"); err == nil {
 		t.Fatal("expected invalid table identifier to be rejected")
+	}
+}
+
+func TestWindowCloseHidesUnlessExitWasRequested(t *testing.T) {
+	app := &App{}
+	if !app.shouldHideOnClose() {
+		t.Fatal("normal window close should hide the window")
+	}
+	app.exitRequested.Store(true)
+	if app.shouldHideOnClose() {
+		t.Fatal("window close should proceed after tray Exit")
 	}
 }
 
@@ -138,6 +170,27 @@ func TestStartStackReportsMissingRuntimeBeforeCreatingLogs(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "logs")); !os.IsNotExist(err) {
 		t.Fatalf("expected no logs directory after missing runtime, got %v", err)
+	}
+}
+
+func TestInitializeMariaDBPreservesUninitializedExistingData(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data", "mysql_data")
+	existingData := filepath.Join(dataDir, "ibdata1")
+	if err := os.MkdirAll(dataDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(existingData, []byte("existing database data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{baseDir: root}
+	err := app.initializeMariaDB()
+	if err == nil || !strings.Contains(err.Error(), "refusing to reinitialize") {
+		t.Fatalf("initializeMariaDB() error = %v, want refusal to reinitialize existing data", err)
+	}
+	if contents, err := os.ReadFile(existingData); err != nil || string(contents) != "existing database data" {
+		t.Fatalf("existing database file changed: contents=%q, error=%v", contents, err)
 	}
 }
 
@@ -308,6 +361,34 @@ func TestPackagedStackIntegration(t *testing.T) {
 		if app.serviceRunning(name) {
 			t.Errorf("%s remains running after StopStack", name)
 		}
+	}
+}
+
+func TestPackagedDatabaseAuthenticationIntegration(t *testing.T) {
+	root := os.Getenv("VAULTCONTROL_PACKAGE_INTEGRATION")
+	if root == "" {
+		t.Skip("set VAULTCONTROL_PACKAGE_INTEGRATION to an initialized package directory")
+	}
+
+	app := &App{
+		baseDir:    root,
+		laravelDir: filepath.Join(root, "app"),
+		processes:  make(map[string]*managedProcess),
+		startedAt:  time.Now(),
+	}
+	if err := app.startService("mariadb"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if result := app.StopStack(); result != "All services stopped." {
+			t.Errorf("StopStack() = %q", result)
+		}
+	}()
+	if err := app.waitForDatabase(30 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.ListTables(); err != nil {
+		t.Fatalf("database login succeeded but table listing failed: %v", err)
 	}
 }
 

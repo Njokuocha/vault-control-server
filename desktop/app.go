@@ -34,6 +34,7 @@ type App struct {
 	schedulerCancel context.CancelFunc
 	schedulerDone   chan struct{}
 	trayStop        func()
+	exitRequested   atomic.Bool
 	shutdownOnce    atomic.Bool
 }
 
@@ -64,6 +65,8 @@ type databaseSettings struct {
 }
 
 var safeIdentifier = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
+const databasePasswordMismatchMessage = "DB password mismatch after reinstall. Rerun setup-package.ps1 with -Force to reconcile DB_PASSWORD in data/.env.production with the existing MariaDB account; data/mysql_data is preserved."
 
 func NewApp() *App {
 	executable, err := os.Executable()
@@ -98,9 +101,16 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) onBeforeClose(ctx context.Context) bool {
+	if !a.shouldHideOnClose() {
+		return false
+	}
 	wailsruntime.WindowHide(ctx)
 
 	return true
+}
+
+func (a *App) shouldHideOnClose() bool {
+	return !a.exitRequested.Load()
 }
 
 func (a *App) shutdown(context.Context) {
@@ -122,7 +132,13 @@ func (a *App) handleTrayAction(action string) {
 	case "stop":
 		_ = a.StopStack()
 	case "exit":
+		if !a.exitRequested.CompareAndSwap(false, true) {
+			return
+		}
 		_ = a.StopStack()
+		if a.trayStop != nil {
+			a.trayStop()
+		}
 		wailsruntime.Quit(a.ctx)
 	}
 }
@@ -626,6 +642,11 @@ func (a *App) initializeMariaDB() error {
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect MariaDB data directory: %w", err)
 	}
+	if entries, err := os.ReadDir(dataDir); err == nil && len(entries) > 0 {
+		return errors.New("MariaDB data exists but system tables are missing; refusing to reinitialize or overwrite data/mysql_data")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect MariaDB data directory: %w", err)
+	}
 
 	installer := filepath.Join(a.baseDir, "bin", "mariadb", "bin", "mariadb-install-db.exe")
 	if _, err := os.Stat(installer); err != nil {
@@ -754,6 +775,9 @@ func (a *App) waitForDatabase(timeout time.Duration) error {
 				if _, err := a.runMySQL(settings, "mysql.exe", "--batch", "--skip-column-names", "-e", "SELECT 1"); err == nil {
 					return nil
 				} else {
+					if isDatabaseAuthenticationError(err) {
+						return errors.New(databasePasswordMismatchMessage)
+					}
 					queryErr = err
 				}
 			}
@@ -768,6 +792,15 @@ func (a *App) waitForDatabase(timeout time.Duration) error {
 		return fmt.Errorf("MariaDB did not accept a database query within %s: %w", timeout, queryErr)
 	}
 	return fmt.Errorf("MariaDB did not become ready within %s", timeout)
+}
+
+func isDatabaseAuthenticationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+
+	return strings.Contains(message, "error 1045") || strings.Contains(message, "access denied for user")
 }
 
 func (a *App) waitForServicesToStayRunning(names []string, duration time.Duration) error {
