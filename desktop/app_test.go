@@ -173,6 +173,54 @@ func TestStartStackReportsMissingRuntimeBeforeCreatingLogs(t *testing.T) {
 	}
 }
 
+func TestGetLogsCreatesMissingFilesAndShowsNoLogsYet(t *testing.T) {
+	root := t.TempDir()
+	app := &App{baseDir: root}
+
+	logs, err := app.GetLogs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logs != "Laravel:\nNo logs yet\n\nScheduler:\nNo logs yet" {
+		t.Fatalf("GetLogs() = %q, want empty Laravel and scheduler logs", logs)
+	}
+	for _, path := range []string{
+		filepath.Join(root, "data", "storage", "logs", "laravel.log"),
+		filepath.Join(root, "data", "logs", "scheduler.log"),
+	} {
+		if info, err := os.Stat(path); err != nil || info.IsDir() {
+			t.Fatalf("expected log file %q to exist: info=%v, error=%v", path, info, err)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "data", "storage", "logs", "laravel.log"), []byte("laravel entry\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "data", "logs", "scheduler.log"), []byte("scheduler entry\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logs, err = app.GetLogs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logs, "laravel entry") || !strings.Contains(logs, "scheduler entry") {
+		t.Fatalf("GetLogs() omitted one of the log files: %q", logs)
+	}
+}
+
+func TestStorageDirectoryUsesWritableDataPathOnlyForPackagedRuntime(t *testing.T) {
+	root := t.TempDir()
+	app := &App{baseDir: root, laravelDir: filepath.Join(root, "app")}
+	if got, want := app.storageDirectory(), filepath.Join(root, "data", "storage"); got != want {
+		t.Fatalf("packaged storageDirectory() = %q, want %q", got, want)
+	}
+
+	app.development = true
+	if got, want := app.storageDirectory(), filepath.Join(root, "app", "storage"); got != want {
+		t.Fatalf("development storageDirectory() = %q, want %q", got, want)
+	}
+}
+
 func TestInitializeMariaDBPreservesUninitializedExistingData(t *testing.T) {
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data", "mysql_data")

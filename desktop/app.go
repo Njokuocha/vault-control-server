@@ -36,6 +36,7 @@ type App struct {
 	trayStop        func()
 	exitRequested   atomic.Bool
 	shutdownOnce    atomic.Bool
+	logInitErr      error
 }
 
 type managedProcess struct {
@@ -95,6 +96,9 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	if err := a.ensureLogFiles(); err != nil {
+		a.logInitErr = err
+	}
 	a.trayStop = startSystemTray(func(action string) {
 		go a.handleTrayAction(action)
 	})
@@ -313,21 +317,43 @@ func (a *App) GetLogs() (string, error) {
 	if a.baseDirErr != nil {
 		return "", a.baseDirErr
 	}
-	path := filepath.Join(a.applicationDir(), "storage", "logs", "laravel.log")
-	file, err := os.Open(path)
+	if a.logInitErr != nil {
+		return "", fmt.Errorf("initialize application logs: %w", a.logInitErr)
+	}
+
+	if err := a.ensureLogFiles(); err != nil {
+		return "", fmt.Errorf("initialize application logs: %w", err)
+	}
+	applicationLog, err := readLogTail(filepath.Join(a.storageDirectory(), "logs", "laravel.log"))
 	if err != nil {
-		return "", fmt.Errorf("open Laravel log: %w", err)
+		return "", fmt.Errorf("read Laravel log: %w", err)
+	}
+	schedulerLog, err := readLogTail(filepath.Join(a.baseDir, "data", "logs", "scheduler.log"))
+	if err != nil {
+		return "", fmt.Errorf("read scheduler log: %w", err)
+	}
+
+	return "Laravel:\n" + applicationLog + "\n\nScheduler:\n" + schedulerLog, nil
+}
+
+func readLogTail(path string) (string, error) {
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "No logs yet", nil
+	}
+	if err != nil {
+		return "", err
 	}
 	defer file.Close()
 
 	const maxBytes = 2 * 1024 * 1024
 	info, err := file.Stat()
 	if err != nil {
-		return "", fmt.Errorf("inspect Laravel log: %w", err)
+		return "", fmt.Errorf("inspect log: %w", err)
 	}
 	if info.Size() > maxBytes {
 		if _, err := file.Seek(-maxBytes, 2); err != nil {
-			return "", fmt.Errorf("seek Laravel log: %w", err)
+			return "", fmt.Errorf("seek log: %w", err)
 		}
 	}
 
@@ -341,7 +367,10 @@ func (a *App) GetLogs() (string, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("read Laravel log: %w", err)
+		return "", err
+	}
+	if len(lines) == 0 {
+		return "No logs yet", nil
 	}
 
 	return strings.Join(lines, "\n"), nil
@@ -351,12 +380,44 @@ func (a *App) ClearLogs() string {
 	if a.baseDirErr != nil {
 		return failureMessage(a.baseDirErr)
 	}
-	path := filepath.Join(a.applicationDir(), "storage", "logs", "laravel.log")
+	if err := a.ensureLogFiles(); err != nil {
+		return failureMessage(fmt.Errorf("initialize application logs: %w", err))
+	}
+	path := filepath.Join(a.storageDirectory(), "logs", "laravel.log")
 	if err := os.Truncate(path, 0); err != nil {
 		return failureMessage(fmt.Errorf("clear Laravel log: %w", err))
 	}
 
 	return "Laravel log cleared."
+}
+
+func (a *App) storageDirectory() string {
+	if !a.development {
+		return filepath.Join(a.baseDir, "data", "storage")
+	}
+
+	return filepath.Join(a.applicationDir(), "storage")
+}
+
+func (a *App) ensureLogFiles() error {
+	paths := []string{
+		filepath.Join(a.storageDirectory(), "logs", "laravel.log"),
+		filepath.Join(a.baseDir, "data", "logs", "scheduler.log"),
+	}
+	for _, path := range paths {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return fmt.Errorf("create log directory: %w", err)
+		}
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return fmt.Errorf("create log file %s: %w", path, err)
+		}
+		if err := file.Close(); err != nil {
+			return fmt.Errorf("close log file %s: %w", path, err)
+		}
+	}
+
+	return nil
 }
 
 func (a *App) ListTables() ([]string, error) {

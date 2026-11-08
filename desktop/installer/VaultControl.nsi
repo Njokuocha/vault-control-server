@@ -88,6 +88,14 @@ Section "Install VaultControl"
     CreateDirectory "$INSTDIR\data\backups"
     CreateDirectory "$INSTDIR\data\logs"
     CreateDirectory "$INSTDIR\data\mysql_data"
+    CreateDirectory "$INSTDIR\data\bootstrap\cache"
+    CreateDirectory "$INSTDIR\data\storage\app\private"
+    CreateDirectory "$INSTDIR\data\storage\app\public"
+    CreateDirectory "$INSTDIR\data\storage\framework\cache\data"
+    CreateDirectory "$INSTDIR\data\storage\framework\sessions"
+    CreateDirectory "$INSTDIR\data\storage\framework\testing"
+    CreateDirectory "$INSTDIR\data\storage\framework\views"
+    CreateDirectory "$INSTDIR\data\storage\logs"
     IfFileExists "$INSTDIR\data\.env.production.example" env_example_exists
     SetOutPath "$INSTDIR\data"
     File "${PACKAGE_DIR}\data\.env.production.example"
@@ -96,6 +104,8 @@ env_example_exists:
     !insertmacro GrantWritableDataDirectory "$INSTDIR\data\backups"
     !insertmacro GrantWritableDataDirectory "$INSTDIR\data\logs"
     !insertmacro GrantWritableDataDirectory "$INSTDIR\data\mysql_data"
+    !insertmacro GrantWritableDataDirectory "$INSTDIR\data\bootstrap\cache"
+    !insertmacro GrantWritableDataDirectory "$INSTDIR\data\storage"
 
     IfFileExists "$INSTDIR\data\.env.production" repair_existing_database
     IfSilent setup_complete
@@ -103,12 +113,22 @@ env_example_exists:
     ${If} $0 != 0
         MessageBox MB_ICONEXCLAMATION "First-run setup was cancelled or failed. The application is installed, but must be configured by running setup-package.ps1 before starting services."
     ${EndIf}
-    Goto setup_complete
+    Goto warm_laravel_manifests
 
 repair_existing_database:
     ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "$INSTDIR\setup-package.ps1" -RepairDatabaseCredentials -PackageDir "$INSTDIR"' $0
     ${If} $0 != 0
         MessageBox MB_ICONSTOP "Could not reconcile the existing MariaDB account with data\.env.production. Database files were not reinitialized. Inspect data\logs\setup-mariadb.log and run setup-package.ps1 -Force after resolving the error."
+        Abort
+    ${EndIf}
+
+    IfFileExists "$INSTDIR\data\.env.production" warm_laravel_manifests
+    Goto setup_complete
+warm_laravel_manifests:
+    SetOutPath "$INSTDIR\app"
+    ExecWait '"$INSTDIR\bin\php\php.exe" artisan package:discover --ansi' $0
+    ${If} $0 != 0
+        MessageBox MB_ICONSTOP "Could not prepare Laravel's writable package cache. Inspect data\storage\logs\laravel.log and data\bootstrap\cache."
         Abort
     ${EndIf}
 setup_complete:

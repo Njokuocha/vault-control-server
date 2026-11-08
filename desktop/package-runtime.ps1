@@ -181,7 +181,15 @@ $paths = @(
     (Join-Path $stage 'licenses'),
     (Join-Path $stage 'data\backups'),
     (Join-Path $stage 'data\logs'),
-    (Join-Path $stage 'data\mysql_data')
+    (Join-Path $stage 'data\mysql_data'),
+    (Join-Path $stage 'data\bootstrap\cache'),
+    (Join-Path $stage 'data\storage\app\private'),
+    (Join-Path $stage 'data\storage\app\public'),
+    (Join-Path $stage 'data\storage\framework\cache\data'),
+    (Join-Path $stage 'data\storage\framework\sessions'),
+    (Join-Path $stage 'data\storage\framework\testing'),
+    (Join-Path $stage 'data\storage\framework\views'),
+    (Join-Path $stage 'data\storage\logs')
 )
 foreach ($path in $paths) {
     New-Item -ItemType Directory -Force -Path $path | Out-Null
@@ -322,6 +330,23 @@ else {
             Write-Warning "Package was copied successfully, but temporary staging cleanup failed at ${stage}: $($_.Exception.Message)"
         }
     }
+}
+
+$writableDirectories = @(
+    'data\backups',
+    'data\logs',
+    'data\mysql_data',
+    'data\bootstrap\cache',
+    'data\storage\app\private',
+    'data\storage\app\public',
+    'data\storage\framework\cache\data',
+    'data\storage\framework\sessions',
+    'data\storage\framework\testing',
+    'data\storage\framework\views',
+    'data\storage\logs'
+)
+foreach ($directory in $writableDirectories) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $output $directory) | Out-Null
 }
 
 foreach ($required in @('VaultControl.exe', 'bin\frankenphp.exe', 'app\artisan', 'data\.env.production.example')) {

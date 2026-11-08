@@ -24,10 +24,11 @@ bin/
 app/
   Caddyfile
   artisan
-  storage/logs/laravel.log
 data/
   .env.production
   .env.production.example
+  bootstrap/cache/
+  storage/logs/laravel.log
   mysql_data/
   backups/
   logs/
@@ -43,6 +44,12 @@ selected by the controller when present. Unlike the Evergreen runtime, Microsoft
 does not automatically update a fixed-version runtime; refresh it with a
 security update when rebuilding the package. This adds over 250 MB to the
 runtime package.
+
+Packaged Laravel storage and bootstrap cache files live under `data\storage`
+and `data\bootstrap\cache`, with installer-granted write access for standard
+users. The production environment file remains separately permissioned.
+Laravel and scheduler logs are both shown in the controller; missing or empty
+logs display as `No logs yet`.
 
 Build the standalone runtime directory from the repository root's checked-out
 Laravel files with:

@@ -99,13 +99,13 @@ document.querySelector('#app').innerHTML = `
 
       <section class="panel glass logs-panel">
         <div class="section-heading">
-          <div><p class="eyebrow">APPLICATION DIAGNOSTICS</p><h2>Laravel logs</h2></div>
+          <div><p class="eyebrow">APPLICATION DIAGNOSTICS</p><h2>Application &amp; scheduler logs</h2></div>
           <div class="log-actions">
             <button class="button button-quiet" id="refresh-logs" type="button">REFRESH</button>
             <button class="button button-danger" id="clear-logs" type="button">CLEAR</button>
           </div>
         </div>
-        <pre id="log-output" class="log-output">Waiting for application log…</pre>
+        <pre id="log-output" class="log-output">Loading application logs…</pre>
         <div class="backup-row">
           <span><strong>DATABASE BACKUP</strong><small>Saved outside the application folder</small></span>
           <button class="button button-primary" id="backup-database" type="button">BACKUP DATABASE NOW</button>

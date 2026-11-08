@@ -239,7 +239,17 @@ if (-not $RepairDatabaseCredentials) {
     )
 }
 
-New-Item -ItemType Directory -Force -Path $databaseDirectory, $logDirectory | Out-Null
+$storageDirectories = @(
+    (Join-Path $package 'data\bootstrap\cache'),
+    (Join-Path $package 'data\storage\app\private'),
+    (Join-Path $package 'data\storage\app\public'),
+    (Join-Path $package 'data\storage\framework\cache\data'),
+    (Join-Path $package 'data\storage\framework\sessions'),
+    (Join-Path $package 'data\storage\framework\testing'),
+    (Join-Path $package 'data\storage\framework\views'),
+    (Join-Path $package 'data\storage\logs')
+)
+New-Item -ItemType Directory -Force -Path ($storageDirectories + @($databaseDirectory, $logDirectory)) | Out-Null
 $packageConfigPath = $package.Replace('\', '/')
 $mariaConfigContent = @"
 [mysqld]

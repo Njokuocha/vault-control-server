@@ -12,6 +12,24 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Exceptions\PostTooLargeException;
 use Illuminate\Http\Request;
 
+$productionEnvironment = dirname(__DIR__, 2).'/data/.env.production';
+$dataDirectory = dirname($productionEnvironment);
+
+if (is_file($productionEnvironment)) {
+    foreach ([
+        'APP_SERVICES_CACHE' => 'services.php',
+        'APP_PACKAGES_CACHE' => 'packages.php',
+        'APP_CONFIG_CACHE' => 'config.php',
+        'APP_ROUTES_CACHE' => 'routes-v7.php',
+        'APP_EVENTS_CACHE' => 'events.php',
+    ] as $key => $file) {
+        $path = $dataDirectory.'/bootstrap/cache/'.$file;
+        $_ENV[$key] = $path;
+        $_SERVER[$key] = $path;
+        putenv($key.'='.$path);
+    }
+}
+
 $app = Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
@@ -51,9 +69,9 @@ $app = Application::configure(basePath: dirname(__DIR__))
         });
     })->create();
 
-$productionEnvironment = dirname(__DIR__, 2).'/data/.env.production';
-
 if (is_file($productionEnvironment)) {
+    $app->addAbsoluteCachePathPrefix(substr($dataDirectory, 0, 3));
+    $app->useStoragePath($dataDirectory.'/storage');
     $app->useEnvironmentPath(dirname($productionEnvironment));
     $app->loadEnvironmentFrom('.env.production');
 }
