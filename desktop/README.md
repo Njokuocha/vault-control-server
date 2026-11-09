@@ -6,6 +6,11 @@ FrankenPHP, Reverb, both configured queue workers, and the scheduler. Closing th
 window hides it to the system tray; **Exit** in the tray menu stops managed
 processes before quitting.
 
+The Windows app and controller frontend use the VaultControl brand assets from
+`vault-control-brand-assets.zip`; the Laravel site's `public\favicon.ico` uses
+the matching VaultControl icon. The separate Vault Client has its own assets
+and build under the repository-root `client\` directory.
+
 The controller resolves all paths relative to `VaultControl.exe`. The packaged
 layout is expected to contain:
 

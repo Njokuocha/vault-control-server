@@ -40,16 +40,13 @@
 
 .brand { gap: 14px; }
 .brand-mark {
-  display: grid;
+  display: block;
   width: 43px;
   height: 43px;
-  place-items: center;
-  border: 1px solid rgb(105 185 144 / 58%);
+  border: 1px solid rgb(201 162 74 / 70%);
   border-radius: 5px;
-  color: #a4e0bb;
-  background: rgb(64 157 105 / 11%);
-  font: 700 24px Georgia, serif;
-  box-shadow: 0 0 24px rgb(74 180 117 / 10%);
+  object-fit: cover;
+  box-shadow: 0 0 24px rgb(201 162 74 / 14%);
 }
 
 .eyebrow {

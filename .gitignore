@@ -22,3 +22,15 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+/client/frontend/node_modules/
+/client/frontend/dist/
+/client/build/bin/
+/client/build/package/
+/client/build/_downloads/
+/client/build/_webview2/
+/client/build/_package-stage-*/
+/client/build/VaultClient.exe
+/client/build/VaultClientSetup.exe
+/client/build/**/*.exe
+/client/*.exe
+/client/bin/webview2/

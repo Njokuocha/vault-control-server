@@ -44,6 +44,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
+Route::get('/client-config', static function (Request $request) {
+    return response()->json([
+        'web_port' => 8000,
+        'reverb_host' => $request->getHost(),
+        'reverb_port' => 8080,
+    ]);
+});
+
 Route::get('/', function () {
     if (Auth::guard('admin')->check()) {
         return redirect('/admin');

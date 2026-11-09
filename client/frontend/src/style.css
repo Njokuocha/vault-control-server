@@ -1,0 +1,205 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  background: #08101d;
+  color: #eef1f4;
+  font-weight: 400;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  min-width: 360px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(ellipse at 50% 38%, rgba(23, 48, 77, .66), transparent 58%),
+    #08101d;
+}
+
+button, input { font: inherit; }
+button { cursor: pointer; }
+
+.connect-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 36px 20px;
+}
+
+.connect-card {
+  width: min(100%, 470px);
+  padding: 30px 38px 23px;
+  border: 1px solid rgba(201, 162, 74, .36);
+  border-radius: 12px;
+  background: linear-gradient(155deg, rgba(15, 30, 48, .98), rgba(9, 20, 33, .98));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .38);
+}
+
+.brand-emblem {
+  display: block;
+  width: 118px;
+  height: 118px;
+  object-fit: contain;
+  margin: 0 auto 15px;
+  border-radius: 10px;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #c9a24a;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .22em;
+  text-align: center;
+}
+
+h1 {
+  margin: 8px 0 10px;
+  font-size: 25px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.intro {
+  margin: 0 0 25px;
+  color: #aab4c1;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+#connect-form > label:first-child {
+  display: block;
+  margin-bottom: 8px;
+  color: #d6dbe2;
+  font-size: 13px;
+}
+
+#server-ip {
+  width: 100%;
+  height: 47px;
+  padding: 0 13px;
+  border: 1px solid #39485a;
+  border-radius: 6px;
+  outline: none;
+  background: #080f18;
+  color: #f5f6f7;
+  font-size: 15px;
+}
+
+#server-ip:focus {
+  border-color: #c9a24a;
+  box-shadow: 0 0 0 3px rgba(201, 162, 74, .13);
+}
+
+#server-ip::placeholder { color: #748193; }
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  color: #c1c9d2;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.check-row input {
+  width: 15px;
+  height: 15px;
+  accent-color: #c9a24a;
+}
+
+.primary-button, .secondary-button, .text-button {
+  min-height: 41px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.primary-button {
+  width: 100%;
+  margin-top: 9px;
+  border: 1px solid #d5b662;
+  background: linear-gradient(#d5b45c, #ad8534);
+  color: #101722;
+}
+
+.primary-button:hover:not(:disabled) { filter: brightness(1.08); }
+.primary-button:disabled { cursor: wait; opacity: .7; }
+
+.feedback {
+  min-height: 20px;
+  margin-top: 14px;
+  color: #b7c3cf;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.feedback.is-error { color: #ffb6a9; }
+
+.error-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 3px;
+}
+
+.error-actions[hidden], .technical[hidden], .auto-connect[hidden] { display: none; }
+
+.secondary-button {
+  padding: 0 15px;
+  border: 1px solid #586474;
+  background: #162334;
+  color: #edf0f3;
+}
+
+.secondary-button:hover { border-color: #c9a24a; }
+
+.text-button {
+  padding: 0 5px;
+  border: 0;
+  background: transparent;
+  color: #d7bb79;
+}
+
+.technical { margin-top: 12px; color: #9daaba; font-size: 12px; }
+.technical summary { cursor: pointer; }
+.technical pre { max-height: 100px; overflow: auto; white-space: pre-wrap; color: #c0c8d1; }
+.auto-connect { margin-top: 10px; }
+
+footer {
+  margin-top: 23px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(151, 167, 187, .17);
+  color: #8290a1;
+  font-size: 11px;
+  text-align: center;
+}
+
+.connected-screen { display: flex; flex-direction: column; width: 100%; height: 100vh; }
+
+.client-bar {
+  z-index: 1;
+  display: flex;
+  flex: 0 0 54px;
+  align-items: center;
+  gap: 11px;
+  padding: 5px 13px;
+  border-bottom: 1px solid rgba(201, 162, 74, .34);
+  background: #0c1928;
+}
+
+.client-bar img { width: 38px; height: 38px; border-radius: 5px; object-fit: contain; }
+.client-bar div { display: flex; flex: 1; flex-direction: column; gap: 2px; }
+.client-bar strong { color: #e6c46f; font-size: 12px; letter-spacing: .12em; }
+.client-bar small { color: #9aa8b8; font-size: 11px; }
+.client-bar .secondary-button { min-height: 34px; }
+.auto-connect-control { display: flex; align-items: center; gap: 7px; color: #aab5c2; font-size: 11px; white-space: nowrap; }
+.auto-connect-control input { accent-color: #c9a24a; }
+#client-notice { color: #ffb6a9; font-size: 11px; }
+
+#vault-frame { width: 100%; flex: 1; border: 0; background: #fff; }

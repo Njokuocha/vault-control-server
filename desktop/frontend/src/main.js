@@ -1,6 +1,7 @@
 import './style.css';
 import './app.css';
 import QRCode from 'qrcode';
+import brandLogo from './assets/images/logo-universal.png';
 import {
   BackupDatabase,
   ClearLogs,
@@ -28,7 +29,7 @@ document.querySelector('#app').innerHTML = `
   <main class="shell">
     <header class="topbar glass">
       <div class="brand">
-        <div class="brand-mark">V</div>
+        <img class="brand-mark" src="${brandLogo}" alt="" />
         <div>
           <p class="eyebrow">CLASSIFIED // TOP SECRET</p>
           <h1>VAULT CONTROL SERVER</h1>
